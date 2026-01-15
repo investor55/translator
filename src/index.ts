@@ -161,30 +161,18 @@ async function main() {
     context: string[]
   ) {
     const prompt = buildPrompt(text, direction, context);
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H6',location:'src/index.ts:translateText:request',message:'Translate request',data:{direction,textLength:text.length,preview:text.slice(0,24)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     const result = await generateText({
       model: bedrockModel,
       prompt,
     });
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H6',location:'src/index.ts:translateText:response',message:'Translate response',data:{textLength:result.text?.length ?? 0,preview:(result.text ?? '').slice(0,24)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     return result.text.trim();
   }
 
   function enqueueFinalTranslation(text: string, context: string[]) {
     const trimmed = text.trim();
     if (!hasTranslatableContent(trimmed)) {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H5',location:'src/index.ts:enqueueFinalTranslation:skip',message:'Skip final translation (no translatable content)',data:{textLength:trimmed.length,preview:trimmed.slice(0,24)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       return;
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H5',location:'src/index.ts:enqueueFinalTranslation',message:'Enqueue final translation',data:{textLength:trimmed.length,preview:trimmed.slice(0,24)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     finalQueue.push({
       kind: "final",
       text: trimmed,
@@ -203,9 +191,6 @@ async function main() {
       return;
     }
     translationInFlight = true;
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H5',location:'src/index.ts:processTranslationQueue:start',message:'Process translation queue start',data:{finalQueue:finalQueue.length,hasPendingPartial:Boolean(pendingPartial)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
 
     while (finalQueue.length > 0 || pendingPartial) {
       const job = finalQueue.length > 0 ? finalQueue.shift() : pendingPartial;
@@ -223,9 +208,6 @@ async function main() {
           job.direction,
           job.context
         );
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H6',location:'src/index.ts:processTranslationQueue:translated',message:'Translation completed',data:{kind:job.kind,direction:job.direction,translatedLength:translated.length,preview:translated.slice(0,24)},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         if (translated) {
           if (job.kind === "partial") {
             // partial translations disabled
@@ -236,9 +218,6 @@ async function main() {
         }
       } catch (error) {
         setStatus(`Translation error: ${toReadableError(error)}`);
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H6',location:'src/index.ts:processTranslationQueue:error',message:'Translation error',data:{error:toReadableError(error)},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
       }
     }
 
@@ -252,16 +231,7 @@ async function main() {
     }
     if (!encodingLogged) {
       encodingLogged = true;
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4',location:'src/index.ts:env:encoding',message:'Terminal/env encoding snapshot',data:{LANG:process.env.LANG ?? '',LC_CTYPE:process.env.LC_CTYPE ?? '',TERM:process.env.TERM ?? '',TERM_PROGRAM:process.env.TERM_PROGRAM ?? ''},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
     }
-    const preview = text.slice(0, 12);
-    const codePoints = Array.from(preview).map((ch) => ch.codePointAt(0));
-    const hasKorean = /[가-힣]/.test(text);
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4',location:'src/index.ts:handlePartialTranscript',message:'Partial transcript received',data:{length:text.length,hasKorean,preview,codePoints},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     transcriptPartial = text;
     updateTranscriptBox();
   }
@@ -270,12 +240,6 @@ async function main() {
     if (!text) {
       return;
     }
-    const preview = text.slice(0, 12);
-    const codePoints = Array.from(preview).map((ch) => ch.codePointAt(0));
-    const hasKorean = /[가-힣]/.test(text);
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4',location:'src/index.ts:handleCommittedTranscript',message:'Committed transcript received',data:{length:text.length,hasKorean,preview,codePoints},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     conversationLines.push(`KR: ${text}`);
     if (conversationLines.length > 6000) {
       conversationLines = conversationLines.slice(-6000);
@@ -307,9 +271,6 @@ async function main() {
           return;
         }
         setStatus("Scribe timeout: no session_started");
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3',location:'src/index.ts:connectScribe:timeout',message:'Session timeout before session_started',data:{},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         socket.close();
         reject(new Error("Scribe timeout: no session_started"));
       }, 7000);
@@ -320,9 +281,6 @@ async function main() {
 
       socket.on("open", () => {
         setStatus("WebSocket open");
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3',location:'src/index.ts:connectScribe:open',message:'WebSocket open',data:{},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
       });
 
       socket.on("message", (raw) => {
@@ -343,15 +301,9 @@ async function main() {
           ready = true;
           clearSessionTimeout();
           setStatus("Session started");
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3',location:'src/index.ts:connectScribe:session_started',message:'Session started',data:{},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
           resolve(socket);
           return;
         }
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3',location:'src/index.ts:connectScribe:message',message:'Scribe message received',data:{messageType:message.message_type ?? 'unknown',hasText:Boolean(message.text),error:message.error ?? message.message ?? message.detail ?? ''},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
 
         if (message.message_type === "partial_transcript") {
           handlePartialTranscript(message.text ?? "");
@@ -377,24 +329,15 @@ async function main() {
         const status = res.statusCode ?? "unknown";
         const reason = res.statusMessage ?? "";
         setStatus(`WebSocket rejected: ${status} ${reason}`.trim());
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3',location:'src/index.ts:connectScribe:unexpected-response',message:'WebSocket unexpected response',data:{status,reason},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
       });
 
       socket.on("error", (error) => {
         clearSessionTimeout();
         if (!ready) {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3',location:'src/index.ts:connectScribe:error-before-ready',message:'WebSocket error before ready',data:{error:toReadableError(error)},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
           reject(error);
           return;
         }
         setStatus(`WebSocket error: ${toReadableError(error)}`);
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3',location:'src/index.ts:connectScribe:error-after-ready',message:'WebSocket error after ready',data:{error:toReadableError(error)},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
       });
 
       socket.on("close", (code, reason) => {
@@ -409,9 +352,6 @@ async function main() {
               ? " (no audio sent — set Output -> Multi-Output: BlackHole + Speakers)"
               : "";
           setStatus(`${label}${noAudioNote}`);
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3',location:'src/index.ts:connectScribe:close',message:'WebSocket closed',data:{code,reason:detail,audioBytesSent},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
         }
       });
     });
@@ -424,9 +364,6 @@ async function main() {
     audioBytesSent += chunk.length;
     if (!firstChunkSent) {
       firstChunkSent = true;
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H1',location:'src/index.ts:sendAudioChunk:first',message:'First audio chunk sent',data:{chunkBytes:chunk.length,audioBytesSent},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
     }
     if (audioWarningShown) {
       audioWarningShown = false;
@@ -448,9 +385,6 @@ async function main() {
     stream.on("data", (data: Buffer) => {
       if (!audioDataSeen) {
         audioDataSeen = true;
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H1',location:'src/index.ts:attachAudioStream:data',message:'First audio data from ffmpeg',data:{dataBytes:data.length},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
       }
       audioBuffer = Buffer.concat(
         [audioBuffer, data],
@@ -481,9 +415,6 @@ async function main() {
       "-nostdin",
       "-",
     ];
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H2',location:'src/index.ts:spawnFfmpeg',message:'Spawning ffmpeg',data:{args},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     return spawn("ffmpeg", args, {
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -554,9 +485,6 @@ async function main() {
     audioWarningShown = false;
     audioDataSeen = false;
     firstChunkSent = false;
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H2',location:'src/index.ts:startRecording:entry',message:'Start recording',data:{device,modelId:config.modelId,direction:config.direction},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     setStatus("Connecting");
     updateStatusBar();
 
@@ -586,9 +514,6 @@ async function main() {
       const text = data.toString().trim();
       if (text) {
         setStatus(`ffmpeg: ${text}`);
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/03602145-5c16-48ed-b3ff-dbd386312540',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H2',location:'src/index.ts:ffmpeg:stderr',message:'ffmpeg stderr',data:{text},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
       }
     });
 
