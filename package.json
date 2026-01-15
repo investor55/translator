@@ -1,0 +1,19 @@
+{
+  "name": "translator-tui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^2.0.0",
+    "ai": "^4.0.0",
+    "blessed": "^0.1.81",
+    "dotenv": "^16.4.5",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/blessed": "^0.1.21"
+  }
+}
