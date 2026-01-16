@@ -23,12 +23,92 @@ type TranslationJob = {
   text: string;
   direction: FixedDirection;
   context: string[];
+  entryId?: number;
+};
+
+type TranscriptEntry = {
+  id: number;
+  korean?: string;
+  english?: string;
+  source: "ko" | "en";
+};
+
+type UiElements = {
+  screen: blessed.Widgets.Screen;
+  transcriptBox: blessed.Widgets.BoxElement;
+  statusBar: blessed.Widgets.BoxElement;
 };
 
 const DEFAULT_MODEL_ID =
   process.env.BEDROCK_MODEL_ID ?? "claude-haiku-4-5-20251001";
 const DEFAULT_INTERVAL_MS = 2000;
 const CONTEXT_WINDOW = 3;
+
+function createUi(): UiElements {
+  const screen = blessed.screen({
+    smartCSR: true,
+    title: "Realtime Translator",
+    fullUnicode: true,
+    forceUnicode: true,
+  });
+
+  const transcriptBox = blessed.box({
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%-1",
+    label: "Transcript + Translation",
+    border: "line",
+    tags: false,
+    scrollable: true,
+    alwaysScroll: true,
+    keys: true,
+    vi: true,
+    mouse: true,
+    scrollbar: { ch: " ", track: { bg: "gray" }, style: { inverse: true } },
+  });
+
+  const statusBar = blessed.box({
+    bottom: 0,
+    left: 0,
+    width: "100%",
+    height: 1,
+    style: { bg: "blue", fg: "white" },
+    tags: false,
+  });
+
+  screen.append(transcriptBox);
+  screen.append(statusBar);
+
+  return { screen, transcriptBox, statusBar };
+}
+
+function enableTranscriptScrolling(
+  transcriptBox: blessed.Widgets.BoxElement,
+  isAtBottom: () => boolean,
+  setFollow: (value: boolean) => void
+) {
+  transcriptBox.focus();
+  transcriptBox.on("scroll", () => {
+    setFollow(isAtBottom());
+  });
+  transcriptBox.on("wheeldown", () => {
+    setFollow(false);
+  });
+  transcriptBox.on("wheelup", () => {
+    setFollow(false);
+  });
+  transcriptBox.on("keypress", (_ch, key) => {
+    if (
+      ["up", "down", "pageup", "pagedown", "home", "end"].includes(key.name)
+    ) {
+      setFollow(false);
+    }
+  });
+  transcriptBox.on("mousedown", () => {
+    setFollow(false);
+  });
+}
 
 async function main() {
   const config = parseArgs(process.argv.slice(2));
@@ -74,45 +154,26 @@ async function main() {
     return;
   }
 
-  const screen = blessed.screen({
-    smartCSR: true,
-    title: "Realtime Translator",
-  });
-
-  const transcriptBox = blessed.box({
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "100%-1",
-    label: "Transcript + Translation",
-    border: "line",
-    tags: false,
-    scrollable: true,
-    alwaysScroll: true,
-    scrollbar: { ch: " ", track: { bg: "gray" }, style: { inverse: true } },
-  });
-
-  const statusBar = blessed.box({
-    bottom: 0,
-    left: 0,
-    width: "100%",
-    height: 1,
-    style: { bg: "blue", fg: "white" },
-    tags: false,
-  });
-
-  screen.append(transcriptBox);
-  screen.append(statusBar);
-
+  const { screen, transcriptBox, statusBar } = createUi();
   const bedrockModel = bedrock(config.modelId);
 
   let isRecording = false;
   let statusNote = "Idle";
   let transcriptPartial = "";
   let committedBuffer = "";
-  let conversationLines: string[] = [];
+  let committedBufferDirection: FixedDirection | null = null;
+  let transcriptEntries: TranscriptEntry[] = [];
   let translationContext: string[] = [];
   let lastPartialSource = "";
+  let followTranscript = true;
+  let nextEntryId = 1;
+  let lastEntryId: number | null = null;
+  let lastEntryDirection: FixedDirection | null = null;
+  let lastEntryAt = 0;
+
+  enableTranscriptScrolling(transcriptBox, isAtBottom, (value) => {
+    followTranscript = value;
+  });
 
   let ws: WebSocket | null = null;
   let ffmpegProcess: ReturnType<typeof spawn> | null = null;
@@ -130,14 +191,102 @@ async function main() {
   let pendingPartial: TranslationJob | null = null;
   let translationInFlight = false;
 
+  function isAtBottom() {
+    const scrollPerc = transcriptBox.getScrollPerc();
+    if (scrollPerc < 0) {
+      return true;
+    }
+    return scrollPerc >= 99.5;
+  }
+
+  function findEntryById(entryId?: number) {
+    if (!entryId) {
+      return undefined;
+    }
+    return transcriptEntries.find((entry) => entry.id === entryId);
+  }
+
+  function addTranscriptEntry(entry: TranscriptEntry) {
+    transcriptEntries.push(entry);
+    if (transcriptEntries.length > 2000) {
+      transcriptEntries = transcriptEntries.slice(-2000);
+    }
+  }
+
+  function resetCommittedBuffer(direction: FixedDirection) {
+    if (committedBufferDirection && committedBufferDirection !== direction) {
+      committedBuffer = "";
+    }
+    committedBufferDirection = direction;
+  }
+
+  function countSentences(text: string) {
+    return (text.match(/[.!?。！？]/g) ?? []).length;
+  }
+
+  function shouldAppendToLastEntry(
+    direction: FixedDirection,
+    timestamp: number
+  ) {
+    if (!lastEntryId || !lastEntryDirection) {
+      return false;
+    }
+    if (lastEntryDirection !== direction) {
+      return false;
+    }
+    if (timestamp - lastEntryAt >= 8000) {
+      return false;
+    }
+    const entry = findEntryById(lastEntryId);
+    if (!entry) {
+      return false;
+    }
+    const text = direction === "ko-en" ? entry.korean : entry.english;
+    if (!text) {
+      return false;
+    }
+    return countSentences(text) < 2;
+  }
+
+  function renderTranscriptEntries() {
+    const lines: string[] = [];
+    for (const entry of transcriptEntries) {
+      if (entry.source === "ko") {
+        if (entry.korean) {
+          lines.push(`KR: ${entry.korean}`);
+        }
+        if (entry.english) {
+          lines.push(`EN: ${entry.english}`);
+        }
+      } else {
+        if (entry.english) {
+          lines.push(`EN: ${entry.english}`);
+        }
+        if (entry.korean) {
+          lines.push(`KR: ${entry.korean}`);
+        }
+      }
+    }
+    return lines;
+  }
+
   function updateTranscriptBox() {
-    const lines = conversationLines.slice(-300);
+    const lines = renderTranscriptEntries().slice(-600);
     if (transcriptPartial) {
       lines.push(`… ${transcriptPartial}`);
     }
     transcriptBox.setContent(lines.join("\n") || " ");
-    transcriptBox.setScrollPerc(100);
+    if (followTranscript) {
+      transcriptBox.setScrollPerc(100);
+    }
     screen.render();
+  }
+
+  function pushTranslationContext(sentence: string) {
+    translationContext.push(sentence);
+    if (translationContext.length > 50) {
+      translationContext = translationContext.slice(-50);
+    }
   }
 
   function updateStatusBar() {
@@ -168,7 +317,11 @@ async function main() {
     return result.text.trim();
   }
 
-  function enqueueFinalTranslation(text: string, context: string[]) {
+  function enqueueFinalTranslation(
+    text: string,
+    context: string[],
+    entryId: number
+  ) {
     const trimmed = text.trim();
     if (!hasTranslatableContent(trimmed)) {
       return;
@@ -178,6 +331,7 @@ async function main() {
       text: trimmed,
       direction: resolveDirection(trimmed, config.direction),
       context,
+      entryId,
     });
     void processTranslationQueue();
   }
@@ -212,9 +366,20 @@ async function main() {
           if (job.kind === "partial") {
             // partial translations disabled
           } else {
-            conversationLines.push(`EN: ${translated}`);
+            const entry = findEntryById(job.entryId);
+            if (entry) {
+              if (job.direction === "ko-en") {
+                entry.english = entry.english
+                  ? `${entry.english} ${translated}`
+                  : translated;
+              } else {
+                entry.korean = entry.korean
+                  ? `${entry.korean} ${translated}`
+                  : translated;
+              }
+              updateTranscriptBox();
+            }
           }
-          updateTranscriptBox();
         }
       } catch (error) {
         setStatus(`Translation error: ${toReadableError(error)}`);
@@ -240,21 +405,46 @@ async function main() {
     if (!text) {
       return;
     }
-    conversationLines.push(`KR: ${text}`);
-    if (conversationLines.length > 6000) {
-      conversationLines = conversationLines.slice(-6000);
+
+    const now = Date.now();
+    const direction = resolveDirection(text, config.direction);
+    const shouldAppend = shouldAppendToLastEntry(direction, now);
+    const entryId = shouldAppend ? lastEntryId! : nextEntryId++;
+    const entry = findEntryById(entryId);
+
+    if (entry) {
+      if (direction === "ko-en") {
+        entry.korean = entry.korean ? `${entry.korean} ${text}` : text;
+      } else {
+        entry.english = entry.english ? `${entry.english} ${text}` : text;
+      }
+    } else {
+      addTranscriptEntry({
+        id: entryId,
+        korean: direction === "ko-en" ? text : undefined,
+        english: direction === "en-ko" ? text : undefined,
+        source: direction === "ko-en" ? "ko" : "en",
+      });
     }
+
+    lastEntryId = entryId;
+    lastEntryDirection = direction;
+    lastEntryAt = now;
+
     transcriptPartial = "";
     lastPartialSource = "";
     updateTranscriptBox();
 
+    if (!shouldAppend) {
+      resetCommittedBuffer(direction);
+    }
     committedBuffer = committedBuffer ? `${committedBuffer} ${text}` : text;
     const { sentences, remainder } = extractSentences(committedBuffer);
     committedBuffer = remainder;
     for (const sentence of sentences) {
       const context = translationContext.slice(-CONTEXT_WINDOW);
-      enqueueFinalTranslation(sentence, context);
-      translationContext.push(sentence);
+      enqueueFinalTranslation(sentence, context, entryId);
+      pushTranslationContext(sentence);
     }
   }
 
@@ -765,7 +955,10 @@ function parseAvfoundationOutput(output: string): Device[] {
   return devices;
 }
 
-function selectAudioDevice(devices: Device[], override?: string): Device | null {
+function selectAudioDevice(
+  devices: Device[],
+  override?: string
+): Device | null {
   if (override) {
     if (/^\d+$/.test(override)) {
       const index = Number(override);
@@ -789,9 +982,7 @@ function selectAudioDevice(devices: Device[], override?: string): Device | null 
 
   return (
     devices.find((device) =>
-      matchers.some((matcher) =>
-        device.name.toLowerCase().includes(matcher)
-      )
+      matchers.some((matcher) => device.name.toLowerCase().includes(matcher))
     ) ?? null
   );
 }
@@ -849,7 +1040,9 @@ function buildPrompt(
   const target = direction === "ko-en" ? "English" : "Korean";
   const contextBlock =
     context.length > 0
-      ? `Context (previous sentences, do not translate):\n${context.join("\n")}\n\n`
+      ? `Context (previous sentences, do not translate):\n${context.join(
+          "\n"
+        )}\n\n`
       : "";
 
   return `Translate ONLY the latest ${source} sentence to ${target}. Use the context for disambiguation, but do NOT translate it. Output only the translation, preserving punctuation and line breaks.
