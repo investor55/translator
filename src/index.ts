@@ -2,14 +2,9 @@ import "dotenv/config";
 import WebSocket from "ws";
 import { generateText } from "ai";
 import { bedrock } from "@ai-sdk/amazon-bedrock";
+import readline from "readline";
 
-import type {
-  CliConfig,
-  Device,
-  FixedDirection,
-  TranscriptEntry,
-  TranslationJob,
-} from "./types";
+import type { CliConfig, Device, FixedDirection } from "./types";
 import { DEFAULT_MODEL_ID, DEFAULT_INTERVAL_MS } from "./types";
 import {
   listAvfoundationDevices,
@@ -17,14 +12,10 @@ import {
   formatDevices,
   spawnFfmpeg,
 } from "./audio";
-import {
-  createUi,
-  enableTranscriptScrolling,
-  formatLine,
-  formatPartialLine,
-} from "./ui";
+import { printBanner, printLine, printPartial, printStatus, clearPartial } from "./ui";
 import {
   buildPrompt,
+  extractSentences,
   hasTranslatableContent,
   resolveDirection,
 } from "./translation";
@@ -42,9 +33,7 @@ async function main() {
       const devices = await listAvfoundationDevices();
       console.log(formatDevices(devices));
     } catch (error) {
-      console.error(
-        `Unable to list devices. Is ffmpeg installed? ${toReadableError(error)}`
-      );
+      console.error(`Unable to list devices. Is ffmpeg installed? ${toReadableError(error)}`);
     }
     return;
   }
@@ -55,9 +44,7 @@ async function main() {
   try {
     devices = await listAvfoundationDevices();
   } catch (error) {
-    console.error(
-      `Unable to list devices. Is ffmpeg installed? ${toReadableError(error)}`
-    );
+    console.error(`Unable to list devices. Is ffmpeg installed? ${toReadableError(error)}`);
     return;
   }
 
@@ -73,249 +60,154 @@ async function main() {
     return;
   }
 
-  const { screen, transcriptBox, statusBar } = createUi();
   const bedrockModel = bedrock(config.modelId);
 
   let isRecording = false;
-  let statusNote = "Idle";
-  let transcriptPartial = "";
-  let transcriptEntries: TranscriptEntry[] = [];
-  let lastPartialSource = "";
-  let followTranscript = true;
-  let nextEntryId = 1;
-  let lastEntryId: number | null = null;
-  let lastEntryDirection: FixedDirection | null = null;
-  let lastEntryAt = 0;
-
-  enableTranscriptScrolling(transcriptBox, isAtBottom, (value) => {
-    followTranscript = value;
-  });
-
   let ws: WebSocket | null = null;
   let ffmpegProcess: ReturnType<typeof spawnFfmpeg> | null = null;
   let audioBuffer = Buffer.alloc(0);
-  let partialTimer: NodeJS.Timeout | null = null;
   let recordingStartedAt: number | null = null;
   let audioBytesSent = 0;
   let noAudioTimer: NodeJS.Timeout | null = null;
   let audioWarningShown = false;
-  let audioDataSeen = false;
-  let firstChunkSent = false;
 
-  const finalQueue: TranslationJob[] = [];
-  let pendingPartial: TranslationJob | null = null;
-  let translationInFlight = false;
+  const recentTranslationLimit = 20;
+  const recentTranslations = new Set<string>();
+  const recentTranslationQueue: string[] = [];
+  const maxSentencesPerFlush = 2;
+  const contextWindowSize = 10;
+  const contextBuffer: string[] = [];
+  let transcriptBuffer = "";
+  let lastCommittedText = "";
+  let flushTimer: NodeJS.Timeout | null = null;
+  let commitTimer: NodeJS.Timeout | null = null;
+  let lastFlushAt = Date.now();
 
-  function isAtBottom() {
-    const scrollPerc = transcriptBox.getScrollPerc();
-    return scrollPerc < 0 || scrollPerc >= 99.5;
+  function handlePartialTranscript(_text: string) {
+    // Hidden to reduce spam
   }
 
-  function findEntryById(entryId?: number) {
-    if (!entryId) return undefined;
-    return transcriptEntries.find((entry) => entry.id === entryId);
+  function normalizeText(text: string) {
+    return text.trim().replace(/\s+/g, " ");
   }
 
-  function addTranscriptEntry(entry: TranscriptEntry) {
-    transcriptEntries.push(entry);
-    if (transcriptEntries.length > 2000) {
-      transcriptEntries = transcriptEntries.slice(-2000);
+  function rememberTranslation(text: string) {
+    const normalized = normalizeText(text);
+    if (!normalized) return false;
+    if (recentTranslations.has(normalized)) return false;
+    recentTranslations.add(normalized);
+    recentTranslationQueue.push(normalized);
+    if (recentTranslationQueue.length > recentTranslationLimit) {
+      const oldest = recentTranslationQueue.shift();
+      if (oldest) recentTranslations.delete(oldest);
     }
+    return true;
   }
 
-  function countSentences(text: string) {
-    return (text.match(/[.!?。！？]/g) ?? []).length;
+  function cleanTranslationOutput(text: string) {
+    const lines = text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length === 0) return "";
+    const filtered = lines.filter(
+      (line) =>
+        !/^#/.test(line) &&
+        !/^translation\b/i.test(line) &&
+        !/^explanation\b/i.test(line) &&
+        !/^breakdown\b/i.test(line)
+    );
+    const candidate = (filtered[0] ?? lines[0]).trim();
+    return candidate.replace(/^[-–—]\s+/, "");
   }
 
-  function shouldAppendToLastEntry(
+  async function translateAndPrint(
+    text: string,
     direction: FixedDirection,
-    timestamp: number
+    context: string[]
   ) {
-    if (!lastEntryId || !lastEntryDirection) return false;
-    if (lastEntryDirection !== direction) return false;
-    if (timestamp - lastEntryAt >= 8000) return false;
-    const entry = findEntryById(lastEntryId);
-    if (!entry) return false;
-    const text = direction === "ko-en" ? entry.korean : entry.english;
-    if (!text) return false;
-    return countSentences(text) < 2;
-  }
+    try {
+      const prompt = buildPrompt(text, direction, context);
+      const result = await generateText({
+        model: bedrockModel,
+        prompt,
+        temperature: 0,
+        maxTokens: 100,
+      });
 
-  function renderTranscriptEntries() {
-    const lines: string[] = [];
-    for (const entry of transcriptEntries) {
-      if (entry.source === "ko") {
-        if (entry.korean) lines.push(formatLine("KR", entry.korean));
-        if (entry.english) lines.push(formatLine("EN", entry.english));
-      } else {
-        if (entry.english) lines.push(formatLine("EN", entry.english));
-        if (entry.korean) lines.push(formatLine("KR", entry.korean));
+      const translated = cleanTranslationOutput(result.text);
+      if (translated) {
+        const label = direction === "ko-en" ? "EN" : "KR";
+        printLine(label, translated);
       }
+    } catch (error) {
+      // Silent fail
     }
-    return lines;
   }
 
-  function updateTranscriptBox() {
-    const lines = renderTranscriptEntries().slice(-600);
-    if (transcriptPartial) {
-      lines.push(formatPartialLine(transcriptPartial));
+  function recordContext(sentence: string) {
+    contextBuffer.push(sentence);
+    if (contextBuffer.length > contextWindowSize) {
+      contextBuffer.shift();
     }
-    transcriptBox.setContent(lines.join("\n") || " ");
-    if (followTranscript) {
-      transcriptBox.setScrollPerc(100);
-    }
-    screen.render();
   }
 
-  function translatePartialNow(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed || translationInFlight) return;
-    const entryId = lastEntryId;
-    if (!entryId) return;
-    const entry = findEntryById(entryId);
-    if (!entry) return;
-    if (entry.source === "ko" && entry.english) return;
-    if (entry.source === "en" && entry.korean) return;
-    const direction = entry.source === "ko" ? "ko-en" : "en-ko";
-    pendingPartial = {
-      kind: "partial",
-      text: trimmed,
-      direction,
-      entryId,
-    };
-    void processTranslationQueue();
+  function flushSentence(text: string) {
+    const sentence = normalizeText(text);
+    if (!hasTranslatableContent(sentence)) return;
+    if (!rememberTranslation(sentence)) return;
+
+    clearPartial();
+
+    const direction = resolveDirection(sentence, config.direction);
+    const sourceLabel = direction === "ko-en" ? "KR" : "EN";
+    const context = contextBuffer.slice(-contextWindowSize);
+
+    printLine(sourceLabel, sentence);
+    recordContext(sentence);
+    void translateAndPrint(sentence, direction, context);
   }
 
-  function updateStatusBar() {
-    const directionLabel =
-      config.direction === "auto" ? "auto" : config.direction;
-    const content = `${isRecording ? "REC" : "PAUSED"} | ${statusNote} | ${device.name} | ${directionLabel}`;
-    statusBar.setContent(content);
-    screen.render();
-  }
-
-  function setStatus(note: string) {
-    statusNote = note;
-    updateStatusBar();
-  }
-
-  async function translateText(text: string, direction: FixedDirection) {
-    const prompt = buildPrompt(text, direction);
-    const result = await generateText({
-      model: bedrockModel,
-      prompt,
-      temperature: 0,
-      maxTokens: 80,
-    });
-    return result.text.trim();
-  }
-
-  function enqueueFinalTranslation(text: string, entryId: number) {
-    const trimmed = text.trim();
-    if (!hasTranslatableContent(trimmed)) return;
-    finalQueue.push({
-      kind: "final",
-      text: trimmed,
-      direction: resolveDirection(trimmed, config.direction),
-      entryId,
-    });
-    void processTranslationQueue();
-  }
-
-  function shouldTranslateFinal(job: TranslationJob) {
-    const entry = findEntryById(job.entryId);
-    if (!entry) return true;
-    if (job.direction === "ko-en") return !entry.english;
-    return !entry.korean;
-  }
-
-  async function processTranslationQueue() {
-    if (translationInFlight) return;
-    translationInFlight = true;
-
-    while (finalQueue.length > 0 || pendingPartial) {
-      const job = finalQueue.length > 0 ? finalQueue.shift() : pendingPartial;
-      if (!job) break;
-      if (job.kind === "partial") {
-        pendingPartial = null;
-      } else if (!shouldTranslateFinal(job)) {
-        continue;
-      }
-
-      try {
-        setStatus("Translating");
-        const translated = await translateText(job.text, job.direction);
-        if (translated) {
-          const entry = findEntryById(job.entryId);
-          if (entry) {
-            const isSameText =
-              (job.direction === "ko-en" && entry.english === translated) ||
-              (job.direction === "en-ko" && entry.korean === translated);
-            if (!isSameText) {
-              if (job.direction === "ko-en") {
-                entry.english = translated;
-              } else {
-                entry.korean = translated;
-              }
-              updateTranscriptBox();
-            }
-          }
-        }
-      } catch (error) {
-        setStatus(`Translation error: ${toReadableError(error)}`);
-      }
-    }
-
-    translationInFlight = false;
-    setStatus(isRecording ? "Streaming" : "Paused");
-  }
-
-  function handlePartialTranscript(text: string) {
-    if (!text) return;
-    transcriptPartial = text;
-    updateTranscriptBox();
-    translatePartialNow(text);
+  function flushTranscriptBuffer() {
+    const chunk = normalizeText(transcriptBuffer);
+    if (!chunk) return;
+    transcriptBuffer = "";
+    flushSentence(chunk);
   }
 
   function handleCommittedTranscript(text: string) {
-    if (!text) return;
+    const normalized = normalizeText(text);
+    if (!normalized) return;
+    if (!hasTranslatableContent(normalized)) return;
 
-    const now = Date.now();
-    const direction = resolveDirection(text, config.direction);
-    const shouldAppend = shouldAppendToLastEntry(direction, now);
-    const entryId = shouldAppend ? lastEntryId! : nextEntryId++;
-    const entry = findEntryById(entryId);
-
-    if (entry) {
-      if (direction === "ko-en") {
-        entry.korean = entry.korean ? `${entry.korean} ${text}` : text;
-      } else {
-        entry.english = entry.english ? `${entry.english} ${text}` : text;
-      }
-    } else {
-      addTranscriptEntry({
-        id: entryId,
-        korean: direction === "ko-en" ? text : undefined,
-        english: direction === "en-ko" ? text : undefined,
-        source: direction === "ko-en" ? "ko" : "en",
-      });
+    let incoming = normalized;
+    if (lastCommittedText && normalized.startsWith(lastCommittedText)) {
+      incoming = normalizeText(normalized.slice(lastCommittedText.length));
     }
+    lastCommittedText = normalized;
 
-    lastEntryId = entryId;
-    lastEntryDirection = direction;
-    lastEntryAt = now;
+    if (!incoming) return;
 
-    transcriptPartial = "";
-    lastPartialSource = "";
-    updateTranscriptBox();
+    transcriptBuffer = transcriptBuffer
+      ? `${transcriptBuffer} ${incoming}`
+      : incoming;
 
-    // Translate immediately without waiting for sentence extraction
-    enqueueFinalTranslation(text, entryId);
+    const { sentences, remainder } = extractSentences(transcriptBuffer);
+    if (sentences.length) {
+      clearPartial();
+      const toFlush = sentences.slice(0, maxSentencesPerFlush);
+      for (const sentence of toFlush) {
+        flushSentence(sentence);
+      }
+      const leftover = sentences.slice(maxSentencesPerFlush);
+      transcriptBuffer = [...leftover, remainder].filter(Boolean).join(" ").trim();
+    } else {
+      transcriptBuffer = remainder;
+    }
   }
 
   async function connectScribe() {
-    const url =
-      "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime";
+    const url = "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime";
     return new Promise<WebSocket>((resolve, reject) => {
       const socket = new WebSocket(url, {
         headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY ?? "" },
@@ -323,160 +215,111 @@ async function main() {
       let ready = false;
       const sessionTimeout = setTimeout(() => {
         if (ready) return;
-        setStatus("Scribe timeout: no session_started");
         socket.close();
-        reject(new Error("Scribe timeout: no session_started"));
+        reject(new Error("Scribe timeout"));
       }, 7000);
 
-      const clearSessionTimeout = () => clearTimeout(sessionTimeout);
-
-      socket.on("open", () => setStatus("WebSocket open"));
-
       socket.on("message", (raw) => {
-        let message: {
-          message_type?: string;
-          text?: string;
-          error?: string;
-          message?: string;
-          detail?: string;
-        };
+        let msg: { message_type?: string; text?: string };
         try {
-          message = JSON.parse(raw.toString());
+          msg = JSON.parse(raw.toString());
         } catch {
           return;
         }
 
-        if (message.message_type === "session_started" && !ready) {
+        if (msg.message_type === "session_started" && !ready) {
           ready = true;
-          clearSessionTimeout();
-          setStatus("Session started");
+          clearTimeout(sessionTimeout);
           resolve(socket);
-          return;
-        }
-
-        if (message.message_type === "partial_transcript") {
-          handlePartialTranscript(message.text ?? "");
-        } else if (
-          message.message_type === "committed_transcript" ||
-          message.message_type === "committed_transcript_with_timestamps"
-        ) {
-          handleCommittedTranscript(message.text ?? "");
-        } else if (message.message_type === "input_error") {
-          const detail =
-            message.error ?? message.message ?? message.detail ?? "unknown";
-          setStatus(`Input error: ${detail}`);
-        } else if (message.message_type === "error") {
-          const detail =
-            message.error ?? message.message ?? message.detail ?? "unknown";
-          setStatus(`Scribe error: ${detail}`);
+        } else if (msg.message_type === "partial_transcript") {
+          handlePartialTranscript(msg.text ?? "");
+        } else if (msg.message_type === "committed_transcript" || msg.message_type === "committed_transcript_with_timestamps") {
+          handleCommittedTranscript(msg.text ?? "");
         }
       });
 
-      socket.on("unexpected-response", (_req, res) => {
-        clearSessionTimeout();
-        const status = res.statusCode ?? "unknown";
-        const reason = res.statusMessage ?? "";
-        setStatus(`WebSocket rejected: ${status} ${reason}`.trim());
+      socket.on("error", (err) => {
+        clearTimeout(sessionTimeout);
+        if (!ready) reject(err);
       });
 
-      socket.on("error", (error) => {
-        clearSessionTimeout();
-        if (!ready) {
-          reject(error);
-          return;
-        }
-        setStatus(`WebSocket error: ${toReadableError(error)}`);
-      });
-
-      socket.on("close", (code, reason) => {
-        clearSessionTimeout();
-        if (isRecording) {
-          const detail = reason?.toString() ?? "";
-          const label = detail
-            ? `WebSocket closed: ${code} ${detail}`
-            : `WebSocket closed: ${code}`;
-          const noAudioNote =
-            audioBytesSent === 0
-              ? " (no audio sent - set Output -> Multi-Output: BlackHole + Speakers)"
-              : "";
-          setStatus(`${label}${noAudioNote}`);
-        }
-      });
+      socket.on("close", () => clearTimeout(sessionTimeout));
     });
   }
 
   function sendAudioChunk(chunk: Buffer) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     audioBytesSent += chunk.length;
-    if (!firstChunkSent) firstChunkSent = true;
-    if (audioWarningShown) {
-      audioWarningShown = false;
-      setStatus("Streaming");
-    }
+    ws.send(JSON.stringify({
+      message_type: "input_audio_chunk",
+      audio_base_64: chunk.toString("base64"),
+      commit: false,
+      sample_rate: 16000,
+    }));
+  }
+
+  function attachAudioStream(stream: NodeJS.ReadableStream) {
+    const chunkSize = 3200;
+    stream.on("data", (data: Buffer) => {
+      audioBuffer = Buffer.concat([audioBuffer, data]);
+      while (audioBuffer.length >= chunkSize) {
+        sendAudioChunk(audioBuffer.subarray(0, chunkSize));
+        audioBuffer = audioBuffer.subarray(chunkSize);
+      }
+    });
+  }
+
+  function startNoAudioTimer() {
+    noAudioTimer = setInterval(() => {
+      if (!isRecording || audioWarningShown || audioBytesSent > 0) return;
+      if (!recordingStartedAt || Date.now() - recordingStartedAt < 3000) return;
+      audioWarningShown = true;
+      clearPartial();
+      printStatus("\n⚠️  No audio - check System Settings > Sound > Output: Multi-Output (BlackHole + Speakers)\n");
+    }, 1000);
+  }
+
+  function startFlushTimer() {
+    if (flushTimer) clearInterval(flushTimer);
+    flushTimer = setInterval(() => {
+      if (!isRecording) return;
+      const now = Date.now();
+      if (now - lastFlushAt < config.intervalMs) return;
+      lastFlushAt = now;
+      flushTranscriptBuffer();
+    }, Math.max(200, Math.floor(config.intervalMs / 2)));
+  }
+
+  function stopFlushTimer() {
+    if (!flushTimer) return;
+    clearInterval(flushTimer);
+    flushTimer = null;
+  }
+
+  function sendCommit() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(
       JSON.stringify({
         message_type: "input_audio_chunk",
-        audio_base_64: chunk.toString("base64"),
-        commit: false,
+        audio_base_64: "",
+        commit: true,
         sample_rate: 16000,
       })
     );
   }
 
-  function attachAudioStream(stream: NodeJS.ReadableStream) {
-    const chunkSize = 3200;
-    audioBuffer = Buffer.alloc(0);
-    stream.on("data", (data: Buffer) => {
-      if (!audioDataSeen) audioDataSeen = true;
-      audioBuffer = Buffer.concat(
-        [audioBuffer, data],
-        audioBuffer.length + data.length
-      );
-      while (audioBuffer.length >= chunkSize) {
-        const chunk = audioBuffer.subarray(0, chunkSize);
-        audioBuffer = audioBuffer.subarray(chunkSize);
-        sendAudioChunk(chunk);
-      }
-    });
-  }
-
-  function startPartialTimer() {
-    if (partialTimer) clearInterval(partialTimer);
-    partialTimer = setInterval(() => {
+  function startCommitTimer() {
+    if (commitTimer) clearInterval(commitTimer);
+    commitTimer = setInterval(() => {
       if (!isRecording) return;
-      const text = transcriptPartial.trim();
-      if (!text || text === lastPartialSource) return;
-      lastPartialSource = text;
-      translatePartialNow(text);
+      sendCommit();
     }, config.intervalMs);
   }
 
-  function stopPartialTimer() {
-    if (partialTimer) {
-      clearInterval(partialTimer);
-      partialTimer = null;
-    }
-  }
-
-  function startNoAudioTimer() {
-    if (noAudioTimer) clearInterval(noAudioTimer);
-    noAudioTimer = setInterval(() => {
-      if (!isRecording || audioWarningShown) return;
-      if (audioBytesSent > 0) return;
-      if (!recordingStartedAt) return;
-      if (Date.now() - recordingStartedAt < 3000) return;
-      audioWarningShown = true;
-      setStatus(
-        "No audio detected (Output -> Multi-Output: BlackHole + Speakers)"
-      );
-    }, 1000);
-  }
-
-  function stopNoAudioTimer() {
-    if (noAudioTimer) {
-      clearInterval(noAudioTimer);
-      noAudioTimer = null;
-    }
+  function stopCommitTimer() {
+    if (!commitTimer) return;
+    clearInterval(commitTimer);
+    commitTimer = null;
   }
 
   async function startRecording() {
@@ -485,16 +328,20 @@ async function main() {
     recordingStartedAt = Date.now();
     audioBytesSent = 0;
     audioWarningShown = false;
-    audioDataSeen = false;
-    firstChunkSent = false;
-    setStatus("Connecting");
-    updateStatusBar();
+    audioBuffer = Buffer.alloc(0);
+    transcriptBuffer = "";
+    lastCommittedText = "";
+    contextBuffer.length = 0;
+    lastFlushAt = Date.now();
+
+    printStatus("Connecting...");
 
     try {
       ws = await connectScribe();
+      printStatus("Streaming. Speak now.\n");
     } catch (error) {
       isRecording = false;
-      setStatus(`Connection error: ${toReadableError(error)}`);
+      console.error(`Connection error: ${toReadableError(error)}`);
       return;
     }
 
@@ -502,39 +349,34 @@ async function main() {
       ffmpegProcess = spawnFfmpeg(device.index);
     } catch (error) {
       isRecording = false;
-      setStatus(`ffmpeg error: ${toReadableError(error)}`);
+      console.error(`ffmpeg error: ${toReadableError(error)}`);
       return;
     }
 
     if (!ffmpegProcess.stdout) {
       isRecording = false;
-      setStatus("ffmpeg failed to start");
+      console.error("ffmpeg failed");
       return;
     }
 
-    ffmpegProcess.stderr?.on("data", (data) => {
-      const text = data.toString().trim();
-      if (text) setStatus(`ffmpeg: ${text}`);
-    });
-
-    ffmpegProcess.on("close", () => {
-      if (isRecording) setStatus("Audio capture stopped");
-    });
-
     attachAudioStream(ffmpegProcess.stdout);
-    startPartialTimer();
     startNoAudioTimer();
-    setStatus("Streaming");
+    startFlushTimer();
+    startCommitTimer();
   }
 
   function stopRecording() {
     if (!isRecording) return;
     isRecording = false;
-    stopPartialTimer();
-    stopNoAudioTimer();
-    recordingStartedAt = null;
-    audioBytesSent = 0;
-    audioWarningShown = false;
+
+    if (noAudioTimer) {
+      clearInterval(noAudioTimer);
+      noAudioTimer = null;
+    }
+
+    stopFlushTimer();
+    stopCommitTimer();
+    flushTranscriptBuffer();
 
     if (ffmpegProcess) {
       ffmpegProcess.kill("SIGTERM");
@@ -543,44 +385,36 @@ async function main() {
 
     if (ws) {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            message_type: "input_audio_chunk",
-            audio_base_64: "",
-            commit: true,
-            sample_rate: 16000,
-          })
-        );
+        sendCommit();
       }
       ws.close();
       ws = null;
     }
 
-    transcriptPartial = "";
-    updateTranscriptBox();
-    setStatus("Paused");
-  }
-
-  async function toggleRecording() {
-    if (isRecording) {
-      stopRecording();
-      return;
-    }
-    await startRecording();
+    clearPartial();
+    printStatus("\nPaused. SPACE to resume, Q to quit.\n");
   }
 
   function shutdown() {
-    stopRecording();
-    screen.destroy();
+    if (isRecording) stopRecording();
     process.exit(0);
   }
 
-  screen.key(["C-c", "q"], () => shutdown());
-  screen.key(["space"], () => void toggleRecording());
-  process.on("SIGINT", () => shutdown());
+  // Keyboard
+  readline.emitKeypressEvents(process.stdin);
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
 
-  updateTranscriptBox();
-  updateStatusBar();
+  process.stdin.on("keypress", (_str, key) => {
+    if ((key.ctrl && key.name === "c") || key.name === "q") shutdown();
+    if (key.name === "space") {
+      if (isRecording) stopRecording();
+      else void startRecording();
+    }
+  });
+
+  process.on("SIGINT", shutdown);
+
+  printBanner(device.name);
 
   await startRecording();
 }
@@ -595,121 +429,65 @@ function parseArgs(argv: string[]): CliConfig {
     help: false,
   };
 
-  for (let i = 0; i < argv.length; i += 1) {
+  for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-
-    if (arg === "--help" || arg === "-h") {
-      config.help = true;
-      continue;
-    }
-
-    if (arg === "--list-devices") {
-      config.listDevices = true;
-      continue;
-    }
+    if (arg === "--help" || arg === "-h") { config.help = true; continue; }
+    if (arg === "--list-devices") { config.listDevices = true; continue; }
 
     if (arg.startsWith("--device")) {
-      const { value, nextIndex } = readFlagValue(arg, argv, i);
-      if (!value) throw new Error("Missing value for --device");
-      config.device = value;
-      i = nextIndex;
+      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
+      if (val) config.device = val;
       continue;
     }
-
     if (arg.startsWith("--direction")) {
-      const { value, nextIndex } = readFlagValue(arg, argv, i);
-      if (!value) throw new Error("Missing value for --direction");
-      if (value !== "auto" && value !== "ko-en" && value !== "en-ko") {
-        throw new Error("Invalid --direction value");
-      }
-      config.direction = value;
-      i = nextIndex;
+      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
+      if (val === "auto" || val === "ko-en" || val === "en-ko") config.direction = val;
       continue;
     }
-
-    if (arg.startsWith("--interval")) {
-      const { value, nextIndex } = readFlagValue(arg, argv, i);
-      if (!value || Number.isNaN(Number(value))) {
-        throw new Error("Invalid --interval value");
-      }
-      config.intervalMs = Number(value);
-      i = nextIndex;
-      continue;
-    }
-
     if (arg.startsWith("--model")) {
-      const { value, nextIndex } = readFlagValue(arg, argv, i);
-      if (!value) throw new Error("Missing value for --model");
-      config.modelId = value;
-      i = nextIndex;
+      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
+      if (val) config.modelId = val;
       continue;
     }
   }
-
   return config;
 }
 
-function readFlagValue(
-  arg: string,
-  argv: string[],
-  index: number
-): { value?: string; nextIndex: number } {
-  const equalsIndex = arg.indexOf("=");
-  if (equalsIndex !== -1) {
-    return { value: arg.slice(equalsIndex + 1), nextIndex: index };
-  }
-  return { value: argv[index + 1], nextIndex: index + 1 };
-}
-
 function printHelp() {
-  const helpText = `Usage: bun run src/index.ts [options]
+  console.log(`Usage: bun run src/index.ts [options]
 
 Options:
-  --device <name|index>   Audio input device (auto-detects BlackHole)
+  --device <name|index>      Audio device (auto-detects BlackHole)
   --direction auto|ko-en|en-ko
-  --interval <ms>         Partial translation interval (default ${DEFAULT_INTERVAL_MS})
-  --model <bedrock-id>    Bedrock model id (default ${DEFAULT_MODEL_ID})
-  --list-devices          List avfoundation audio devices
-  -h, --help              Show help
+  --model <bedrock-id>       Default: ${DEFAULT_MODEL_ID}
+  --list-devices             List audio devices
+  -h, --help
 
-Environment (loaded from .env if present):
-  ELEVENLABS_API_KEY
-  AWS_ACCESS_KEY_ID
-  AWS_SECRET_ACCESS_KEY
-  AWS_REGION (or AWS_DEFAULT_REGION)
-  BEDROCK_MODEL_ID (optional)
+Controls: SPACE start/pause, Q quit
 
-Example:
-  bun run src/index.ts --device "BlackHole 2ch" --direction auto
-`;
-  console.log(helpText);
+Env: ELEVENLABS_API_KEY, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+`);
 }
 
 function validateEnv() {
-  const missing: string[] = [];
-  if (!process.env.ELEVENLABS_API_KEY) missing.push("ELEVENLABS_API_KEY");
-  if (!process.env.AWS_ACCESS_KEY_ID) missing.push("AWS_ACCESS_KEY_ID");
-  if (!process.env.AWS_SECRET_ACCESS_KEY) missing.push("AWS_SECRET_ACCESS_KEY");
-  if (!process.env.AWS_REGION && !process.env.AWS_DEFAULT_REGION) {
-    missing.push("AWS_REGION");
-  }
-  if (missing.length > 0) {
-    console.error(`Missing environment variables: ${missing.join(", ")}`);
+  const missing = [
+    !process.env.ELEVENLABS_API_KEY && "ELEVENLABS_API_KEY",
+    !process.env.AWS_ACCESS_KEY_ID && "AWS_ACCESS_KEY_ID",
+    !process.env.AWS_SECRET_ACCESS_KEY && "AWS_SECRET_ACCESS_KEY",
+    !process.env.AWS_REGION && !process.env.AWS_DEFAULT_REGION && "AWS_REGION",
+  ].filter(Boolean);
+
+  if (missing.length) {
+    console.error(`Missing: ${missing.join(", ")}`);
     process.exit(1);
   }
 }
 
-function toReadableError(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return "Unknown error";
-  }
+function toReadableError(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
 }
 
-main().catch((error) => {
-  console.error(`Fatal error: ${toReadableError(error)}`);
+main().catch((e) => {
+  console.error(`Fatal: ${toReadableError(e)}`);
   process.exit(1);
 });

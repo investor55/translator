@@ -1,70 +1,39 @@
-import blessed from "blessed";
-import type { UiElements } from "./types";
+// ANSI colors
+const BOLD = "\x1b[1m";
+const DIM = "\x1b[2m";
+const RESET = "\x1b[0m";
+const CYAN = "\x1b[36m";
+const GREEN = "\x1b[32m";
+const CLEAR_LINE = "\x1b[2K\r";
 
-export function createUi(): UiElements {
-  const screen = blessed.screen({
-    smartCSR: true,
-    title: "Realtime Translator",
-    fullUnicode: true,
-    forceUnicode: true,
-  });
+let lastWasPartial = false;
 
-  const transcriptBox = blessed.box({
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "100%-1",
-    tags: true,
-    scrollable: true,
-    alwaysScroll: true,
-    keys: true,
-    vi: true,
-    scrollbar: { ch: " ", track: { bg: "gray" }, style: { inverse: true } },
-  });
-
-  const statusBar = blessed.box({
-    bottom: 0,
-    left: 0,
-    width: "100%",
-    height: 1,
-    style: { bg: "blue", fg: "white" },
-    tags: false,
-  });
-
-  screen.append(transcriptBox);
-  screen.append(statusBar);
-
-  return { screen, transcriptBox, statusBar };
+export function printBanner(deviceName: string): void {
+  console.log(`${BOLD}🎙️  Realtime Translator${RESET} ${DIM}- ${deviceName}${RESET}`);
+  console.log(`${DIM}SPACE: start/pause • Q: quit${RESET}\n`);
 }
 
-export function enableTranscriptScrolling(
-  transcriptBox: blessed.Widgets.BoxElement,
-  isAtBottom: () => boolean,
-  setFollow: (value: boolean) => void
-) {
-  transcriptBox.focus();
-  transcriptBox.on("scroll", () => {
-    setFollow(isAtBottom());
-  });
-  transcriptBox.on("wheeldown", () => {
-    setFollow(false);
-  });
-  transcriptBox.on("wheelup", () => {
-    setFollow(false);
-  });
-  transcriptBox.on("keypress", (_ch, key) => {
-    if (
-      ["up", "down", "pageup", "pagedown", "home", "end"].includes(key.name)
-    ) {
-      setFollow(false);
-    }
-  });
+export function printStatus(text: string): void {
+  console.log(`${DIM}${text}${RESET}`);
 }
 
-export function formatLine(label: "KR" | "EN", text: string) {
-  return `{bold}${label}:{/bold} ${text}`;
+export function printLine(label: "KR" | "EN", text: string): void {
+  if (lastWasPartial) {
+    process.stdout.write(CLEAR_LINE);
+    lastWasPartial = false;
+  }
+  const color = label === "KR" ? CYAN : GREEN;
+  console.log(`${BOLD}${color}${label}:${RESET} ${text}`);
 }
 
-export function formatPartialLine(text: string) {
-  return `{dim}... ${text}{/dim}`;
+export function printPartial(text: string): void {
+  process.stdout.write(`${CLEAR_LINE}${DIM}... ${text}${RESET}`);
+  lastWasPartial = true;
+}
+
+export function clearPartial(): void {
+  if (lastWasPartial) {
+    process.stdout.write(CLEAR_LINE);
+    lastWasPartial = false;
+  }
 }

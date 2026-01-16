@@ -1,8 +1,15 @@
 import type { Direction, FixedDirection } from "./types";
 
-export function buildPrompt(text: string, direction: FixedDirection): string {
+export function buildPrompt(
+  text: string,
+  direction: FixedDirection,
+  context: string[] = []
+): string {
   const target = direction === "ko-en" ? "English" : "Korean";
-  return `Translate to ${target}:\n${text}`;
+  const contextBlock = context.length
+    ? `Context (previous sentences, do not translate):\n${context.join("\n")}\n\n`
+    : "";
+  return `${contextBlock}Current sentence to translate into ${target} (translate only this sentence, output only the translated text):\n${text}`;
 }
 
 export function hasTranslatableContent(text: string): boolean {
