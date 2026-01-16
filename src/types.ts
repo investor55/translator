@@ -32,4 +32,4 @@ export const DEFAULT_VERTEX_MODEL_ID =
   process.env.VERTEX_MODEL_ID ?? "gemini-3-flash-preview";
 export const DEFAULT_VERTEX_LOCATION =
   process.env.GOOGLE_VERTEX_PROJECT_LOCATION ?? "global";
-export const DEFAULT_INTERVAL_MS = 1500;
+export const DEFAULT_INTERVAL_MS = 3000;

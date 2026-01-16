@@ -50,7 +50,9 @@ async function main() {
       const devices = await listAvfoundationDevices();
       console.log(formatDevices(devices));
     } catch (error) {
-      console.error(`Unable to list devices. Is ffmpeg installed? ${toReadableError(error)}`);
+      console.error(
+        `Unable to list devices. Is ffmpeg installed? ${toReadableError(error)}`
+      );
     }
     return;
   }
@@ -61,7 +63,9 @@ async function main() {
   try {
     devices = await listAvfoundationDevices();
   } catch (error) {
-    console.error(`Unable to list devices. Is ffmpeg installed? ${toReadableError(error)}`);
+    console.error(
+      `Unable to list devices. Is ffmpeg installed? ${toReadableError(error)}`
+    );
     return;
   }
 
@@ -124,7 +128,10 @@ async function main() {
   } | null {
     if (!raw) return null;
     let cleaned = raw.trim();
-    cleaned = cleaned.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+    cleaned = cleaned
+      .replace(/^```(?:json)?/i, "")
+      .replace(/```$/, "")
+      .trim();
     const firstBrace = cleaned.indexOf("{");
     const lastBrace = cleaned.lastIndexOf("}");
     if (firstBrace >= 0 && lastBrace > firstBrace) {
@@ -149,6 +156,31 @@ async function main() {
     } catch {
       return null;
     }
+  }
+
+  function pcmToWavBuffer(pcm: Buffer, sampleRate: number) {
+    const numChannels = 1;
+    const bitsPerSample = 16;
+    const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+    const blockAlign = numChannels * (bitsPerSample / 8);
+    const dataSize = pcm.length;
+    const buffer = Buffer.alloc(44 + dataSize);
+
+    buffer.write("RIFF", 0);
+    buffer.writeUInt32LE(36 + dataSize, 4);
+    buffer.write("WAVE", 8);
+    buffer.write("fmt ", 12);
+    buffer.writeUInt32LE(16, 16);
+    buffer.writeUInt16LE(1, 20);
+    buffer.writeUInt16LE(numChannels, 22);
+    buffer.writeUInt32LE(sampleRate, 24);
+    buffer.writeUInt32LE(byteRate, 28);
+    buffer.writeUInt16LE(blockAlign, 32);
+    buffer.writeUInt16LE(bitsPerSample, 34);
+    buffer.write("data", 36);
+    buffer.writeUInt32LE(dataSize, 40);
+    pcm.copy(buffer, 44);
+    return buffer;
   }
 
   function normalizeText(text: string) {
@@ -202,7 +234,11 @@ async function main() {
     const activeModelId =
       config.engine === "vertex" ? config.vertexModelId : config.modelId;
     const engineLabel = config.engine === "vertex" ? "Vertex" : "ElevenLabs";
-    printHeader(device.name, `${activeModelId} (${engineLabel})`, config.intervalMs);
+    printHeader(
+      device.name,
+      `${activeModelId} (${engineLabel})`,
+      config.intervalMs
+    );
     if (userContext) {
       printStatus("Loaded context.md\n");
     }
@@ -216,7 +252,11 @@ async function main() {
     if (!transcriptBuffer.trim()) return;
     const now = Date.now();
     const hasSentenceBoundary = /[.!?。！？]/.test(transcriptBuffer);
-    if (force || hasSentenceBoundary || now - lastFlushAt >= config.intervalMs) {
+    if (
+      force ||
+      hasSentenceBoundary ||
+      now - lastFlushAt >= config.intervalMs
+    ) {
       lastFlushAt = now;
       flushTranscriptBuffer();
     }
@@ -235,7 +275,7 @@ async function main() {
         system: userContext || undefined,
         prompt,
         temperature: 0,
-        maxTokens: 100,
+        maxOutputTokens: 100,
       });
 
       const translated = cleanTranslationOutput(result.text);
@@ -267,7 +307,6 @@ async function main() {
     nextBlockId += 1;
     return block;
   }
-
 
   function recordContext(sentence: string) {
     contextBuffer.push(sentence);
@@ -323,14 +362,18 @@ async function main() {
         flushSentence(sentence);
       }
       const leftover = sentences.slice(maxSentencesPerFlush);
-      transcriptBuffer = [...leftover, remainder].filter(Boolean).join(" ").trim();
+      transcriptBuffer = [...leftover, remainder]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
     } else {
       transcriptBuffer = remainder;
     }
   }
 
   async function connectScribe() {
-    const url = "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime";
+    const url =
+      "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime";
     return new Promise<WebSocket>((resolve, reject) => {
       const socket = new WebSocket(url, {
         headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY ?? "" },
@@ -356,7 +399,10 @@ async function main() {
           resolve(socket);
         } else if (msg.message_type === "partial_transcript") {
           handlePartialTranscript(msg.text ?? "");
-        } else if (msg.message_type === "committed_transcript" || msg.message_type === "committed_transcript_with_timestamps") {
+        } else if (
+          msg.message_type === "committed_transcript" ||
+          msg.message_type === "committed_transcript_with_timestamps"
+        ) {
           handleCommittedTranscript(msg.text ?? "");
         }
       });
@@ -373,12 +419,14 @@ async function main() {
   function sendAudioChunk(chunk: Buffer) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     audioBytesSent += chunk.length;
-    ws.send(JSON.stringify({
-      message_type: "input_audio_chunk",
-      audio_base_64: chunk.toString("base64"),
-      commit: false,
-      sample_rate: 16000,
-    }));
+    ws.send(
+      JSON.stringify({
+        message_type: "input_audio_chunk",
+        audio_base_64: chunk.toString("base64"),
+        commit: false,
+        sample_rate: 16000,
+      })
+    );
   }
 
   function shouldStreamToScribe(): boolean {
@@ -403,35 +451,63 @@ async function main() {
     vertexInFlight = true;
 
     try {
-      const prompt = buildAudioPrompt(config.direction, contextBuffer.slice(-contextWindowSize));
+      const prompt = buildAudioPrompt(
+        config.direction,
+        contextBuffer.slice(-contextWindowSize)
+      );
+      const wavBuffer = pcmToWavBuffer(chunk, 16000);
       const result = await generateText({
         model: vertexModel(config.vertexModelId),
         system: userContext || undefined,
         temperature: 0,
-        maxTokens: 200,
+        maxOutputTokens: 512,
         messages: [
           {
             role: "user",
             content: [
               { type: "text", text: prompt },
-              { type: "file", mimeType: "audio/pcm", data: chunk.toString("base64") },
+              { type: "file", mediaType: "audio/wav", data: wavBuffer },
             ],
           },
         ],
       });
 
       const parsed = normalizeVertexResponse(result.text);
-      if (!parsed) return;
+      if (!parsed) {
+        createBlock(
+          "EN",
+          "(Vertex response parse failed)",
+          "KR",
+          result.text.trim()
+        );
+        renderBlocks();
+        return;
+      }
       const transcript = parsed.transcript?.trim() ?? "";
       const translation = parsed.translation?.trim() ?? "";
       const sourceLanguage = parsed.sourceLanguage;
-      if (!translation && !transcript) return;
+      if (!translation && !transcript) {
+        createBlock(
+          "EN",
+          "(Vertex returned empty response)",
+          "KR",
+          result.text.trim()
+        );
+        renderBlocks();
+        return;
+      }
 
-      const sourceLabel = sourceLanguage === "ko" ? "KR" : sourceLanguage === "en" ? "EN" : "EN";
+      const sourceLabel =
+        sourceLanguage === "ko" ? "KR" : sourceLanguage === "en" ? "EN" : "EN";
       const targetLabel = sourceLabel === "KR" ? "EN" : "KR";
       const sourceText = transcript || "(unavailable)";
 
-      const block = createBlock(sourceLabel, sourceText, targetLabel, translation || undefined);
+      const block = createBlock(
+        sourceLabel,
+        sourceText,
+        targetLabel,
+        translation || undefined
+      );
       if (sourceText && hasTranslatableContent(sourceText)) {
         recordContext(sourceText);
       } else if (translation && hasTranslatableContent(translation)) {
@@ -439,8 +515,9 @@ async function main() {
       }
       lastVertexTranscript = transcript;
       renderBlocks();
-    } catch {
-      // Silent fail
+    } catch (error) {
+      createBlock("EN", "(Vertex error)", "KR", toReadableError(error));
+      renderBlocks();
     } finally {
       vertexInFlight = false;
       if (vertexChunkQueue.length) {
@@ -481,7 +558,9 @@ async function main() {
       if (!recordingStartedAt || Date.now() - recordingStartedAt < 3000) return;
       audioWarningShown = true;
       renderBlocks();
-      printStatus("\n⚠️  No audio - check System Settings > Sound > Output: Multi-Output (BlackHole + Speakers)\n");
+      printStatus(
+        "\n⚠️  No audio - check System Settings > Sound > Output: Multi-Output (BlackHole + Speakers)\n"
+      );
     }, 1000);
   }
 
@@ -524,7 +603,6 @@ async function main() {
     }, config.intervalMs);
   }
 
-
   function stopCommitTimer() {
     if (!commitTimer) return;
     clearInterval(commitTimer);
@@ -551,11 +629,20 @@ async function main() {
     if (shouldStreamToScribe()) {
       try {
         ws = await connectScribe();
-    printStatus("Streaming. Speak now.\n");
-    if (config.engine === "vertex") {
-      printStatus(`Vertex batching every ${(config.intervalMs / 1000).toFixed(1)}s\n`);
-    }
-
+        printStatus("Streaming. Speak now.\n");
+        if (config.engine === "vertex") {
+          const projectLabel = config.vertexProject
+            ? ` (${config.vertexProject})`
+            : "";
+          const locationLabel = config.vertexLocation
+            ? `@${config.vertexLocation}`
+            : "";
+          printStatus(
+            `Vertex batching every ${(config.intervalMs / 1000).toFixed(
+              1
+            )}s using ${config.vertexModelId}${locationLabel}${projectLabel}\n`
+          );
+        }
       } catch (error) {
         isRecording = false;
         console.error(`Connection error: ${toReadableError(error)}`);
@@ -665,8 +752,14 @@ function parseArgs(argv: string[]): CliConfig {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--help" || arg === "-h") { config.help = true; continue; }
-    if (arg === "--list-devices") { config.listDevices = true; continue; }
+    if (arg === "--help" || arg === "-h") {
+      config.help = true;
+      continue;
+    }
+    if (arg === "--list-devices") {
+      config.listDevices = true;
+      continue;
+    }
 
     if (arg.startsWith("--device")) {
       const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
@@ -675,7 +768,8 @@ function parseArgs(argv: string[]): CliConfig {
     }
     if (arg.startsWith("--direction")) {
       const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
-      if (val === "auto" || val === "ko-en" || val === "en-ko") config.direction = val;
+      if (val === "auto" || val === "ko-en" || val === "en-ko")
+        config.direction = val;
       continue;
     }
     if (arg.startsWith("--model")) {
@@ -751,8 +845,10 @@ function validateEnv(engine: Engine, config: CliConfig) {
   if (engine === "elevenlabs") {
     if (!process.env.ELEVENLABS_API_KEY) missing.push("ELEVENLABS_API_KEY");
     if (!process.env.AWS_ACCESS_KEY_ID) missing.push("AWS_ACCESS_KEY_ID");
-    if (!process.env.AWS_SECRET_ACCESS_KEY) missing.push("AWS_SECRET_ACCESS_KEY");
-    if (!process.env.AWS_REGION && !process.env.AWS_DEFAULT_REGION) missing.push("AWS_REGION");
+    if (!process.env.AWS_SECRET_ACCESS_KEY)
+      missing.push("AWS_SECRET_ACCESS_KEY");
+    if (!process.env.AWS_REGION && !process.env.AWS_DEFAULT_REGION)
+      missing.push("AWS_REGION");
   }
 
   if (engine === "vertex") {
@@ -761,6 +857,9 @@ function validateEnv(engine: Engine, config: CliConfig) {
     }
     if (!process.env.GOOGLE_VERTEX_PROJECT_ID && !config.vertexProject) {
       missing.push("GOOGLE_VERTEX_PROJECT_ID");
+    }
+    if (!process.env.GOOGLE_VERTEX_PROJECT_LOCATION && !config.vertexLocation) {
+      missing.push("GOOGLE_VERTEX_PROJECT_LOCATION");
     }
   }
 
