@@ -130,3 +130,4 @@ Thumbs.db
 # Debug
 *.log
 debug.log
+service-account.json

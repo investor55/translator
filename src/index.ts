@@ -2,12 +2,18 @@ import "dotenv/config";
 import WebSocket from "ws";
 import { generateText } from "ai";
 import { bedrock } from "@ai-sdk/amazon-bedrock";
+import { createVertex } from "@ai-sdk/google-vertex";
 import readline from "readline";
 import fs from "node:fs";
 import path from "node:path";
 
-import type { CliConfig, Device, FixedDirection } from "./types";
-import { DEFAULT_MODEL_ID, DEFAULT_INTERVAL_MS } from "./types";
+import type { CliConfig, Device, Engine, FixedDirection } from "./types";
+import {
+  DEFAULT_MODEL_ID,
+  DEFAULT_INTERVAL_MS,
+  DEFAULT_VERTEX_MODEL_ID,
+  DEFAULT_VERTEX_LOCATION,
+} from "./types";
 import {
   listAvfoundationDevices,
   selectAudioDevice,
@@ -24,6 +30,7 @@ import {
   type TranscriptBlock,
 } from "./ui";
 import {
+  buildAudioPrompt,
   buildPrompt,
   extractSentences,
   hasTranslatableContent,
@@ -48,7 +55,7 @@ async function main() {
     return;
   }
 
-  validateEnv();
+  validateEnv(config.engine, config);
 
   let devices: Device[] = [];
   try {
@@ -71,15 +78,24 @@ async function main() {
   }
 
   const bedrockModel = bedrock(config.modelId);
+  const vertexModel = createVertex({
+    project: config.vertexProject,
+    location: config.vertexLocation,
+  }) as unknown as (modelId: string) => ReturnType<typeof bedrock>;
 
   let isRecording = false;
   let ws: WebSocket | null = null;
   let ffmpegProcess: ReturnType<typeof spawnFfmpeg> | null = null;
   let audioBuffer = Buffer.alloc(0);
+  let vertexBuffer = Buffer.alloc(0);
   let recordingStartedAt: number | null = null;
   let audioBytesSent = 0;
   let noAudioTimer: NodeJS.Timeout | null = null;
   let audioWarningShown = false;
+  let vertexFlushTimer: NodeJS.Timeout | null = null;
+  let vertexChunkQueue: Buffer[] = [];
+  let vertexInFlight = false;
+  let vertexOverlap = Buffer.alloc(0);
 
   const recentTranslationLimit = 20;
   const recentTranslations = new Set<string>();
@@ -95,9 +111,44 @@ async function main() {
   let flushTimer: NodeJS.Timeout | null = null;
   let commitTimer: NodeJS.Timeout | null = null;
   let lastFlushAt = Date.now();
+  let lastVertexTranscript = "";
 
   function handlePartialTranscript(_text: string) {
     // Hidden to reduce spam
+  }
+
+  function normalizeVertexResponse(raw: string): {
+    sourceLanguage?: "ko" | "en";
+    transcript?: string;
+    translation?: string;
+  } | null {
+    if (!raw) return null;
+    let cleaned = raw.trim();
+    cleaned = cleaned.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+    const firstBrace = cleaned.indexOf("{");
+    const lastBrace = cleaned.lastIndexOf("}");
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+    }
+    try {
+      const parsed = JSON.parse(cleaned) as {
+        sourceLanguage?: string;
+        transcript?: string;
+        translation?: string;
+      };
+      if (!parsed.translation && !parsed.transcript) return null;
+      const sourceLanguage =
+        parsed.sourceLanguage === "ko" || parsed.sourceLanguage === "en"
+          ? parsed.sourceLanguage
+          : undefined;
+      return {
+        sourceLanguage,
+        transcript: parsed.transcript?.trim(),
+        translation: parsed.translation?.trim(),
+      };
+    } catch {
+      return null;
+    }
   }
 
   function normalizeText(text: string) {
@@ -148,7 +199,10 @@ async function main() {
 
   function renderBlocks() {
     clearScreen();
-    printHeader(device.name, config.modelId, config.intervalMs);
+    const activeModelId =
+      config.engine === "vertex" ? config.vertexModelId : config.modelId;
+    const engineLabel = config.engine === "vertex" ? "Vertex" : "ElevenLabs";
+    printHeader(device.name, `${activeModelId} (${engineLabel})`, config.intervalMs);
     if (userContext) {
       printStatus("Loaded context.md\n");
     }
@@ -196,6 +250,25 @@ async function main() {
     }
   }
 
+  function createBlock(
+    sourceLabel: "KR" | "EN",
+    sourceText: string,
+    targetLabel: "KR" | "EN",
+    translation?: string
+  ) {
+    const block: TranscriptBlock = {
+      id: nextBlockId,
+      sourceLabel,
+      sourceText,
+      targetLabel,
+      translation,
+    };
+    transcriptBlocks.set(nextBlockId, block);
+    nextBlockId += 1;
+    return block;
+  }
+
+
   function recordContext(sentence: string) {
     contextBuffer.push(sentence);
     if (contextBuffer.length > contextWindowSize) {
@@ -213,14 +286,7 @@ async function main() {
     const targetLabel = direction === "ko-en" ? "EN" : "KR";
     const context = contextBuffer.slice(-contextWindowSize);
 
-    const block: TranscriptBlock = {
-      id: nextBlockId,
-      sourceLabel,
-      sourceText: sentence,
-      targetLabel,
-    };
-    transcriptBlocks.set(nextBlockId, block);
-    nextBlockId += 1;
+    const block = createBlock(sourceLabel, sentence, targetLabel);
     recordContext(sentence);
     renderBlocks();
     void translateAndPrint(block.id, sentence, direction, context);
@@ -315,20 +381,103 @@ async function main() {
     }));
   }
 
+  function shouldStreamToScribe(): boolean {
+    return config.engine === "elevenlabs";
+  }
+
+  function enqueueVertexChunk(chunk: Buffer) {
+    if (!chunk.length) return;
+    const overlapBytes = Math.floor(16000 * 2 * 0.5); // 0.5s overlap
+    const overlap = vertexOverlap.subarray(0, overlapBytes);
+    const combined = overlap.length ? Buffer.concat([overlap, chunk]) : chunk;
+    vertexChunkQueue.push(combined);
+    vertexOverlap = Buffer.from(
+      chunk.subarray(Math.max(0, chunk.length - overlapBytes))
+    );
+  }
+
+  async function processVertexQueue() {
+    if (vertexInFlight || vertexChunkQueue.length === 0) return;
+    const chunk = vertexChunkQueue.shift();
+    if (!chunk) return;
+    vertexInFlight = true;
+
+    try {
+      const prompt = buildAudioPrompt(config.direction, contextBuffer.slice(-contextWindowSize));
+      const result = await generateText({
+        model: vertexModel(config.vertexModelId),
+        system: userContext || undefined,
+        temperature: 0,
+        maxTokens: 200,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "file", mimeType: "audio/pcm", data: chunk.toString("base64") },
+            ],
+          },
+        ],
+      });
+
+      const parsed = normalizeVertexResponse(result.text);
+      if (!parsed) return;
+      const transcript = parsed.transcript?.trim() ?? "";
+      const translation = parsed.translation?.trim() ?? "";
+      const sourceLanguage = parsed.sourceLanguage;
+      if (!translation && !transcript) return;
+
+      const sourceLabel = sourceLanguage === "ko" ? "KR" : sourceLanguage === "en" ? "EN" : "EN";
+      const targetLabel = sourceLabel === "KR" ? "EN" : "KR";
+      const sourceText = transcript || "(unavailable)";
+
+      const block = createBlock(sourceLabel, sourceText, targetLabel, translation || undefined);
+      if (sourceText && hasTranslatableContent(sourceText)) {
+        recordContext(sourceText);
+      } else if (translation && hasTranslatableContent(translation)) {
+        recordContext(translation);
+      }
+      lastVertexTranscript = transcript;
+      renderBlocks();
+    } catch {
+      // Silent fail
+    } finally {
+      vertexInFlight = false;
+      if (vertexChunkQueue.length) {
+        void processVertexQueue();
+      }
+    }
+  }
+
   function attachAudioStream(stream: NodeJS.ReadableStream) {
     const chunkSize = 3200;
+    const vertexChunkBytes = Math.floor(16000 * 2 * (config.intervalMs / 1000));
     stream.on("data", (data: Buffer) => {
-      audioBuffer = Buffer.concat([audioBuffer, data]);
-      while (audioBuffer.length >= chunkSize) {
-        sendAudioChunk(audioBuffer.subarray(0, chunkSize));
-        audioBuffer = audioBuffer.subarray(chunkSize);
+      if (shouldStreamToScribe()) {
+        audioBuffer = Buffer.concat([audioBuffer, data]);
+        while (audioBuffer.length >= chunkSize) {
+          sendAudioChunk(audioBuffer.subarray(0, chunkSize));
+          audioBuffer = audioBuffer.subarray(chunkSize);
+        }
+      }
+
+      if (config.engine === "vertex") {
+        vertexBuffer = Buffer.concat([vertexBuffer, data]);
+        while (vertexBuffer.length >= vertexChunkBytes) {
+          const chunk = vertexBuffer.subarray(0, vertexChunkBytes);
+          vertexBuffer = vertexBuffer.subarray(vertexChunkBytes);
+          enqueueVertexChunk(chunk);
+          void processVertexQueue();
+        }
       }
     });
   }
 
   function startNoAudioTimer() {
     noAudioTimer = setInterval(() => {
-      if (!isRecording || audioWarningShown || audioBytesSent > 0) return;
+      if (!isRecording || audioWarningShown) return;
+      if (!shouldStreamToScribe()) return;
+      if (audioBytesSent > 0) return;
       if (!recordingStartedAt || Date.now() - recordingStartedAt < 3000) return;
       audioWarningShown = true;
       renderBlocks();
@@ -340,6 +489,7 @@ async function main() {
     if (flushTimer) clearInterval(flushTimer);
     flushTimer = setInterval(() => {
       if (!isRecording) return;
+      if (!shouldStreamToScribe()) return;
       const now = Date.now();
       if (now - lastFlushAt < config.intervalMs) return;
       lastFlushAt = now;
@@ -369,10 +519,11 @@ async function main() {
     if (commitTimer) clearInterval(commitTimer);
     commitTimer = setInterval(() => {
       if (!isRecording) return;
+      if (!shouldStreamToScribe()) return;
       sendCommit();
-      flushBufferIfNeeded(false);
     }, config.intervalMs);
   }
+
 
   function stopCommitTimer() {
     if (!commitTimer) return;
@@ -397,13 +548,21 @@ async function main() {
     renderBlocks();
     printStatus("Connecting...");
 
-    try {
-      ws = await connectScribe();
+    if (shouldStreamToScribe()) {
+      try {
+        ws = await connectScribe();
+    printStatus("Streaming. Speak now.\n");
+    if (config.engine === "vertex") {
+      printStatus(`Vertex batching every ${(config.intervalMs / 1000).toFixed(1)}s\n`);
+    }
+
+      } catch (error) {
+        isRecording = false;
+        console.error(`Connection error: ${toReadableError(error)}`);
+        return;
+      }
+    } else {
       printStatus("Streaming. Speak now.\n");
-    } catch (error) {
-      isRecording = false;
-      console.error(`Connection error: ${toReadableError(error)}`);
-      return;
     }
 
     try {
@@ -452,6 +611,11 @@ async function main() {
       ws = null;
     }
 
+    vertexChunkQueue = [];
+    vertexBuffer = Buffer.alloc(0);
+    vertexOverlap = Buffer.alloc(0);
+    vertexInFlight = false;
+
     renderBlocks();
     printStatus("\nPaused. SPACE to resume, Q to quit.\n");
   }
@@ -488,6 +652,10 @@ function parseArgs(argv: string[]): CliConfig {
     direction: "auto",
     intervalMs: DEFAULT_INTERVAL_MS,
     modelId: DEFAULT_MODEL_ID,
+    engine: "elevenlabs",
+    vertexModelId: DEFAULT_VERTEX_MODEL_ID,
+    vertexProject: process.env.GOOGLE_VERTEX_PROJECT_ID,
+    vertexLocation: DEFAULT_VERTEX_LOCATION,
     listDevices: false,
     help: false,
     contextFile: path.resolve("context.md"),
@@ -515,6 +683,26 @@ function parseArgs(argv: string[]): CliConfig {
       if (val) config.modelId = val;
       continue;
     }
+    if (arg.startsWith("--engine")) {
+      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
+      if (val === "elevenlabs" || val === "vertex") config.engine = val;
+      continue;
+    }
+    if (arg.startsWith("--vertex-model")) {
+      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
+      if (val) config.vertexModelId = val;
+      continue;
+    }
+    if (arg.startsWith("--vertex-project")) {
+      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
+      if (val) config.vertexProject = val;
+      continue;
+    }
+    if (arg.startsWith("--vertex-location")) {
+      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
+      if (val) config.vertexLocation = val;
+      continue;
+    }
     if (arg.startsWith("--context-file")) {
       const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
       if (val) config.contextFile = val;
@@ -539,6 +727,10 @@ Options:
   --device <name|index>      Audio device (auto-detects BlackHole)
   --direction auto|ko-en|en-ko
   --model <bedrock-id>       Default: ${DEFAULT_MODEL_ID}
+  --engine elevenlabs|vertex Default: elevenlabs
+  --vertex-model <id>        Default: ${DEFAULT_VERTEX_MODEL_ID}
+  --vertex-project <id>      Default: $GOOGLE_VERTEX_PROJECT_ID
+  --vertex-location <id>     Default: ${DEFAULT_VERTEX_LOCATION}
   --context-file <path>      Default: context.md
   --no-context               Disable context.md injection
   --compact                  Less vertical spacing
@@ -548,16 +740,29 @@ Options:
 Controls: SPACE start/pause, Q quit
 
 Env: ELEVENLABS_API_KEY, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+     GOOGLE_APPLICATION_CREDENTIALS (Vertex)
+     GOOGLE_VERTEX_PROJECT_ID, GOOGLE_VERTEX_PROJECT_LOCATION
 `);
 }
 
-function validateEnv() {
-  const missing = [
-    !process.env.ELEVENLABS_API_KEY && "ELEVENLABS_API_KEY",
-    !process.env.AWS_ACCESS_KEY_ID && "AWS_ACCESS_KEY_ID",
-    !process.env.AWS_SECRET_ACCESS_KEY && "AWS_SECRET_ACCESS_KEY",
-    !process.env.AWS_REGION && !process.env.AWS_DEFAULT_REGION && "AWS_REGION",
-  ].filter(Boolean);
+function validateEnv(engine: Engine, config: CliConfig) {
+  const missing: string[] = [];
+
+  if (engine === "elevenlabs") {
+    if (!process.env.ELEVENLABS_API_KEY) missing.push("ELEVENLABS_API_KEY");
+    if (!process.env.AWS_ACCESS_KEY_ID) missing.push("AWS_ACCESS_KEY_ID");
+    if (!process.env.AWS_SECRET_ACCESS_KEY) missing.push("AWS_SECRET_ACCESS_KEY");
+    if (!process.env.AWS_REGION && !process.env.AWS_DEFAULT_REGION) missing.push("AWS_REGION");
+  }
+
+  if (engine === "vertex") {
+    if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      missing.push("GOOGLE_APPLICATION_CREDENTIALS");
+    }
+    if (!process.env.GOOGLE_VERTEX_PROJECT_ID && !config.vertexProject) {
+      missing.push("GOOGLE_VERTEX_PROJECT_ID");
+    }
+  }
 
   if (missing.length) {
     console.error(`Missing: ${missing.join(", ")}`);

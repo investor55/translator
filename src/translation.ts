@@ -12,6 +12,25 @@ export function buildPrompt(
   return `${contextBlock}Current sentence to translate into ${target}. Output only the translated text, no explanations or markdown.\n${text}`;
 }
 
+export function buildAudioPrompt(
+  direction: Direction,
+  context: string[] = []
+): string {
+  const contextBlock = context.length
+    ? `Context (previous sentences, do not translate):\n${context.join("\n")}\n\n`
+    : "";
+
+  if (direction === "auto") {
+    return `${contextBlock}You will receive an audio clip. Detect whether the language is Korean or English. Transcribe it in the original language and translate it into the other language. Return only valid JSON with keys "sourceLanguage" ("ko" or "en"), "transcript", and "translation". Do not add markdown or extra text.`;
+  }
+
+  const sourceLanguage = direction === "ko-en" ? "Korean" : "English";
+  const targetLanguage = direction === "ko-en" ? "English" : "Korean";
+  const sourceCode = direction === "ko-en" ? "ko" : "en";
+
+  return `${contextBlock}You will receive an audio clip spoken in ${sourceLanguage}. Transcribe it in ${sourceLanguage} and translate it into ${targetLanguage}. Return only valid JSON with keys "sourceLanguage" ("${sourceCode}"), "transcript", and "translation". Do not add markdown or extra text.`;
+}
+
 export function hasTranslatableContent(text: string): boolean {
   return /[A-Za-z0-9가-힣]/.test(text);
 }
