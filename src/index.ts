@@ -3,6 +3,8 @@ import WebSocket from "ws";
 import { generateText } from "ai";
 import { bedrock } from "@ai-sdk/amazon-bedrock";
 import readline from "readline";
+import fs from "node:fs";
+import path from "node:path";
 
 import type { CliConfig, Device, FixedDirection } from "./types";
 import { DEFAULT_MODEL_ID, DEFAULT_INTERVAL_MS } from "./types";
@@ -12,7 +14,15 @@ import {
   formatDevices,
   spawnFfmpeg,
 } from "./audio";
-import { printBanner, printLine, printPartial, printStatus, clearPartial } from "./ui";
+import {
+  clearScreen,
+  enterFullscreen,
+  exitFullscreen,
+  printHeader,
+  printStatus,
+  printBlock,
+  type TranscriptBlock,
+} from "./ui";
 import {
   buildPrompt,
   extractSentences,
@@ -74,9 +84,12 @@ async function main() {
   const recentTranslationLimit = 20;
   const recentTranslations = new Set<string>();
   const recentTranslationQueue: string[] = [];
-  const maxSentencesPerFlush = 2;
+  const maxSentencesPerFlush = 1;
   const contextWindowSize = 10;
   const contextBuffer: string[] = [];
+  const userContext = loadUserContext(config);
+  const transcriptBlocks = new Map<number, TranscriptBlock>();
+  let nextBlockId = 1;
   let transcriptBuffer = "";
   let lastCommittedText = "";
   let flushTimer: NodeJS.Timeout | null = null;
@@ -89,6 +102,18 @@ async function main() {
 
   function normalizeText(text: string) {
     return text.trim().replace(/\s+/g, " ");
+  }
+
+  function loadUserContext(config: CliConfig) {
+    if (!config.useContext) return "";
+    const fullPath = path.resolve(config.contextFile);
+    if (!fs.existsSync(fullPath)) return "";
+    const raw = fs.readFileSync(fullPath, "utf-8");
+    return raw
+      .split("\n")
+      .map((line) => line.replace(/^\s*#+\s*/, "").trim())
+      .filter(Boolean)
+      .join("\n");
   }
 
   function rememberTranslation(text: string) {
@@ -121,7 +146,30 @@ async function main() {
     return candidate.replace(/^[-–—]\s+/, "");
   }
 
+  function renderBlocks() {
+    clearScreen();
+    printHeader(device.name, config.modelId, config.intervalMs);
+    if (userContext) {
+      printStatus("Loaded context.md\n");
+    }
+    const blocks = [...transcriptBlocks.values()].sort((a, b) => a.id - b.id);
+    for (const block of blocks) {
+      printBlock(block, config.compact);
+    }
+  }
+
+  function flushBufferIfNeeded(force: boolean) {
+    if (!transcriptBuffer.trim()) return;
+    const now = Date.now();
+    const hasSentenceBoundary = /[.!?。！？]/.test(transcriptBuffer);
+    if (force || hasSentenceBoundary || now - lastFlushAt >= config.intervalMs) {
+      lastFlushAt = now;
+      flushTranscriptBuffer();
+    }
+  }
+
   async function translateAndPrint(
+    blockId: number,
     text: string,
     direction: FixedDirection,
     context: string[]
@@ -130,6 +178,7 @@ async function main() {
       const prompt = buildPrompt(text, direction, context);
       const result = await generateText({
         model: bedrockModel,
+        system: userContext || undefined,
         prompt,
         temperature: 0,
         maxTokens: 100,
@@ -137,8 +186,10 @@ async function main() {
 
       const translated = cleanTranslationOutput(result.text);
       if (translated) {
-        const label = direction === "ko-en" ? "EN" : "KR";
-        printLine(label, translated);
+        const block = transcriptBlocks.get(blockId);
+        if (!block) return;
+        block.translation = translated;
+        renderBlocks();
       }
     } catch (error) {
       // Silent fail
@@ -157,15 +208,22 @@ async function main() {
     if (!hasTranslatableContent(sentence)) return;
     if (!rememberTranslation(sentence)) return;
 
-    clearPartial();
-
     const direction = resolveDirection(sentence, config.direction);
     const sourceLabel = direction === "ko-en" ? "KR" : "EN";
+    const targetLabel = direction === "ko-en" ? "EN" : "KR";
     const context = contextBuffer.slice(-contextWindowSize);
 
-    printLine(sourceLabel, sentence);
+    const block: TranscriptBlock = {
+      id: nextBlockId,
+      sourceLabel,
+      sourceText: sentence,
+      targetLabel,
+    };
+    transcriptBlocks.set(nextBlockId, block);
+    nextBlockId += 1;
     recordContext(sentence);
-    void translateAndPrint(sentence, direction, context);
+    renderBlocks();
+    void translateAndPrint(block.id, sentence, direction, context);
   }
 
   function flushTranscriptBuffer() {
@@ -194,7 +252,6 @@ async function main() {
 
     const { sentences, remainder } = extractSentences(transcriptBuffer);
     if (sentences.length) {
-      clearPartial();
       const toFlush = sentences.slice(0, maxSentencesPerFlush);
       for (const sentence of toFlush) {
         flushSentence(sentence);
@@ -274,7 +331,7 @@ async function main() {
       if (!isRecording || audioWarningShown || audioBytesSent > 0) return;
       if (!recordingStartedAt || Date.now() - recordingStartedAt < 3000) return;
       audioWarningShown = true;
-      clearPartial();
+      renderBlocks();
       printStatus("\n⚠️  No audio - check System Settings > Sound > Output: Multi-Output (BlackHole + Speakers)\n");
     }, 1000);
   }
@@ -286,7 +343,7 @@ async function main() {
       const now = Date.now();
       if (now - lastFlushAt < config.intervalMs) return;
       lastFlushAt = now;
-      flushTranscriptBuffer();
+      flushBufferIfNeeded(false);
     }, Math.max(200, Math.floor(config.intervalMs / 2)));
   }
 
@@ -313,6 +370,7 @@ async function main() {
     commitTimer = setInterval(() => {
       if (!isRecording) return;
       sendCommit();
+      flushBufferIfNeeded(false);
     }, config.intervalMs);
   }
 
@@ -332,8 +390,11 @@ async function main() {
     transcriptBuffer = "";
     lastCommittedText = "";
     contextBuffer.length = 0;
+    transcriptBlocks.clear();
+    nextBlockId = 1;
     lastFlushAt = Date.now();
 
+    renderBlocks();
     printStatus("Connecting...");
 
     try {
@@ -376,7 +437,7 @@ async function main() {
 
     stopFlushTimer();
     stopCommitTimer();
-    flushTranscriptBuffer();
+    flushBufferIfNeeded(true);
 
     if (ffmpegProcess) {
       ffmpegProcess.kill("SIGTERM");
@@ -391,12 +452,13 @@ async function main() {
       ws = null;
     }
 
-    clearPartial();
+    renderBlocks();
     printStatus("\nPaused. SPACE to resume, Q to quit.\n");
   }
 
   function shutdown() {
     if (isRecording) stopRecording();
+    exitFullscreen();
     process.exit(0);
   }
 
@@ -414,7 +476,8 @@ async function main() {
 
   process.on("SIGINT", shutdown);
 
-  printBanner(device.name);
+  enterFullscreen();
+  renderBlocks();
 
   await startRecording();
 }
@@ -427,6 +490,9 @@ function parseArgs(argv: string[]): CliConfig {
     modelId: DEFAULT_MODEL_ID,
     listDevices: false,
     help: false,
+    contextFile: path.resolve("context.md"),
+    useContext: true,
+    compact: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -449,6 +515,19 @@ function parseArgs(argv: string[]): CliConfig {
       if (val) config.modelId = val;
       continue;
     }
+    if (arg.startsWith("--context-file")) {
+      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
+      if (val) config.contextFile = val;
+      continue;
+    }
+    if (arg === "--no-context") {
+      config.useContext = false;
+      continue;
+    }
+    if (arg === "--compact") {
+      config.compact = true;
+      continue;
+    }
   }
   return config;
 }
@@ -460,6 +539,9 @@ Options:
   --device <name|index>      Audio device (auto-detects BlackHole)
   --direction auto|ko-en|en-ko
   --model <bedrock-id>       Default: ${DEFAULT_MODEL_ID}
+  --context-file <path>      Default: context.md
+  --no-context               Disable context.md injection
+  --compact                  Less vertical spacing
   --list-devices             List audio devices
   -h, --help
 
@@ -488,6 +570,7 @@ function toReadableError(e: unknown) {
 }
 
 main().catch((e) => {
+  exitFullscreen();
   console.error(`Fatal: ${toReadableError(e)}`);
   process.exit(1);
 });

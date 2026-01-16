@@ -9,7 +9,7 @@ export function buildPrompt(
   const contextBlock = context.length
     ? `Context (previous sentences, do not translate):\n${context.join("\n")}\n\n`
     : "";
-  return `${contextBlock}Current sentence to translate into ${target} (translate only this sentence, output only the translated text):\n${text}`;
+  return `${contextBlock}Current sentence to translate into ${target}. Output only the translated text, no explanations or markdown.\n${text}`;
 }
 
 export function hasTranslatableContent(text: string): boolean {

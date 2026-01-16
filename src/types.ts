@@ -9,6 +9,9 @@ export type CliConfig = {
   modelId: string;
   listDevices: boolean;
   help: boolean;
+  contextFile: string;
+  useContext: boolean;
+  compact: boolean;
 };
 
 export type TranscriptEntry = {
