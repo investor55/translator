@@ -1,6 +1,6 @@
 import "dotenv/config";
 import WebSocket from "ws";
-import { generateText, generateObject, streamObject } from "ai";
+import { generateText, generateObject } from "ai";
 import { bedrock } from "@ai-sdk/amazon-bedrock";
 import { createVertex } from "@ai-sdk/google-vertex";
 import fs from "node:fs";
@@ -81,6 +81,16 @@ function showFatalError(label: string, msg: string) {
 
 // Global error handlers to prevent silent crashes
 process.on("unhandledRejection", (reason) => {
+  // Check if this is an AbortError (expected from timeouts) - don't treat as fatal
+  const isAbortError =
+    (reason instanceof Error && reason.name === "AbortError") ||
+    (reason && typeof reason === "object" && "name" in reason && reason.name === "AbortError");
+
+  if (isAbortError) {
+    log("WARN", "Unhandled AbortError (timeout) - suppressed");
+    return; // Don't crash the app for expected timeouts
+  }
+
   const msg = toReadableError(reason);
   log("ERROR", `Unhandled rejection: ${msg}`);
   showFatalError("Unhandled rejection", msg);
@@ -191,16 +201,18 @@ async function main() {
   const allKeyPoints: string[] = []; // Accumulated key points for log output
 
   // Zod schema for structured Vertex AI responses
+  const sourceLangUpper = config.sourceLang.toUpperCase();
   const AudioTranscriptionSchema = z.object({
     sourceLanguage: z
-      .enum(["ko", "en"])
-      .describe("The detected language of the audio: 'ko' for Korean, 'en' for English"),
+      .enum(["en", config.sourceLang] as [string, string])
+      .describe(`The detected language: "${config.sourceLang}" for ${sourceLangUpper} or "en" for English`),
     transcript: z
       .string()
       .describe("The transcription of the audio in the original language"),
     translation: z
       .string()
-      .describe("The translation of the transcript into the target language"),
+      .optional()
+      .describe("The English translation. Empty if the audio is already in English."),
   });
 
   // Zod schema for conversation summary
@@ -357,9 +369,9 @@ async function main() {
   }
 
   function createBlock(
-    sourceLabel: "KR" | "EN",
+    sourceLabel: string,
     sourceText: string,
-    targetLabel: "KR" | "EN",
+    targetLabel: string,
     translation?: string
   ) {
     const block: TranscriptBlock = {
@@ -549,11 +561,12 @@ async function main() {
     try {
       const prompt = buildAudioPromptForStructured(
         config.direction,
-        contextBuffer.slice(-contextWindowSize)
+        contextBuffer.slice(-contextWindowSize),
+        config.sourceLang
       );
       const wavBuffer = pcmToWavBuffer(chunk, 16000);
 
-      const { partialObjectStream, object, usage } = streamObject({
+      const { object: result, usage: finalUsage } = await generateObject({
         model: vertexModel(config.vertexModelId),
         schema: AudioTranscriptionSchema,
         system: userContext || undefined,
@@ -573,56 +586,14 @@ async function main() {
           },
         ],
       });
-
-      // Attach no-op catch handlers to prevent unhandled rejection when abort occurs
-      // (these promises reject when stream is aborted, but we handle it in the catch block)
-      const objectPromise = object.catch(() => null);
-      const usagePromise = usage.catch(() => null);
-
-      // Stream partial updates to UI
-      let partialCount = 0;
-      let firstTokenAt: number | null = null;
-      let lastTokenAt: number | null = null;
-      for await (const partial of partialObjectStream) {
-        const now = Date.now();
-        if (firstTokenAt === null) firstTokenAt = now;
-        lastTokenAt = now;
-        partialCount++;
-        if (partial.transcript || partial.translation) {
-          const sourceLabel =
-            partial.sourceLanguage === "ko" ? "KR" : partial.sourceLanguage === "en" ? "EN" : "EN";
-          const targetLabel = sourceLabel === "KR" ? "EN" : "KR";
-          updateBlock(block, {
-            sourceLabel,
-            sourceText: partial.transcript ?? "...",
-            targetLabel,
-            translation: partial.translation,
-          });
-        }
-      }
-
-      // Get final result and usage
-      const result = await objectPromise;
-      const finalUsage = await usagePromise;
       clearTimeout(timeoutId);
 
-      // If aborted, result will be null from our catch handler
-      if (!result) {
-        updateBlock(block, {
-          sourceText: "(Vertex error)",
-          translation: "Request was aborted",
-        });
-        return;
-      }
-
       const elapsed = Date.now() - startTime;
-      const ttft = firstTokenAt ? firstTokenAt - startTime : 0;
-      const streamDuration = firstTokenAt && lastTokenAt ? lastTokenAt - firstTokenAt : 0;
       const inTok = finalUsage?.inputTokens ?? 0;
       const outTok = finalUsage?.outputTokens ?? 0;
       if (config.debug) {
-        log("INFO", `Vertex stream: total=${elapsed}ms, TTFT=${ttft}ms, stream=${streamDuration}ms, chunks=${partialCount}, tokens: ${inTok}→${outTok}, queue: ${vertexChunkQueue.length}`);
-        if (ui) ui.setStatus(`TTFT: ${ttft}ms | Stream: ${streamDuration}ms (${partialCount} chunks) | T: ${inTok}→${outTok}`);
+        log("INFO", `Vertex response: ${elapsed}ms, tokens: ${inTok}→${outTok}, queue: ${vertexChunkQueue.length}`);
+        if (ui) ui.setStatus(`Response: ${elapsed}ms | T: ${inTok}→${outTok}`);
       }
 
       const transcript = result.transcript?.trim() ?? "";
@@ -637,17 +608,26 @@ async function main() {
         return;
       }
 
-      const sourceLabel =
-        sourceLanguage === "ko" ? "KR" : sourceLanguage === "en" ? "EN" : "EN";
-      const targetLabel = sourceLabel === "KR" ? "EN" : "KR";
+      const isEnglish = sourceLanguage === "en";
       const sourceText = transcript || "(unavailable)";
 
-      updateBlock(block, {
-        sourceLabel,
-        sourceText,
-        targetLabel,
-        translation: translation || undefined,
-      });
+      if (isEnglish) {
+        // English: transcription only, no translation
+        updateBlock(block, {
+          sourceLabel: "EN",
+          sourceText,
+          targetLabel: "EN",
+          translation: undefined,
+        });
+      } else {
+        // Source language: show translation to English
+        updateBlock(block, {
+          sourceLabel: sourceLangUpper,
+          sourceText,
+          targetLabel: "EN",
+          translation: translation || undefined,
+        });
+      }
 
       if (sourceText && hasTranslatableContent(sourceText)) {
         recordContext(sourceText);
@@ -946,6 +926,8 @@ function printHelp() {
 Options:
   --device <name|index>      Audio device (auto-detects BlackHole)
   --direction auto|ko-en|en-ko
+  --source-lang <code>       Non-English language code (default: ko)
+                             Examples: ko, ja, zh, es, fr, de
   --model <bedrock-id>       Default: ${DEFAULT_MODEL_ID}
   --engine elevenlabs|vertex Default: elevenlabs
   --vertex-model <id>        Default: ${DEFAULT_VERTEX_MODEL_ID}

@@ -57,6 +57,7 @@ export function parseArgs(argv: string[]): CliConfig {
   const config: CliConfig = {
     device: undefined,
     direction: "auto",
+    sourceLang: "ko",
     intervalMs: DEFAULT_INTERVAL_MS,
     modelId: DEFAULT_MODEL_ID,
     engine: "elevenlabs",
@@ -133,6 +134,11 @@ export function parseArgs(argv: string[]): CliConfig {
     }
     if (arg === "--debug") {
       config.debug = true;
+      continue;
+    }
+    if (arg.startsWith("--source-lang")) {
+      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
+      if (val) config.sourceLang = val.toLowerCase();
       continue;
     }
   }

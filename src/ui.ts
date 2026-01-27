@@ -1,8 +1,8 @@
 export type TranscriptBlock = {
   id: number;
-  sourceLabel: "KR" | "EN";
+  sourceLabel: string; // ISO 639-1 code uppercased (e.g., "EN", "KO", "JA")
   sourceText: string;
-  targetLabel: "KR" | "EN";
+  targetLabel: string; // Always "EN" for translation target
   translation?: string;
   createdAt: number;
 };

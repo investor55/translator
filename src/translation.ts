@@ -12,20 +12,38 @@ export function buildPrompt(
   return `${contextBlock}Current sentence to translate into ${target}. Output only the translated text, no explanations or markdown.\n${text}`;
 }
 
+const LANG_NAMES: Record<string, string> = {
+  ko: "Korean",
+  ja: "Japanese",
+  zh: "Chinese",
+  es: "Spanish",
+  fr: "French",
+  de: "German",
+  en: "English",
+};
+
 export function buildAudioPromptForStructured(
   direction: Direction,
-  context: string[] = []
+  context: string[] = [],
+  sourceLang = "ko"
 ): string {
   const contextBlock = context.length
     ? `Context (previous sentences for reference):\n${context.join("\n")}\n\n`
     : "";
 
+  const sourceLangName = LANG_NAMES[sourceLang] || sourceLang.toUpperCase();
+
   if (direction === "auto") {
-    return `${contextBlock}Listen to the audio clip. Detect whether the language is Korean or English. Transcribe it in the original language and translate it into the other language.`;
+    return `${contextBlock}Listen to the audio clip. The audio is either ${sourceLangName} or English.
+1. Detect whether the language is ${sourceLangName} ("${sourceLang}") or English ("en")
+2. Transcribe the audio in its original language
+3. If ${sourceLangName}, translate to English. If English, leave translation empty.
+
+Return sourceLanguage ("${sourceLang}" or "en"), transcript, and translation (empty string if English).`;
   }
 
-  const sourceLanguage = direction === "ko-en" ? "Korean" : "English";
-  const targetLanguage = direction === "ko-en" ? "English" : "Korean";
+  const sourceLanguage = direction === "ko-en" ? sourceLangName : "English";
+  const targetLanguage = direction === "ko-en" ? "English" : sourceLangName;
 
   return `${contextBlock}Listen to the audio clip spoken in ${sourceLanguage}. Transcribe it in ${sourceLanguage} and translate it into ${targetLanguage}.`;
 }

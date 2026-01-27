@@ -159,7 +159,7 @@ export function createBlessedUI(): BlessedUI {
     const elapsed = Math.floor((Date.now() - currentSummary.updatedAt) / 1000);
     const updatedLabel = elapsed < 60 ? `${elapsed}s ago` : `${Math.floor(elapsed / 60)}m ago`;
 
-    let content = `{bold}Key points:{/}\n`;
+    let content = "";
     for (const point of currentSummary.keyPoints.slice(0, 4)) {
       content += `  {cyan-fg}•{/} ${point}\n`;
     }
@@ -177,16 +177,21 @@ export function createBlessedUI(): BlessedUI {
     const lines: string[] = [];
     for (const block of blocks) {
       const index = block.id.toString().padStart(3, "0");
-      const sourceColor = block.sourceLabel === "KR" ? COLORS.korean : COLORS.english;
-      const targetColor = block.targetLabel === "KR" ? COLORS.korean : COLORS.english;
+      // English gets green, all other languages get cyan
+      const sourceColor = block.sourceLabel === "EN" ? COLORS.english : COLORS.korean;
+      const targetColor = block.targetLabel === "EN" ? COLORS.english : COLORS.korean;
 
       lines.push(`{gray-fg}— ${index} —{/}`);
       lines.push(`{bold}{${sourceColor}-fg}${block.sourceLabel}:{/} ${block.sourceText}`);
 
-      if (block.translation) {
-        lines.push(`{bold}{${targetColor}-fg}${block.targetLabel}:{/} ${block.translation}`);
-      } else {
-        lines.push(`{gray-fg}${block.targetLabel}: …{/}`);
+      // Skip translation line for English-only (transcription mode)
+      const isTranscriptionOnly = block.sourceLabel === block.targetLabel;
+      if (!isTranscriptionOnly) {
+        if (block.translation) {
+          lines.push(`{bold}{${targetColor}-fg}${block.targetLabel}:{/} ${block.translation}`);
+        } else {
+          lines.push(`{gray-fg}${block.targetLabel}: …{/}`);
+        }
       }
       lines.push("");
     }

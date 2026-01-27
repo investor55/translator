@@ -6,6 +6,7 @@ export type Device = { index: number; name: string };
 export type CliConfig = {
   device?: string;
   direction: Direction;
+  sourceLang: string; // ISO 639-1 code for non-English language (default: "ko")
   intervalMs: number;
   modelId: string;
   engine: Engine;
