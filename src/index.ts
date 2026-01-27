@@ -32,6 +32,16 @@ import {
   resolveDirection,
 } from "./translation";
 
+// Global error handlers to prevent silent crashes
+process.on("unhandledRejection", (reason) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  console.error(`Unhandled rejection: ${msg}`);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error(`Uncaught exception: ${err.message}`);
+});
+
 async function main() {
   const config = parseArgs(process.argv.slice(2));
 
@@ -689,6 +699,25 @@ async function main() {
     }
 
     attachAudioStream(ffmpegProcess.stdout);
+
+    // Capture ffmpeg errors
+    ffmpegProcess.stderr?.on("data", (data: Buffer) => {
+      const msg = data.toString().trim();
+      if (msg && ui) {
+        ui.setStatus(`ffmpeg: ${msg.slice(0, 80)}`);
+      }
+    });
+
+    ffmpegProcess.on("error", (err) => {
+      if (ui) ui.setStatus(`ffmpeg error: ${err.message}`);
+    });
+
+    ffmpegProcess.on("close", (code) => {
+      if (code !== 0 && code !== null && isRecording && ui) {
+        ui.setStatus(`ffmpeg exited with code ${code}`);
+      }
+    });
+
     startNoAudioTimer();
     startFlushTimer();
     startCommitTimer();

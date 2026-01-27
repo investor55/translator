@@ -35,6 +35,7 @@ const COLORS = {
 export function createBlessedUI(): BlessedUI {
   const screen = blessed.screen({
     smartCSR: true,
+    fullUnicode: true, // Enable proper CJK width calculation for Korean/Chinese/Japanese
     title: "Realtime Translator",
     cursor: { artificial: true, shape: "line", blink: true, color: null },
   });
