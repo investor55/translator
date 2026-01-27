@@ -26,6 +26,12 @@ export type TranscriptEntry = {
   source: "ko" | "en";
 };
 
+export type Summary = {
+  topic: string;
+  keyPoints: string[];
+  updatedAt: number;
+};
+
 export const DEFAULT_MODEL_ID =
   process.env.BEDROCK_MODEL_ID ?? "claude-haiku-4-5-20251001";
 export const DEFAULT_VERTEX_MODEL_ID =

@@ -1,13 +1,14 @@
 import "dotenv/config";
 import WebSocket from "ws";
-import { generateText } from "ai";
+import { generateText, generateObject } from "ai";
 import { bedrock } from "@ai-sdk/amazon-bedrock";
 import { createVertex } from "@ai-sdk/google-vertex";
 import readline from "readline";
 import fs from "node:fs";
 import path from "node:path";
+import { z } from "zod";
 
-import type { CliConfig, Device, Engine, FixedDirection } from "./types";
+import type { CliConfig, Device, Engine, FixedDirection, Summary } from "./types";
 import {
   DEFAULT_MODEL_ID,
   DEFAULT_INTERVAL_MS,
@@ -20,17 +21,11 @@ import {
   formatDevices,
   spawnFfmpeg,
 } from "./audio";
-import {
-  clearScreen,
-  enterFullscreen,
-  exitFullscreen,
-  printHeader,
-  printStatus,
-  printBlock,
-  type TranscriptBlock,
-} from "./ui";
+import { type TranscriptBlock } from "./ui";
+import { createBlessedUI, type BlessedUI, type UIState } from "./ui-blessed";
 import {
   buildAudioPrompt,
+  buildAudioPromptForStructured,
   buildPrompt,
   extractSentences,
   hasTranslatableContent,
@@ -117,44 +112,80 @@ async function main() {
   let lastFlushAt = Date.now();
   let lastVertexTranscript = "";
 
+  // Blessed UI
+  let ui: BlessedUI | null = null;
+  let summaryTimer: NodeJS.Timeout | null = null;
+  let lastSummary: Summary | null = null;
+  let summaryInFlight = false;
+
   function handlePartialTranscript(_text: string) {
     // Hidden to reduce spam
   }
 
-  function normalizeVertexResponse(raw: string): {
-    sourceLanguage?: "ko" | "en";
-    transcript?: string;
-    translation?: string;
-  } | null {
-    if (!raw) return null;
-    let cleaned = raw.trim();
-    cleaned = cleaned
-      .replace(/^```(?:json)?/i, "")
-      .replace(/```$/, "")
-      .trim();
-    const firstBrace = cleaned.indexOf("{");
-    const lastBrace = cleaned.lastIndexOf("}");
-    if (firstBrace >= 0 && lastBrace > firstBrace) {
-      cleaned = cleaned.slice(firstBrace, lastBrace + 1);
-    }
+  // Zod schema for structured Vertex AI responses
+  const AudioTranscriptionSchema = z.object({
+    sourceLanguage: z
+      .enum(["ko", "en"])
+      .describe("The detected language of the audio: 'ko' for Korean, 'en' for English"),
+    transcript: z
+      .string()
+      .describe("The transcription of the audio in the original language"),
+    translation: z
+      .string()
+      .describe("The translation of the transcript into the target language"),
+  });
+
+  // Zod schema for conversation summary
+  const SummarySchema = z.object({
+    topic: z.string().describe("A brief 1-sentence description of the conversation topic"),
+    keyPoints: z.array(z.string()).describe("2-3 key points being discussed"),
+  });
+
+  async function generateSummary() {
+    if (summaryInFlight) return;
+    const blocks = [...transcriptBlocks.values()].slice(-10);
+    if (blocks.length < 2) return; // Not enough content to summarize
+
+    summaryInFlight = true;
     try {
-      const parsed = JSON.parse(cleaned) as {
-        sourceLanguage?: string;
-        transcript?: string;
-        translation?: string;
+      const text = blocks
+        .map((b) => `${b.sourceLabel}: ${b.sourceText}${b.translation ? ` → ${b.targetLabel}: ${b.translation}` : ""}`)
+        .join("\n");
+
+      const result = await generateObject({
+        model: vertexModel(config.vertexModelId),
+        schema: SummarySchema,
+        prompt: `Summarize this bilingual conversation in a few words. Focus on the main topic and key discussion points:\n\n${text}`,
+        abortSignal: AbortSignal.timeout(10000),
+        temperature: 0,
+      });
+
+      lastSummary = {
+        ...result.object,
+        updatedAt: Date.now(),
       };
-      if (!parsed.translation && !parsed.transcript) return null;
-      const sourceLanguage =
-        parsed.sourceLanguage === "ko" || parsed.sourceLanguage === "en"
-          ? parsed.sourceLanguage
-          : undefined;
-      return {
-        sourceLanguage,
-        transcript: parsed.transcript?.trim(),
-        translation: parsed.translation?.trim(),
-      };
+      if (ui) {
+        ui.updateSummary(lastSummary);
+      }
     } catch {
-      return null;
+      // Silent fail for summary generation
+    } finally {
+      summaryInFlight = false;
+    }
+  }
+
+  function startSummaryTimer() {
+    if (summaryTimer) clearInterval(summaryTimer);
+    summaryTimer = setInterval(() => {
+      if (!isRecording) return;
+      void generateSummary();
+    }, 30000); // Generate summary every 30 seconds
+  }
+
+  function stopSummaryTimer() {
+    if (summaryTimer) {
+      clearInterval(summaryTimer);
+      summaryTimer = null;
     }
   }
 
@@ -229,23 +260,17 @@ async function main() {
     return candidate.replace(/^[-–—]\s+/, "");
   }
 
-  function renderBlocks() {
-    clearScreen();
+  function getUIState(status: UIState["status"]): UIState {
     const activeModelId =
       config.engine === "vertex" ? config.vertexModelId : config.modelId;
     const engineLabel = config.engine === "vertex" ? "Vertex" : "ElevenLabs";
-    printHeader(
-      device.name,
-      `${activeModelId} (${engineLabel})`,
-      config.intervalMs
-    );
-    if (userContext) {
-      printStatus("Loaded context.md\n");
-    }
-    const blocks = [...transcriptBlocks.values()].sort((a, b) => a.id - b.id);
-    for (const block of blocks) {
-      printBlock(block, config.compact);
-    }
+    return {
+      deviceName: device.name,
+      modelId: `${activeModelId} (${engineLabel})`,
+      intervalMs: config.intervalMs,
+      status,
+      contextLoaded: !!userContext,
+    };
   }
 
   function flushBufferIfNeeded(force: boolean) {
@@ -283,7 +308,7 @@ async function main() {
         const block = transcriptBlocks.get(blockId);
         if (!block) return;
         block.translation = translated;
-        renderBlocks();
+        if (ui) ui.updateBlock(block);
       }
     } catch (error) {
       // Silent fail
@@ -305,6 +330,7 @@ async function main() {
     };
     transcriptBlocks.set(nextBlockId, block);
     nextBlockId += 1;
+    if (ui) ui.addBlock(block);
     return block;
   }
 
@@ -327,7 +353,6 @@ async function main() {
 
     const block = createBlock(sourceLabel, sentence, targetLabel);
     recordContext(sentence);
-    renderBlocks();
     void translateAndPrint(block.id, sentence, direction, context);
   }
 
@@ -450,50 +475,49 @@ async function main() {
     if (!chunk) return;
     vertexInFlight = true;
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
     try {
-      const prompt = buildAudioPrompt(
+      const prompt = buildAudioPromptForStructured(
         config.direction,
         contextBuffer.slice(-contextWindowSize)
       );
       const wavBuffer = pcmToWavBuffer(chunk, 16000);
-      const result = await generateText({
+      const result = await generateObject({
         model: vertexModel(config.vertexModelId),
+        schema: AudioTranscriptionSchema,
         system: userContext || undefined,
         temperature: 0,
-        maxOutputTokens: 512,
+        abortSignal: controller.signal,
         messages: [
           {
             role: "user",
             content: [
               { type: "text", text: prompt },
-              { type: "file", mediaType: "audio/wav", data: wavBuffer },
+              {
+                type: "file",
+                mediaType: "audio/wav",
+                data: wavBuffer,
+              },
             ],
           },
         ],
       });
+      clearTimeout(timeoutId);
 
-      const parsed = normalizeVertexResponse(result.text);
-      if (!parsed) {
-        createBlock(
-          "EN",
-          "(Vertex response parse failed)",
-          "KR",
-          result.text.trim()
-        );
-        renderBlocks();
-        return;
-      }
+      const parsed = result.object;
       const transcript = parsed.transcript?.trim() ?? "";
       const translation = parsed.translation?.trim() ?? "";
       const sourceLanguage = parsed.sourceLanguage;
+
       if (!translation && !transcript) {
         createBlock(
           "EN",
           "(Vertex returned empty response)",
           "KR",
-          result.text.trim()
+          "(no content)"
         );
-        renderBlocks();
         return;
       }
 
@@ -502,7 +526,7 @@ async function main() {
       const targetLabel = sourceLabel === "KR" ? "EN" : "KR";
       const sourceText = transcript || "(unavailable)";
 
-      const block = createBlock(
+      createBlock(
         sourceLabel,
         sourceText,
         targetLabel,
@@ -514,10 +538,11 @@ async function main() {
         recordContext(translation);
       }
       lastVertexTranscript = transcript;
-      renderBlocks();
     } catch (error) {
-      createBlock("EN", "(Vertex error)", "KR", toReadableError(error));
-      renderBlocks();
+      clearTimeout(timeoutId);
+      const isTimeout = error instanceof Error && error.name === "AbortError";
+      const errorMsg = isTimeout ? "Request timed out (15s)" : toReadableError(error);
+      createBlock("EN", "(Vertex error)", "KR", errorMsg);
     } finally {
       vertexInFlight = false;
       if (vertexChunkQueue.length) {
@@ -557,10 +582,9 @@ async function main() {
       if (audioBytesSent > 0) return;
       if (!recordingStartedAt || Date.now() - recordingStartedAt < 3000) return;
       audioWarningShown = true;
-      renderBlocks();
-      printStatus(
-        "\n⚠️  No audio - check System Settings > Sound > Output: Multi-Output (BlackHole + Speakers)\n"
-      );
+      if (ui) {
+        ui.setStatus("⚠️ No audio - check Sound settings");
+      }
     }, 1000);
   }
 
@@ -622,47 +646,45 @@ async function main() {
     transcriptBlocks.clear();
     nextBlockId = 1;
     lastFlushAt = Date.now();
+    lastSummary = null;
 
-    renderBlocks();
-    printStatus("Connecting...");
+    if (ui) {
+      ui.clearBlocks();
+      ui.updateSummary(null);
+      ui.updateHeader(getUIState("connecting"));
+      ui.setStatus("Connecting...");
+    }
 
     if (shouldStreamToScribe()) {
       try {
         ws = await connectScribe();
-        printStatus("Streaming. Speak now.\n");
-        if (config.engine === "vertex") {
-          const projectLabel = config.vertexProject
-            ? ` (${config.vertexProject})`
-            : "";
-          const locationLabel = config.vertexLocation
-            ? `@${config.vertexLocation}`
-            : "";
-          printStatus(
-            `Vertex batching every ${(config.intervalMs / 1000).toFixed(
-              1
-            )}s using ${config.vertexModelId}${locationLabel}${projectLabel}\n`
-          );
+        if (ui) {
+          ui.updateHeader(getUIState("recording"));
+          ui.setStatus("Streaming. Speak now.");
         }
       } catch (error) {
         isRecording = false;
-        console.error(`Connection error: ${toReadableError(error)}`);
+        if (ui) ui.setStatus(`Connection error: ${toReadableError(error)}`);
         return;
       }
     } else {
-      printStatus("Streaming. Speak now.\n");
+      if (ui) {
+        ui.updateHeader(getUIState("recording"));
+        ui.setStatus("Streaming. Speak now.");
+      }
     }
 
     try {
       ffmpegProcess = spawnFfmpeg(device.index);
     } catch (error) {
       isRecording = false;
-      console.error(`ffmpeg error: ${toReadableError(error)}`);
+      if (ui) ui.setStatus(`ffmpeg error: ${toReadableError(error)}`);
       return;
     }
 
     if (!ffmpegProcess.stdout) {
       isRecording = false;
-      console.error("ffmpeg failed");
+      if (ui) ui.setStatus("ffmpeg failed");
       return;
     }
 
@@ -670,6 +692,7 @@ async function main() {
     startNoAudioTimer();
     startFlushTimer();
     startCommitTimer();
+    startSummaryTimer();
   }
 
   function stopRecording() {
@@ -683,6 +706,7 @@ async function main() {
 
     stopFlushTimer();
     stopCommitTimer();
+    stopSummaryTimer();
     flushBufferIfNeeded(true);
 
     if (ffmpegProcess) {
@@ -703,13 +727,15 @@ async function main() {
     vertexOverlap = Buffer.alloc(0);
     vertexInFlight = false;
 
-    renderBlocks();
-    printStatus("\nPaused. SPACE to resume, Q to quit.\n");
+    if (ui) {
+      ui.updateHeader(getUIState("paused"));
+      ui.setStatus("Paused. SPACE to resume, Q to quit.");
+    }
   }
 
   function shutdown() {
     if (isRecording) stopRecording();
-    exitFullscreen();
+    if (ui) ui.destroy();
     process.exit(0);
   }
 
@@ -727,8 +753,17 @@ async function main() {
 
   process.on("SIGINT", shutdown);
 
-  enterFullscreen();
-  renderBlocks();
+  // Initialize blessed UI
+  ui = createBlessedUI();
+  ui.updateHeader(getUIState("idle"));
+  ui.render();
+
+  // Set up blessed key handlers
+  ui.screen.key(["q", "C-c"], () => shutdown());
+  ui.screen.key(["space"], () => {
+    if (isRecording) stopRecording();
+    else void startRecording();
+  });
 
   await startRecording();
 }
@@ -874,7 +909,6 @@ function toReadableError(e: unknown) {
 }
 
 main().catch((e) => {
-  exitFullscreen();
   console.error(`Fatal: ${toReadableError(e)}`);
   process.exit(1);
 });
