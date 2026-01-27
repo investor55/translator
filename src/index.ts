@@ -211,10 +211,10 @@ async function main() {
   async function generateSummary() {
     if (summaryInFlight) return;
 
-    // Filter blocks from last 3 minutes (180000ms)
-    const threeMinutesAgo = Date.now() - 180000;
+    // Filter blocks from last 30 seconds
+    const windowStart = Date.now() - 30000;
     const recentBlocks = [...transcriptBlocks.values()].filter(
-      (b) => b.createdAt >= threeMinutesAgo
+      (b) => b.createdAt >= windowStart
     );
     if (recentBlocks.length < 2) return; // Not enough content to summarize
 
@@ -228,7 +228,7 @@ async function main() {
       const result = await generateObject({
         model: vertexModel(config.vertexModelId),
         schema: SummarySchema,
-        prompt: `Extract 3-4 key points from this recent conversation (last 3 minutes). Focus on important information, decisions, or topics discussed:\n\n${text}`,
+        prompt: `Summarize this conversation in 3-4 bullets:\n\n${text}`,
         abortSignal: AbortSignal.timeout(10000),
         temperature: 0,
       });
@@ -238,12 +238,8 @@ async function main() {
         log("INFO", `Summary response: ${elapsed}ms`);
       }
 
-      // Accumulate new key points (deduplicated)
-      for (const point of result.object.keyPoints) {
-        if (!allKeyPoints.includes(point)) {
-          allKeyPoints.push(point);
-        }
-      }
+      // Append all points to session log
+      allKeyPoints.push(...result.object.keyPoints);
 
       lastSummary = {
         keyPoints: result.object.keyPoints,
@@ -578,6 +574,11 @@ async function main() {
         ],
       });
 
+      // Attach no-op catch handlers to prevent unhandled rejection when abort occurs
+      // (these promises reject when stream is aborted, but we handle it in the catch block)
+      const objectPromise = object.catch(() => null);
+      const usagePromise = usage.catch(() => null);
+
       // Stream partial updates to UI
       let partialCount = 0;
       let firstTokenAt: number | null = null;
@@ -601,9 +602,18 @@ async function main() {
       }
 
       // Get final result and usage
-      const result = await object;
-      const finalUsage = await usage;
+      const result = await objectPromise;
+      const finalUsage = await usagePromise;
       clearTimeout(timeoutId);
+
+      // If aborted, result will be null from our catch handler
+      if (!result) {
+        updateBlock(block, {
+          sourceText: "(Vertex error)",
+          translation: "Request was aborted",
+        });
+        return;
+      }
 
       const elapsed = Date.now() - startTime;
       const ttft = firstTokenAt ? firstTokenAt - startTime : 0;
