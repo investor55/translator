@@ -23,7 +23,6 @@ import {
 import { type TranscriptBlock } from "./ui";
 import { createBlessedUI, type BlessedUI, type UIState } from "./ui-blessed";
 import {
-  buildAudioPrompt,
   buildAudioPromptForStructured,
   buildPrompt,
   extractSentences,
@@ -82,7 +81,7 @@ function showFatalError(label: string, msg: string) {
 
 // Global error handlers to prevent silent crashes
 process.on("unhandledRejection", (reason) => {
-  const msg = reason instanceof Error ? reason.message : String(reason);
+  const msg = toReadableError(reason);
   log("ERROR", `Unhandled rejection: ${msg}`);
   showFatalError("Unhandled rejection", msg);
 });
@@ -190,10 +189,6 @@ async function main() {
   let lastSummary: Summary | null = null;
   let summaryInFlight = false;
   const allKeyPoints: string[] = []; // Accumulated key points for log output
-
-  function handlePartialTranscript(_text: string) {
-    // Hidden to reduce spam
-  }
 
   // Zod schema for structured Vertex AI responses
   const AudioTranscriptionSchema = z.object({
@@ -473,8 +468,6 @@ async function main() {
           ready = true;
           clearTimeout(sessionTimeout);
           resolve(socket);
-        } else if (msg.message_type === "partial_transcript") {
-          handlePartialTranscript(msg.text ?? "");
         } else if (
           msg.message_type === "committed_transcript" ||
           msg.message_type === "committed_transcript_with_timestamps"
@@ -654,8 +647,10 @@ async function main() {
       lastVertexTranscript = transcript;
     } catch (error) {
       clearTimeout(timeoutId);
-      const isTimeout = error instanceof Error && error.name === "AbortError";
-      const errorMsg = isTimeout ? "Request timed out (15s)" : toReadableError(error);
+      const isAbortError =
+        (error instanceof Error && error.name === "AbortError") ||
+        (error && typeof error === "object" && "name" in error && error.name === "AbortError");
+      const errorMsg = isAbortError ? "Request timed out (15s)" : toReadableError(error);
       updateBlock(block, {
         sourceText: "(Vertex error)",
         translation: errorMsg,

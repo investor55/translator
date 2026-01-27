@@ -20,13 +20,6 @@ export type CliConfig = {
   debug: boolean;
 };
 
-export type TranscriptEntry = {
-  id: number;
-  korean?: string;
-  english?: string;
-  source: "ko" | "en";
-};
-
 export type Summary = {
   keyPoints: string[];
   updatedAt: number;

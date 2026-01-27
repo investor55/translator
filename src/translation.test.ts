@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   buildPrompt,
-  buildAudioPrompt,
   buildAudioPromptForStructured,
   hasTranslatableContent,
   resolveDirection,
@@ -28,36 +27,6 @@ describe("buildPrompt", () => {
     expect(result).toContain("Context");
     expect(result).toContain("Previous sentence one.");
     expect(result).toContain("Previous sentence two.");
-  });
-});
-
-describe("buildAudioPrompt", () => {
-  it("builds auto-detect prompt", () => {
-    const result = buildAudioPrompt("auto", []);
-    expect(result).toContain("Detect");
-    expect(result).toContain("Korean or English");
-    expect(result).toContain("JSON");
-  });
-
-  it("builds ko-en fixed direction prompt", () => {
-    const result = buildAudioPrompt("ko-en", []);
-    expect(result).toContain("Korean");
-    expect(result).toContain("English");
-    expect(result).toContain('"ko"');
-  });
-
-  it("builds en-ko fixed direction prompt", () => {
-    const result = buildAudioPrompt("en-ko", []);
-    expect(result).toContain("English");
-    expect(result).toContain("Korean");
-    expect(result).toContain('"en"');
-  });
-
-  it("includes context when provided", () => {
-    const context = ["Previous sentence."];
-    const result = buildAudioPrompt("auto", context);
-    expect(result).toContain("Context");
-    expect(result).toContain("Previous sentence.");
   });
 });
 

@@ -140,5 +140,12 @@ export function parseArgs(argv: string[]): CliConfig {
 }
 
 export function toReadableError(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === "object") {
+    // Handle error-like objects (e.g., DOMException, AbortError from SDK)
+    if ("message" in e && typeof e.message === "string") return e.message;
+    if ("name" in e && typeof e.name === "string") return e.name;
+  }
+  if (typeof e === "string") return e;
+  return "Unknown error";
 }
