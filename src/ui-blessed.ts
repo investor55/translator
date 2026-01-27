@@ -159,9 +159,8 @@ export function createBlessedUI(): BlessedUI {
     const elapsed = Math.floor((Date.now() - currentSummary.updatedAt) / 1000);
     const updatedLabel = elapsed < 60 ? `${elapsed}s ago` : `${Math.floor(elapsed / 60)}m ago`;
 
-    let content = `{bold}Topic:{/} ${currentSummary.topic}\n`;
-    content += `{bold}Key points:{/}\n`;
-    for (const point of currentSummary.keyPoints.slice(0, 3)) {
+    let content = `{bold}Key points:{/}\n`;
+    for (const point of currentSummary.keyPoints.slice(0, 4)) {
       content += `  {cyan-fg}•{/} ${point}\n`;
     }
     content += `{gray-fg}Updated: ${updatedLabel}{/}`;

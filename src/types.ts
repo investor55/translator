@@ -17,6 +17,7 @@ export type CliConfig = {
   contextFile: string;
   useContext: boolean;
   compact: boolean;
+  debug: boolean;
 };
 
 export type TranscriptEntry = {
@@ -27,7 +28,6 @@ export type TranscriptEntry = {
 };
 
 export type Summary = {
-  topic: string;
   keyPoints: string[];
   updatedAt: number;
 };

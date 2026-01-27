@@ -5,7 +5,11 @@
       "mcp__plugin_context7_context7__query-docs",
       "Bash(ffmpeg:*)",
       "Bash(brew info:*)",
-      "Bash(bun run:*)"
+      "Bash(bun run:*)",
+      "Bash(bunx tsc:*)",
+      "Bash(bun build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(grep:*)"
     ]
   }
 }

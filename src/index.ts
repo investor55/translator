@@ -1,9 +1,8 @@
 import "dotenv/config";
 import WebSocket from "ws";
-import { generateText, generateObject } from "ai";
+import { generateText, generateObject, streamObject } from "ai";
 import { bedrock } from "@ai-sdk/amazon-bedrock";
 import { createVertex } from "@ai-sdk/google-vertex";
-import readline from "readline";
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -31,19 +30,79 @@ import {
   hasTranslatableContent,
   resolveDirection,
 } from "./translation";
+import {
+  pcmToWavBuffer,
+  normalizeText,
+  cleanTranslationOutput,
+  parseArgs,
+  toReadableError,
+} from "./utils";
+
+// Simple file logger
+const LOG_FILE = path.join(process.cwd(), "translator.log");
+function log(level: "INFO" | "ERROR" | "WARN", msg: string) {
+  const ts = new Date().toISOString();
+  const line = `[${ts}] ${level}: ${msg}\n`;
+  fs.appendFileSync(LOG_FILE, line);
+}
+
+// Global UI reference for error display
+let globalUI: BlessedUI | null = null;
+let isShuttingDown = false;
+
+function showFatalError(label: string, msg: string) {
+  if (isShuttingDown) return; // Prevent recursive errors during shutdown
+  isShuttingDown = true;
+
+  const fullMsg = `${label}: ${msg}`;
+  log("ERROR", fullMsg);
+
+  if (globalUI) {
+    try {
+      globalUI.setStatus(`❌ ${fullMsg}`);
+      globalUI.render();
+    } catch {
+      // UI already destroyed
+    }
+    // Give user time to see the error before exiting
+    setTimeout(() => {
+      try {
+        globalUI?.destroy();
+      } catch {
+        // Ignore
+      }
+      console.error(fullMsg);
+      process.exit(1);
+    }, 3000);
+  } else {
+    console.error(fullMsg);
+    process.exit(1);
+  }
+}
 
 // Global error handlers to prevent silent crashes
 process.on("unhandledRejection", (reason) => {
   const msg = reason instanceof Error ? reason.message : String(reason);
-  console.error(`Unhandled rejection: ${msg}`);
+  log("ERROR", `Unhandled rejection: ${msg}`);
+  showFatalError("Unhandled rejection", msg);
 });
 
 process.on("uncaughtException", (err) => {
-  console.error(`Uncaught exception: ${err.message}`);
+  log("ERROR", `Uncaught exception: ${err.message}\n${err.stack}`);
+  showFatalError("Uncaught exception", err.message);
+});
+
+// Log unexpected exits
+process.on("exit", (code) => {
+  log("INFO", `Process exiting with code ${code}`);
+  if (code !== 0 && !isShuttingDown) {
+    console.error(`Process exiting with code ${code}`);
+  }
 });
 
 async function main() {
   const config = parseArgs(process.argv.slice(2));
+  log("INFO", `Starting translator with engine=${config.engine}`);
 
   if (config.help) {
     printHelp();
@@ -85,6 +144,7 @@ async function main() {
     console.log(formatDevices(devices));
     return;
   }
+  log("INFO", `Selected device: [${device.index}] ${device.name}`);
 
   const bedrockModel = bedrock(config.modelId);
   const vertexModel = createVertex({
@@ -103,7 +163,8 @@ async function main() {
   let audioWarningShown = false;
   let vertexFlushTimer: NodeJS.Timeout | null = null;
   let vertexChunkQueue: Buffer[] = [];
-  let vertexInFlight = false;
+  let vertexInFlight = 0;
+  const vertexMaxConcurrency = 3;
   let vertexOverlap = Buffer.alloc(0);
 
   const recentTranslationLimit = 20;
@@ -114,6 +175,7 @@ async function main() {
   const contextBuffer: string[] = [];
   const userContext = loadUserContext(config);
   const transcriptBlocks = new Map<number, TranscriptBlock>();
+  const inFlightBlockIds = new Set<number>();
   let nextBlockId = 1;
   let transcriptBuffer = "";
   let lastCommittedText = "";
@@ -127,6 +189,7 @@ async function main() {
   let summaryTimer: NodeJS.Timeout | null = null;
   let lastSummary: Summary | null = null;
   let summaryInFlight = false;
+  const allKeyPoints: string[] = []; // Accumulated key points for log output
 
   function handlePartialTranscript(_text: string) {
     // Hidden to reduce spam
@@ -147,31 +210,48 @@ async function main() {
 
   // Zod schema for conversation summary
   const SummarySchema = z.object({
-    topic: z.string().describe("A brief 1-sentence description of the conversation topic"),
-    keyPoints: z.array(z.string()).describe("2-3 key points being discussed"),
+    keyPoints: z.array(z.string()).describe("3-4 key points from the recent conversation"),
   });
 
   async function generateSummary() {
     if (summaryInFlight) return;
-    const blocks = [...transcriptBlocks.values()].slice(-10);
-    if (blocks.length < 2) return; // Not enough content to summarize
+
+    // Filter blocks from last 3 minutes (180000ms)
+    const threeMinutesAgo = Date.now() - 180000;
+    const recentBlocks = [...transcriptBlocks.values()].filter(
+      (b) => b.createdAt >= threeMinutesAgo
+    );
+    if (recentBlocks.length < 2) return; // Not enough content to summarize
 
     summaryInFlight = true;
+    const startTime = Date.now();
     try {
-      const text = blocks
+      const text = recentBlocks
         .map((b) => `${b.sourceLabel}: ${b.sourceText}${b.translation ? ` → ${b.targetLabel}: ${b.translation}` : ""}`)
         .join("\n");
 
       const result = await generateObject({
         model: vertexModel(config.vertexModelId),
         schema: SummarySchema,
-        prompt: `Summarize this bilingual conversation in a few words. Focus on the main topic and key discussion points:\n\n${text}`,
+        prompt: `Extract 3-4 key points from this recent conversation (last 3 minutes). Focus on important information, decisions, or topics discussed:\n\n${text}`,
         abortSignal: AbortSignal.timeout(10000),
         temperature: 0,
       });
 
+      const elapsed = Date.now() - startTime;
+      if (config.debug) {
+        log("INFO", `Summary response: ${elapsed}ms`);
+      }
+
+      // Accumulate new key points (deduplicated)
+      for (const point of result.object.keyPoints) {
+        if (!allKeyPoints.includes(point)) {
+          allKeyPoints.push(point);
+        }
+      }
+
       lastSummary = {
-        ...result.object,
+        keyPoints: result.object.keyPoints,
         updatedAt: Date.now(),
       };
       if (ui) {
@@ -199,35 +279,6 @@ async function main() {
     }
   }
 
-  function pcmToWavBuffer(pcm: Buffer, sampleRate: number) {
-    const numChannels = 1;
-    const bitsPerSample = 16;
-    const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
-    const blockAlign = numChannels * (bitsPerSample / 8);
-    const dataSize = pcm.length;
-    const buffer = Buffer.alloc(44 + dataSize);
-
-    buffer.write("RIFF", 0);
-    buffer.writeUInt32LE(36 + dataSize, 4);
-    buffer.write("WAVE", 8);
-    buffer.write("fmt ", 12);
-    buffer.writeUInt32LE(16, 16);
-    buffer.writeUInt16LE(1, 20);
-    buffer.writeUInt16LE(numChannels, 22);
-    buffer.writeUInt32LE(sampleRate, 24);
-    buffer.writeUInt32LE(byteRate, 28);
-    buffer.writeUInt16LE(blockAlign, 32);
-    buffer.writeUInt16LE(bitsPerSample, 34);
-    buffer.write("data", 36);
-    buffer.writeUInt32LE(dataSize, 40);
-    pcm.copy(buffer, 44);
-    return buffer;
-  }
-
-  function normalizeText(text: string) {
-    return text.trim().replace(/\s+/g, " ");
-  }
-
   function loadUserContext(config: CliConfig) {
     if (!config.useContext) return "";
     const fullPath = path.resolve(config.contextFile);
@@ -251,23 +302,6 @@ async function main() {
       if (oldest) recentTranslations.delete(oldest);
     }
     return true;
-  }
-
-  function cleanTranslationOutput(text: string) {
-    const lines = text
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-    if (lines.length === 0) return "";
-    const filtered = lines.filter(
-      (line) =>
-        !/^#/.test(line) &&
-        !/^translation\b/i.test(line) &&
-        !/^explanation\b/i.test(line) &&
-        !/^breakdown\b/i.test(line)
-    );
-    const candidate = (filtered[0] ?? lines[0]).trim();
-    return candidate.replace(/^[-–—]\s+/, "");
   }
 
   function getUIState(status: UIState["status"]): UIState {
@@ -303,6 +337,7 @@ async function main() {
     direction: FixedDirection,
     context: string[]
   ) {
+    const startTime = Date.now();
     try {
       const prompt = buildPrompt(text, direction, context);
       const result = await generateText({
@@ -312,6 +347,11 @@ async function main() {
         temperature: 0,
         maxOutputTokens: 100,
       });
+
+      const elapsed = Date.now() - startTime;
+      if (config.debug) {
+        log("INFO", `Bedrock response: ${elapsed}ms`);
+      }
 
       const translated = cleanTranslationOutput(result.text);
       if (translated) {
@@ -337,6 +377,7 @@ async function main() {
       sourceText,
       targetLabel,
       translation,
+      createdAt: Date.now(),
     };
     transcriptBlocks.set(nextBlockId, block);
     nextBlockId += 1;
@@ -479,14 +520,42 @@ async function main() {
     );
   }
 
+  function updateBlock(block: TranscriptBlock, updates: Partial<TranscriptBlock>) {
+    Object.assign(block, updates);
+    if (ui) ui.updateBlock(block);
+  }
+
+  function updateInFlightDisplay() {
+    if (inFlightBlockIds.size === 0) return;
+    const maxId = Math.max(...inFlightBlockIds);
+    for (const id of inFlightBlockIds) {
+      const b = transcriptBlocks.get(id);
+      if (!b) continue;
+      // Skip if block already has real content (not empty or placeholder)
+      if (b.sourceText && b.sourceText !== "" && b.sourceText !== "Processing...") continue;
+      // Show "Processing..." only if not the last in-flight block
+      const displayText = id < maxId ? "Processing..." : "";
+      if (b.sourceText !== displayText) {
+        b.sourceText = displayText;
+        if (ui) ui.updateBlock(b);
+      }
+    }
+  }
+
   async function processVertexQueue() {
-    if (vertexInFlight || vertexChunkQueue.length === 0) return;
+    if (vertexInFlight >= vertexMaxConcurrency || vertexChunkQueue.length === 0) return;
     const chunk = vertexChunkQueue.shift();
     if (!chunk) return;
-    vertexInFlight = true;
+    vertexInFlight++;
+
+    // Create block with empty text initially (will show nothing for trailing block)
+    const block = createBlock("EN", "", "KR", undefined);
+    inFlightBlockIds.add(block.id);
+    updateInFlightDisplay(); // Update all in-flight blocks' display
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+    const startTime = Date.now();
 
     try {
       const prompt = buildAudioPromptForStructured(
@@ -494,7 +563,8 @@ async function main() {
         contextBuffer.slice(-contextWindowSize)
       );
       const wavBuffer = pcmToWavBuffer(chunk, 16000);
-      const result = await generateObject({
+
+      const { partialObjectStream, object, usage } = streamObject({
         model: vertexModel(config.vertexModelId),
         schema: AudioTranscriptionSchema,
         system: userContext || undefined,
@@ -514,20 +584,53 @@ async function main() {
           },
         ],
       });
+
+      // Stream partial updates to UI
+      let partialCount = 0;
+      let firstTokenAt: number | null = null;
+      let lastTokenAt: number | null = null;
+      for await (const partial of partialObjectStream) {
+        const now = Date.now();
+        if (firstTokenAt === null) firstTokenAt = now;
+        lastTokenAt = now;
+        partialCount++;
+        if (partial.transcript || partial.translation) {
+          const sourceLabel =
+            partial.sourceLanguage === "ko" ? "KR" : partial.sourceLanguage === "en" ? "EN" : "EN";
+          const targetLabel = sourceLabel === "KR" ? "EN" : "KR";
+          updateBlock(block, {
+            sourceLabel,
+            sourceText: partial.transcript ?? "...",
+            targetLabel,
+            translation: partial.translation,
+          });
+        }
+      }
+
+      // Get final result and usage
+      const result = await object;
+      const finalUsage = await usage;
       clearTimeout(timeoutId);
 
-      const parsed = result.object;
-      const transcript = parsed.transcript?.trim() ?? "";
-      const translation = parsed.translation?.trim() ?? "";
-      const sourceLanguage = parsed.sourceLanguage;
+      const elapsed = Date.now() - startTime;
+      const ttft = firstTokenAt ? firstTokenAt - startTime : 0;
+      const streamDuration = firstTokenAt && lastTokenAt ? lastTokenAt - firstTokenAt : 0;
+      const inTok = finalUsage?.inputTokens ?? 0;
+      const outTok = finalUsage?.outputTokens ?? 0;
+      if (config.debug) {
+        log("INFO", `Vertex stream: total=${elapsed}ms, TTFT=${ttft}ms, stream=${streamDuration}ms, chunks=${partialCount}, tokens: ${inTok}→${outTok}, queue: ${vertexChunkQueue.length}`);
+        if (ui) ui.setStatus(`TTFT: ${ttft}ms | Stream: ${streamDuration}ms (${partialCount} chunks) | T: ${inTok}→${outTok}`);
+      }
+
+      const transcript = result.transcript?.trim() ?? "";
+      const translation = result.translation?.trim() ?? "";
+      const sourceLanguage = result.sourceLanguage;
 
       if (!translation && !transcript) {
-        createBlock(
-          "EN",
-          "(Vertex returned empty response)",
-          "KR",
-          "(no content)"
-        );
+        updateBlock(block, {
+          sourceText: "(Vertex returned empty response)",
+          translation: "(no content)",
+        });
         return;
       }
 
@@ -536,12 +639,13 @@ async function main() {
       const targetLabel = sourceLabel === "KR" ? "EN" : "KR";
       const sourceText = transcript || "(unavailable)";
 
-      createBlock(
+      updateBlock(block, {
         sourceLabel,
         sourceText,
         targetLabel,
-        translation || undefined
-      );
+        translation: translation || undefined,
+      });
+
       if (sourceText && hasTranslatableContent(sourceText)) {
         recordContext(sourceText);
       } else if (translation && hasTranslatableContent(translation)) {
@@ -552,10 +656,16 @@ async function main() {
       clearTimeout(timeoutId);
       const isTimeout = error instanceof Error && error.name === "AbortError";
       const errorMsg = isTimeout ? "Request timed out (15s)" : toReadableError(error);
-      createBlock("EN", "(Vertex error)", "KR", errorMsg);
+      updateBlock(block, {
+        sourceText: "(Vertex error)",
+        translation: errorMsg,
+      });
     } finally {
-      vertexInFlight = false;
-      if (vertexChunkQueue.length) {
+      inFlightBlockIds.delete(block.id);
+      updateInFlightDisplay(); // Re-render remaining blocks
+      vertexInFlight--;
+      // Trigger next chunk if queue has items and we have capacity
+      if (vertexChunkQueue.length && vertexInFlight < vertexMaxConcurrency) {
         void processVertexQueue();
       }
     }
@@ -668,6 +778,15 @@ async function main() {
     if (shouldStreamToScribe()) {
       try {
         ws = await connectScribe();
+        // Handle post-connection WebSocket events
+        ws.on("error", (err) => {
+          if (ui) ui.setStatus(`WebSocket error: ${err.message}`);
+        });
+        ws.on("close", (code, reason) => {
+          if (isRecording && ui) {
+            ui.setStatus(`WebSocket closed: ${code} ${reason?.toString() || ""}`);
+          }
+        });
         if (ui) {
           ui.updateHeader(getUIState("recording"));
           ui.setStatus("Streaming. Speak now.");
@@ -703,18 +822,27 @@ async function main() {
     // Capture ffmpeg errors
     ffmpegProcess.stderr?.on("data", (data: Buffer) => {
       const msg = data.toString().trim();
-      if (msg && ui) {
-        ui.setStatus(`ffmpeg: ${msg.slice(0, 80)}`);
+      if (msg) {
+        log("WARN", `ffmpeg stderr: ${msg}`);
+        if (ui) ui.setStatus(`ffmpeg: ${msg.slice(0, 80)}`);
       }
     });
 
     ffmpegProcess.on("error", (err) => {
+      log("ERROR", `ffmpeg error: ${err.message}`);
       if (ui) ui.setStatus(`ffmpeg error: ${err.message}`);
     });
 
-    ffmpegProcess.on("close", (code) => {
-      if (code !== 0 && code !== null && isRecording && ui) {
-        ui.setStatus(`ffmpeg exited with code ${code}`);
+    ffmpegProcess.on("close", (code, signal) => {
+      log("WARN", `ffmpeg closed: code=${code} signal=${signal}`);
+      if (code !== 0 && code !== null && isRecording) {
+        const msg = `ffmpeg exited with code ${code}`;
+        log("ERROR", msg);
+        if (ui) {
+          ui.setStatus(`❌ ${msg} - check translator.log`);
+          ui.render();
+        }
+        // Don't exit - let user see the error
       }
     });
 
@@ -754,7 +882,8 @@ async function main() {
     vertexChunkQueue = [];
     vertexBuffer = Buffer.alloc(0);
     vertexOverlap = Buffer.alloc(0);
-    vertexInFlight = false;
+    vertexInFlight = 0;
+    inFlightBlockIds.clear();
 
     if (ui) {
       ui.updateHeader(getUIState("paused"));
@@ -762,120 +891,48 @@ async function main() {
     }
   }
 
-  function shutdown() {
+  function shutdown(reason = "unknown") {
+    log("INFO", `Shutdown called: ${reason}`);
     if (isRecording) stopRecording();
+
+    // Write accumulated key points to summary.log
+    if (allKeyPoints.length > 0) {
+      const summaryLogFile = path.join(process.cwd(), "summary.log");
+      const ts = new Date().toISOString();
+      const lines = [
+        `\n--- Session: ${ts} ---`,
+        ...allKeyPoints.map((p) => `• ${p}`),
+        "",
+      ].join("\n");
+      fs.appendFileSync(summaryLogFile, lines);
+      log("INFO", `Wrote ${allKeyPoints.length} key points to summary.log`);
+    }
+
     if (ui) ui.destroy();
     process.exit(0);
   }
 
-  // Keyboard
-  readline.emitKeypressEvents(process.stdin);
-  if (process.stdin.isTTY) process.stdin.setRawMode(true);
-
-  process.stdin.on("keypress", (_str, key) => {
-    if ((key.ctrl && key.name === "c") || key.name === "q") shutdown();
-    if (key.name === "space") {
-      if (isRecording) stopRecording();
-      else void startRecording();
-    }
-  });
-
-  process.on("SIGINT", shutdown);
+  process.on("SIGINT", () => shutdown("SIGINT"));
 
   // Initialize blessed UI
-  ui = createBlessedUI();
-  ui.updateHeader(getUIState("idle"));
-  ui.render();
+  try {
+    ui = createBlessedUI();
+    globalUI = ui; // Make available for global error handlers
+    ui.updateHeader(getUIState("idle"));
+    ui.render();
 
-  // Set up blessed key handlers
-  ui.screen.key(["q", "C-c"], () => shutdown());
-  ui.screen.key(["space"], () => {
-    if (isRecording) stopRecording();
-    else void startRecording();
-  });
+    // Set up blessed key handlers
+    ui.screen.key(["q", "C-c"], () => shutdown("blessed key q/C-c"));
+    ui.screen.key(["space"], () => {
+      if (isRecording) stopRecording();
+      else void startRecording();
+    });
+  } catch (error) {
+    console.error(`Failed to initialize UI: ${toReadableError(error)}`);
+    process.exit(1);
+  }
 
   await startRecording();
-}
-
-function parseArgs(argv: string[]): CliConfig {
-  const config: CliConfig = {
-    device: undefined,
-    direction: "auto",
-    intervalMs: DEFAULT_INTERVAL_MS,
-    modelId: DEFAULT_MODEL_ID,
-    engine: "elevenlabs",
-    vertexModelId: DEFAULT_VERTEX_MODEL_ID,
-    vertexProject: process.env.GOOGLE_VERTEX_PROJECT_ID,
-    vertexLocation: DEFAULT_VERTEX_LOCATION,
-    listDevices: false,
-    help: false,
-    contextFile: path.resolve("context.md"),
-    useContext: true,
-    compact: false,
-  };
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--help" || arg === "-h") {
-      config.help = true;
-      continue;
-    }
-    if (arg === "--list-devices") {
-      config.listDevices = true;
-      continue;
-    }
-
-    if (arg.startsWith("--device")) {
-      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
-      if (val) config.device = val;
-      continue;
-    }
-    if (arg.startsWith("--direction")) {
-      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
-      if (val === "auto" || val === "ko-en" || val === "en-ko")
-        config.direction = val;
-      continue;
-    }
-    if (arg.startsWith("--model")) {
-      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
-      if (val) config.modelId = val;
-      continue;
-    }
-    if (arg.startsWith("--engine")) {
-      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
-      if (val === "elevenlabs" || val === "vertex") config.engine = val;
-      continue;
-    }
-    if (arg.startsWith("--vertex-model")) {
-      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
-      if (val) config.vertexModelId = val;
-      continue;
-    }
-    if (arg.startsWith("--vertex-project")) {
-      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
-      if (val) config.vertexProject = val;
-      continue;
-    }
-    if (arg.startsWith("--vertex-location")) {
-      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
-      if (val) config.vertexLocation = val;
-      continue;
-    }
-    if (arg.startsWith("--context-file")) {
-      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
-      if (val) config.contextFile = val;
-      continue;
-    }
-    if (arg === "--no-context") {
-      config.useContext = false;
-      continue;
-    }
-    if (arg === "--compact") {
-      config.compact = true;
-      continue;
-    }
-  }
-  return config;
 }
 
 function printHelp() {
@@ -892,6 +949,7 @@ Options:
   --context-file <path>      Default: context.md
   --no-context               Disable context.md injection
   --compact                  Less vertical spacing
+  --debug                    Log API response times to translator.log
   --list-devices             List audio devices
   -h, --help
 
@@ -933,11 +991,6 @@ function validateEnv(engine: Engine, config: CliConfig) {
   }
 }
 
-function toReadableError(e: unknown) {
-  return e instanceof Error ? e.message : String(e);
-}
-
 main().catch((e) => {
-  console.error(`Fatal: ${toReadableError(e)}`);
-  process.exit(1);
+  showFatalError("Fatal", toReadableError(e));
 });

@@ -14,6 +14,7 @@ export type TranscriptBlock = {
   sourceText: string;
   targetLabel: "KR" | "EN";
   translation?: string;
+  createdAt: number;
 };
 
 export function enterFullscreen(): void {

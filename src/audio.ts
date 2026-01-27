@@ -24,7 +24,7 @@ export async function listAvfoundationDevices(): Promise<Device[]> {
   });
 }
 
-function parseAvfoundationOutput(output: string): Device[] {
+export function parseAvfoundationOutput(output: string): Device[] {
   const lines = output.split("\n");
   const devices: Device[] = [];
   let inAudioSection = false;
