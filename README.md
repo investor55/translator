@@ -8,8 +8,9 @@ A terminal-based real-time audio translation tool that captures system audio, tr
 - **Dual transcription engines**: ElevenLabs Scribe (streaming) or Google Vertex AI (batch)
 - **Bidirectional translation**: Korean ↔ English with auto-detection
 - **Context-aware translation** using sliding window of previous sentences
-- **Terminal UI** with live transcript blocks and color-coded output
+- **Full-screen terminal UI** with blessed library, live transcript blocks, and color-coded output
 - **Customizable context** via `context.md` for speaker names, terminology, and style guidance
+- **Test suite** with Vitest for unit testing audio, translation, and utility functions
 
 ## Prerequisites
 
@@ -45,6 +46,9 @@ bun install
 # Set up environment variables
 cp .env.example .env
 # Edit .env with your API keys
+
+# Run tests
+bun run test
 ```
 
 ## Audio Setup (macOS)
@@ -95,6 +99,7 @@ Options:
   --context-file <path>      Context file path (default: context.md)
   --no-context               Disable context.md injection
   --compact                  Reduce vertical spacing in output
+  --debug                    Enable debug logging
   --list-devices             List available audio devices
   -h, --help                 Show help
 ```
@@ -173,12 +178,18 @@ The content is injected into the system prompt for every translation, helping ma
 ```
 translator/
 ├── src/
-│   ├── index.ts        # Main application logic
-│   ├── audio.ts        # Audio device detection and ffmpeg streaming
-│   ├── translation.ts  # Translation prompts and text processing
-│   ├── ui.ts           # Terminal UI rendering
-│   └── types.ts        # TypeScript type definitions
-├── context.md          # User-provided translation context
+│   ├── index.ts           # Main application logic
+│   ├── audio.ts           # Audio device detection and ffmpeg streaming
+│   ├── audio.test.ts      # Audio module tests
+│   ├── translation.ts     # Translation prompts and text processing
+│   ├── translation.test.ts # Translation module tests
+│   ├── utils.ts           # Shared utilities (WAV encoding, CLI parsing, text normalization)
+│   ├── utils.test.ts      # Utils module tests
+│   ├── ui-blessed.ts      # Full-screen terminal UI using blessed
+│   ├── ui.ts              # ANSI-based UI helpers and types
+│   └── types.ts           # TypeScript type definitions
+├── context.md             # User-provided translation context
+├── vitest.config.ts       # Vitest test configuration
 ├── package.json
 ├── tsconfig.json
 └── README.md
@@ -230,6 +241,23 @@ brew install ffmpeg
 - Increase `--interval-ms` for longer audio chunks (Vertex mode)
 - Adjust speaker volume and audio quality
 - Use `--direction` to force specific language pair
+
+## Development
+
+### Running Tests
+
+```bash
+# Run all tests once
+bun run test
+
+# Run tests in watch mode
+bun run test:watch
+```
+
+Tests cover:
+- **audio.ts**: Device detection and loopback selection
+- **translation.ts**: Language detection, sentence extraction, prompt building
+- **utils.ts**: WAV encoding, CLI argument parsing, text normalization
 
 ## License
 
