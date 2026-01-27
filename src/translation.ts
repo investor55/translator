@@ -39,13 +39,17 @@ export function buildAudioPromptForStructured(
 2. Transcribe the audio in its original language
 3. If ${sourceLangName}, translate to English. If English, leave translation empty.
 
+If there is no speech, silence, or unintelligible audio, return an empty transcript and empty translation.
+
 Return sourceLanguage ("${sourceLang}" or "en"), transcript, and translation (empty string if English).`;
   }
 
   const sourceLanguage = direction === "ko-en" ? sourceLangName : "English";
   const targetLanguage = direction === "ko-en" ? "English" : sourceLangName;
 
-  return `${contextBlock}Listen to the audio clip spoken in ${sourceLanguage}. Transcribe it in ${sourceLanguage} and translate it into ${targetLanguage}.`;
+  return `${contextBlock}Listen to the audio clip spoken in ${sourceLanguage}. Transcribe it in ${sourceLanguage} and translate it into ${targetLanguage}.
+
+If there is no speech, silence, or unintelligible audio, return an empty transcript and empty translation.`;
 }
 
 export function hasTranslatableContent(text: string): boolean {
