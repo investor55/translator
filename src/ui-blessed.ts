@@ -28,15 +28,13 @@ const COLORS = {
   label: "cyan",
   text: "white",
   dim: "gray",
-  korean: "cyan",
-  english: "green",
 };
 
 export function createBlessedUI(): BlessedUI {
   const screen = blessed.screen({
     smartCSR: true,
     fullUnicode: true, // Enable proper CJK width calculation for Korean/Chinese/Japanese
-    title: "Realtime Translator",
+    title: "Rosetta",
     cursor: { artificial: true, shape: "line", blink: true, color: null },
   });
 
@@ -123,6 +121,19 @@ export function createBlessedUI(): BlessedUI {
     contextLoaded: false,
   };
 
+  // Track label colors across all renders
+  const labelColors: Record<string, string> = {};
+  const availableColors = ["green", "cyan", "yellow", "magenta", "blue"];
+  let nextColorIndex = 0;
+
+  function getColorForLabel(label: string): string {
+    if (!labelColors[label]) {
+      labelColors[label] = availableColors[nextColorIndex % availableColors.length];
+      nextColorIndex++;
+    }
+    return labelColors[label];
+  }
+
   function getStatusLabel(status: UIState["status"]): string {
     switch (status) {
       case "idle":
@@ -142,11 +153,11 @@ export function createBlessedUI(): BlessedUI {
     const contextLabel = uiState.contextLoaded ? " {cyan-fg}[CTX]{/}" : "";
 
     header.setContent(
-      `{bold}Realtime Translator{/bold}  {gray-fg}│{/}  ` +
+      `{bold}{cyan-fg}◈ Rosetta{/}  {gray-fg}│{/}  ` +
       `{gray-fg}Device:{/} ${uiState.deviceName}  {gray-fg}│{/}  ` +
       `{gray-fg}Interval:{/} ${interval}  {gray-fg}│{/}  ` +
       `${statusLabel}${contextLabel}  {gray-fg}│{/}  ` +
-      `{gray-fg}Model:{/} ${uiState.modelId}`
+      `${uiState.modelId}`
     );
   }
 
@@ -177,14 +188,13 @@ export function createBlessedUI(): BlessedUI {
     const lines: string[] = [];
     for (const block of blocks) {
       const index = block.id.toString().padStart(3, "0");
-      // English gets green, all other languages get cyan
-      const sourceColor = block.sourceLabel === "EN" ? COLORS.english : COLORS.korean;
-      const targetColor = block.targetLabel === "EN" ? COLORS.english : COLORS.korean;
+      const sourceColor = getColorForLabel(block.sourceLabel);
+      const targetColor = getColorForLabel(block.targetLabel);
 
       lines.push(`{gray-fg}— ${index} —{/}`);
       lines.push(`{bold}{${sourceColor}-fg}${block.sourceLabel}:{/} ${block.sourceText}`);
 
-      // Skip translation line for English-only (transcription mode)
+      // Skip translation line when source equals target (transcription mode)
       const isTranscriptionOnly = block.sourceLabel === block.targetLabel;
       if (!isTranscriptionOnly) {
         if (block.translation) {

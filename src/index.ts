@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
-import type { CliConfig, Device, Engine, FixedDirection, Summary } from "./types";
+import type { CliConfig, Device, Engine, Summary } from "./types";
 import {
   DEFAULT_MODEL_ID,
   DEFAULT_INTERVAL_MS,
@@ -27,8 +27,15 @@ import {
   buildPrompt,
   extractSentences,
   hasTranslatableContent,
-  resolveDirection,
+  detectSourceLanguage,
+  LANG_NAMES,
 } from "./translation";
+import {
+  showIntroScreen,
+  getLanguageLabel,
+  type LanguageCode,
+  type IntroSelection,
+} from "./intro-screen";
 import {
   pcmToWavBuffer,
   normalizeText,
@@ -130,6 +137,16 @@ async function main() {
     return;
   }
 
+  // Show intro screen for language/engine selection (unless --skip-intro)
+  if (!config.skipIntro) {
+    const selection = await showIntroScreen();
+    config.sourceLang = selection.sourceLang;
+    config.targetLang = selection.targetLang;
+    config.engine = selection.engine;
+  }
+
+  log("INFO", `Languages: ${config.sourceLang} → ${config.targetLang}`);
+
   validateEnv(config.engine, config);
 
   let devices: Device[] = [];
@@ -201,18 +218,21 @@ async function main() {
   const allKeyPoints: string[] = []; // Accumulated key points for log output
 
   // Zod schema for structured Vertex AI responses
-  const sourceLangUpper = config.sourceLang.toUpperCase();
+  const sourceLangLabel = getLanguageLabel(config.sourceLang);
+  const targetLangLabel = getLanguageLabel(config.targetLang);
+  const sourceLangName = LANG_NAMES[config.sourceLang];
+  const targetLangName = LANG_NAMES[config.targetLang];
   const AudioTranscriptionSchema = z.object({
     sourceLanguage: z
-      .enum(["en", config.sourceLang] as [string, string])
-      .describe(`The detected language: "${config.sourceLang}" for ${sourceLangUpper} or "en" for English`),
+      .enum([config.sourceLang, config.targetLang] as [string, string])
+      .describe(`The detected language: "${config.sourceLang}" for ${sourceLangName} or "${config.targetLang}" for ${targetLangName}`),
     transcript: z
       .string()
       .describe("The transcription of the audio in the original language"),
     translation: z
       .string()
       .optional()
-      .describe("The English translation. Empty if the audio is already in English."),
+      .describe(`The translation. Empty if audio matches target language (${targetLangName}).`),
   });
 
   // Zod schema for conversation summary
@@ -311,9 +331,10 @@ async function main() {
     const activeModelId =
       config.engine === "vertex" ? config.vertexModelId : config.modelId;
     const engineLabel = config.engine === "vertex" ? "Vertex" : "ElevenLabs";
+    const langPair = `${sourceLangName} → ${targetLangName}`;
     return {
       deviceName: device.name,
-      modelId: `${activeModelId} (${engineLabel})`,
+      modelId: `${langPair} | ${activeModelId} (${engineLabel})`,
       intervalMs: config.intervalMs,
       status,
       contextLoaded: !!userContext,
@@ -337,12 +358,16 @@ async function main() {
   async function translateAndPrint(
     blockId: number,
     text: string,
-    direction: FixedDirection,
+    detectedLang: LanguageCode,
     context: string[]
   ) {
+    // Determine translation direction based on detected language
+    const fromLang = detectedLang;
+    const toLang = detectedLang === config.sourceLang ? config.targetLang : config.sourceLang;
+
     const startTime = Date.now();
     try {
-      const prompt = buildPrompt(text, direction, context);
+      const prompt = buildPrompt(text, fromLang, toLang, context);
       const result = await generateText({
         model: bedrockModel,
         system: userContext || undefined,
@@ -363,7 +388,7 @@ async function main() {
         block.translation = translated;
         if (ui) ui.updateBlock(block);
       }
-    } catch (error) {
+    } catch {
       // Silent fail
     }
   }
@@ -400,14 +425,14 @@ async function main() {
     if (!hasTranslatableContent(sentence)) return;
     if (!rememberTranslation(sentence)) return;
 
-    const direction = resolveDirection(sentence, config.direction);
-    const sourceLabel = direction === "ko-en" ? "KR" : "EN";
-    const targetLabel = direction === "ko-en" ? "EN" : "KR";
+    const detectedLang = detectSourceLanguage(sentence, config.sourceLang, config.targetLang);
+    const sourceLabel = getLanguageLabel(detectedLang);
+    const targetLabel = detectedLang === config.sourceLang ? targetLangLabel : sourceLangLabel;
     const context = contextBuffer.slice(-contextWindowSize);
 
     const block = createBlock(sourceLabel, sentence, targetLabel);
     recordContext(sentence);
-    void translateAndPrint(block.id, sentence, direction, context);
+    void translateAndPrint(block.id, sentence, detectedLang, context);
   }
 
   function flushTranscriptBuffer() {
@@ -550,7 +575,7 @@ async function main() {
     vertexInFlight++;
 
     // Create block with empty text initially (will show nothing for trailing block)
-    const block = createBlock("EN", "", "KR", undefined);
+    const block = createBlock(sourceLangLabel, "", targetLangLabel, undefined);
     inFlightBlockIds.add(block.id);
     updateInFlightDisplay(); // Update all in-flight blocks' display
 
@@ -561,8 +586,9 @@ async function main() {
     try {
       const prompt = buildAudioPromptForStructured(
         config.direction,
-        contextBuffer.slice(-contextWindowSize),
-        config.sourceLang
+        config.sourceLang,
+        config.targetLang,
+        contextBuffer.slice(-contextWindowSize)
       );
       const wavBuffer = pcmToWavBuffer(chunk, 16000);
 
@@ -598,7 +624,7 @@ async function main() {
 
       const transcript = result.transcript?.trim() ?? "";
       const translation = result.translation?.trim() ?? "";
-      const sourceLanguage = result.sourceLanguage;
+      const detectedLang = result.sourceLanguage as LanguageCode;
 
       if (!translation && !transcript) {
         updateBlock(block, {
@@ -608,23 +634,25 @@ async function main() {
         return;
       }
 
-      const isEnglish = sourceLanguage === "en";
       const sourceText = transcript || "(unavailable)";
+      const isTargetLang = detectedLang === config.targetLang;
+      const detectedLabel = getLanguageLabel(detectedLang);
+      const translatedToLabel = isTargetLang ? sourceLangLabel : targetLangLabel;
 
-      if (isEnglish) {
-        // English: transcription only, no translation
+      if (isTargetLang) {
+        // Already in target language: transcription only, no translation needed
         updateBlock(block, {
-          sourceLabel: "EN",
+          sourceLabel: detectedLabel,
           sourceText,
-          targetLabel: "EN",
+          targetLabel: detectedLabel,
           translation: undefined,
         });
       } else {
-        // Source language: show translation to English
+        // Source language detected: show translation to target
         updateBlock(block, {
-          sourceLabel: sourceLangUpper,
+          sourceLabel: detectedLabel,
           sourceText,
-          targetLabel: "EN",
+          targetLabel: translatedToLabel,
           translation: translation || undefined,
         });
       }
@@ -925,11 +953,12 @@ function printHelp() {
 
 Options:
   --device <name|index>      Audio device (auto-detects BlackHole)
-  --direction auto|ko-en|en-ko
-  --source-lang <code>       Non-English language code (default: ko)
-                             Examples: ko, ja, zh, es, fr, de
+  --source-lang <code>       Input language code (default: ko)
+  --target-lang <code>       Output language code (default: en)
+  --skip-intro               Skip language selection screen, use CLI values
+  --direction auto|source-target  Detection mode (default: auto)
   --model <bedrock-id>       Default: ${DEFAULT_MODEL_ID}
-  --engine elevenlabs|vertex Default: elevenlabs
+  --engine vertex|elevenlabs Default: vertex
   --vertex-model <id>        Default: ${DEFAULT_VERTEX_MODEL_ID}
   --vertex-project <id>      Default: $GOOGLE_VERTEX_PROJECT_ID
   --vertex-location <id>     Default: ${DEFAULT_VERTEX_LOCATION}
@@ -939,6 +968,8 @@ Options:
   --debug                    Log API response times to translator.log
   --list-devices             List audio devices
   -h, --help
+
+Supported languages: en, es, fr, de, it, pt, zh, ja, ko, ar, hi, ru
 
 Controls: SPACE start/pause, Q quit
 

@@ -1,11 +1,17 @@
 import path from "node:path";
 import type { CliConfig } from "./types";
+import type { LanguageCode } from "./intro-screen";
+import { SUPPORTED_LANGUAGES } from "./intro-screen";
 import {
   DEFAULT_MODEL_ID,
   DEFAULT_INTERVAL_MS,
   DEFAULT_VERTEX_MODEL_ID,
   DEFAULT_VERTEX_LOCATION,
 } from "./types";
+
+function isValidLangCode(code: string): code is LanguageCode {
+  return SUPPORTED_LANGUAGES.some((l) => l.code === code);
+}
 
 export function pcmToWavBuffer(pcm: Buffer, sampleRate: number): Buffer {
   const numChannels = 1;
@@ -58,9 +64,10 @@ export function parseArgs(argv: string[]): CliConfig {
     device: undefined,
     direction: "auto",
     sourceLang: "ko",
+    targetLang: "en",
     intervalMs: DEFAULT_INTERVAL_MS,
     modelId: DEFAULT_MODEL_ID,
-    engine: "elevenlabs",
+    engine: "vertex",
     vertexModelId: DEFAULT_VERTEX_MODEL_ID,
     vertexProject: process.env.GOOGLE_VERTEX_PROJECT_ID,
     vertexLocation: DEFAULT_VERTEX_LOCATION,
@@ -70,6 +77,7 @@ export function parseArgs(argv: string[]): CliConfig {
     useContext: true,
     compact: false,
     debug: false,
+    skipIntro: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -82,6 +90,10 @@ export function parseArgs(argv: string[]): CliConfig {
       config.listDevices = true;
       continue;
     }
+    if (arg === "--skip-intro") {
+      config.skipIntro = true;
+      continue;
+    }
 
     if (arg.startsWith("--device")) {
       const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
@@ -90,8 +102,7 @@ export function parseArgs(argv: string[]): CliConfig {
     }
     if (arg.startsWith("--direction")) {
       const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
-      if (val === "auto" || val === "ko-en" || val === "en-ko")
-        config.direction = val;
+      if (val === "auto" || val === "source-target") config.direction = val;
       continue;
     }
     if (arg.startsWith("--model")) {
@@ -138,7 +149,16 @@ export function parseArgs(argv: string[]): CliConfig {
     }
     if (arg.startsWith("--source-lang")) {
       const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
-      if (val) config.sourceLang = val.toLowerCase();
+      if (val && isValidLangCode(val.toLowerCase())) {
+        config.sourceLang = val.toLowerCase() as LanguageCode;
+      }
+      continue;
+    }
+    if (arg.startsWith("--target-lang")) {
+      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
+      if (val && isValidLangCode(val.toLowerCase())) {
+        config.targetLang = val.toLowerCase() as LanguageCode;
+      }
       continue;
     }
   }

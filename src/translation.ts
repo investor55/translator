@@ -1,69 +1,97 @@
-import type { Direction, FixedDirection } from "./types";
+import type { Direction } from "./types";
+import type { LanguageCode } from "./intro-screen";
 
-export function buildPrompt(
-  text: string,
-  direction: FixedDirection,
-  context: string[] = []
-): string {
-  const target = direction === "ko-en" ? "English" : "Korean";
-  const contextBlock = context.length
-    ? `Context (previous sentences, do not translate):\n${context.join("\n")}\n\n`
-    : "";
-  return `${contextBlock}Current sentence to translate into ${target}. Output only the translated text, no explanations or markdown.\n${text}`;
-}
-
-const LANG_NAMES: Record<string, string> = {
-  ko: "Korean",
-  ja: "Japanese",
-  zh: "Chinese",
+export const LANG_NAMES: Record<LanguageCode, string> = {
+  en: "English",
   es: "Spanish",
   fr: "French",
   de: "German",
-  en: "English",
+  it: "Italian",
+  pt: "Portuguese",
+  zh: "Chinese",
+  ja: "Japanese",
+  ko: "Korean",
+  ar: "Arabic",
+  hi: "Hindi",
+  ru: "Russian",
 };
+
+export function buildPrompt(
+  text: string,
+  sourceLang: LanguageCode,
+  targetLang: LanguageCode,
+  context: string[] = []
+): string {
+  const targetName = LANG_NAMES[targetLang];
+  const contextBlock = context.length
+    ? `Context (previous sentences, do not translate):\n${context.join("\n")}\n\n`
+    : "";
+  return `${contextBlock}Current sentence to translate into ${targetName}. Output only the translated text, no explanations or markdown.\n${text}`;
+}
 
 export function buildAudioPromptForStructured(
   direction: Direction,
-  context: string[] = [],
-  sourceLang = "ko"
+  sourceLang: LanguageCode,
+  targetLang: LanguageCode,
+  context: string[] = []
 ): string {
   const contextBlock = context.length
     ? `Context (previous sentences for reference):\n${context.join("\n")}\n\n`
     : "";
 
-  const sourceLangName = LANG_NAMES[sourceLang] || sourceLang.toUpperCase();
+  const sourceLangName = LANG_NAMES[sourceLang];
+  const targetLangName = LANG_NAMES[targetLang];
 
   if (direction === "auto") {
-    return `${contextBlock}Listen to the audio clip. The audio is either ${sourceLangName} or English.
-1. Detect whether the language is ${sourceLangName} ("${sourceLang}") or English ("en")
+    return `${contextBlock}Listen to the audio clip. The audio is either ${sourceLangName} or ${targetLangName}.
+1. Detect whether the language is ${sourceLangName} ("${sourceLang}") or ${targetLangName} ("${targetLang}")
 2. Transcribe the audio in its original language
-3. If ${sourceLangName}, translate to English. If English, leave translation empty.
+3. If ${sourceLangName}, translate to ${targetLangName}. If ${targetLangName}, translate to ${sourceLangName}.
 
 If there is no speech, silence, or unintelligible audio, return an empty transcript and empty translation.
 
-Return sourceLanguage ("${sourceLang}" or "en"), transcript, and translation (empty string if English).`;
+Return sourceLanguage ("${sourceLang}" or "${targetLang}"), transcript, and translation.`;
   }
 
-  const sourceLanguage = direction === "ko-en" ? sourceLangName : "English";
-  const targetLanguage = direction === "ko-en" ? "English" : sourceLangName;
-
-  return `${contextBlock}Listen to the audio clip spoken in ${sourceLanguage}. Transcribe it in ${sourceLanguage} and translate it into ${targetLanguage}.
+  return `${contextBlock}Listen to the audio clip spoken in ${sourceLangName}. Transcribe it in ${sourceLangName} and translate it into ${targetLangName}.
 
 If there is no speech, silence, or unintelligible audio, return an empty transcript and empty translation.`;
 }
 
 export function hasTranslatableContent(text: string): boolean {
-  return /[A-Za-z0-9가-힣]/.test(text);
+  // Match any letter (including Unicode), number, or CJK characters
+  return /[\p{L}\p{N}]/u.test(text);
 }
 
-export function resolveDirection(
+// Character ranges for language detection
+const LANG_CHAR_PATTERNS: Partial<Record<LanguageCode, RegExp>> = {
+  ko: /[\uAC00-\uD7AF]/,  // Hangul
+  ja: /[\u3040-\u309F\u30A0-\u30FF]/,  // Hiragana + Katakana
+  zh: /[\u4E00-\u9FFF]/,  // CJK Unified Ideographs
+  ar: /[\u0600-\u06FF]/,  // Arabic
+  hi: /[\u0900-\u097F]/,  // Devanagari (Hindi)
+  ru: /[\u0400-\u04FF]/,  // Cyrillic
+};
+
+export function detectSourceLanguage(
   text: string,
-  direction: Direction
-): FixedDirection {
-  if (direction !== "auto") {
-    return direction;
+  sourceLang: LanguageCode,
+  targetLang: LanguageCode
+): LanguageCode {
+  // Check if text matches source language pattern
+  const sourcePattern = LANG_CHAR_PATTERNS[sourceLang];
+  if (sourcePattern && sourcePattern.test(text)) {
+    return sourceLang;
   }
-  return /[가-힣]/.test(text) ? "ko-en" : "en-ko";
+
+  // Check if text matches target language pattern
+  const targetPattern = LANG_CHAR_PATTERNS[targetLang];
+  if (targetPattern && targetPattern.test(text)) {
+    return targetLang;
+  }
+
+  // Default: assume source language for Latin-based scripts
+  return sourceLang;
 }
 
 export function extractSentences(text: string): {

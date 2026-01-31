@@ -1,12 +1,14 @@
-export type Direction = "auto" | "ko-en" | "en-ko";
-export type FixedDirection = Exclude<Direction, "auto">;
+import type { LanguageCode } from "./intro-screen";
+
+export type Direction = "auto" | "source-target";
 export type Engine = "elevenlabs" | "vertex";
 export type Device = { index: number; name: string };
 
 export type CliConfig = {
   device?: string;
   direction: Direction;
-  sourceLang: string; // ISO 639-1 code for non-English language (default: "ko")
+  sourceLang: LanguageCode; // ISO 639-1 code for input language
+  targetLang: LanguageCode; // ISO 639-1 code for output language
   intervalMs: number;
   modelId: string;
   engine: Engine;
@@ -19,6 +21,7 @@ export type CliConfig = {
   useContext: boolean;
   compact: boolean;
   debug: boolean;
+  skipIntro: boolean; // Skip intro screen and use CLI-provided languages
 };
 
 export type Summary = {
