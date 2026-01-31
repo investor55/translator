@@ -535,6 +535,21 @@ async function main() {
     return config.engine === "elevenlabs";
   }
 
+  function isAudioSilent(pcmBuffer: Buffer, threshold = 200): boolean {
+    // 16-bit PCM: 2 bytes per sample, little-endian signed
+    const samples = pcmBuffer.length / 2;
+    if (samples === 0) return true;
+
+    let sumSquares = 0;
+    for (let i = 0; i < pcmBuffer.length; i += 2) {
+      const sample = pcmBuffer.readInt16LE(i);
+      sumSquares += sample * sample;
+    }
+
+    const rms = Math.sqrt(sumSquares / samples);
+    return rms < threshold;
+  }
+
   function enqueueVertexChunk(chunk: Buffer) {
     if (!chunk.length) return;
     const overlapBytes = Math.floor(16000 * 2 * 0.5); // 0.5s overlap
@@ -701,6 +716,9 @@ async function main() {
         while (vertexBuffer.length >= vertexChunkBytes) {
           const chunk = vertexBuffer.subarray(0, vertexChunkBytes);
           vertexBuffer = vertexBuffer.subarray(vertexChunkBytes);
+          if (isAudioSilent(chunk)) {
+            continue;
+          }
           enqueueVertexChunk(chunk);
           void processVertexQueue();
         }
