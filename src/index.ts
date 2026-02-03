@@ -258,6 +258,11 @@ async function main() {
       .string()
       .optional()
       .describe(`The translation. Empty if audio matches target language (${targetLangName}).`),
+    isPartial: z
+      .boolean()
+      .describe(
+        "True if the audio was cut off mid-sentence (incomplete thought). False if speech ends at a natural sentence boundary or pause."
+      ),
   });
 
   // Zod schema for conversation summary
@@ -689,6 +694,7 @@ async function main() {
           sourceText,
           targetLabel: detectedLabel,
           translation: undefined,
+          partial: result.isPartial,
         });
       } else {
         // Source language detected: show translation to target
@@ -697,6 +703,7 @@ async function main() {
           sourceText,
           targetLabel: translatedToLabel,
           translation: translation || undefined,
+          partial: result.isPartial,
         });
       }
 

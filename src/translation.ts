@@ -49,12 +49,16 @@ export function buildAudioPromptForStructured(
 2. Transcribe the audio in its original language
 3. If ${sourceLangName}, translate to ${targetLangName}. If ${targetLangName}, translate to ${sourceLangName}.
 
+If the audio is cut off mid-sentence, transcribe only what was actually spoken — do not add trailing punctuation or complete unfinished words/sentences. Set isPartial to true.
+
 If there is no speech, silence, or unintelligible audio, return an empty transcript and empty translation.
 
-Return sourceLanguage ("${sourceLang}" or "${targetLang}"), transcript, and translation.`;
+Return sourceLanguage ("${sourceLang}" or "${targetLang}"), transcript, isPartial, and translation.`;
   }
 
   return `${contextBlock}Listen to the audio clip spoken in ${sourceLangName}. Transcribe it in ${sourceLangName} and translate it into ${targetLangName}.
+
+If the audio is cut off mid-sentence, transcribe only what was actually spoken — do not add trailing punctuation or complete unfinished words/sentences. Set isPartial to true.
 
 If there is no speech, silence, or unintelligible audio, return an empty transcript and empty translation.`;
 }

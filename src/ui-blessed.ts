@@ -179,28 +179,90 @@ export function createBlessedUI(): BlessedUI {
     summary.setContent(content);
   }
 
+  const PARAGRAPH_MAX_MS = 30_000;
+
+  function groupIntoParagraphs(blocks: readonly TranscriptBlock[]): TranscriptBlock[][] {
+    const paragraphs: TranscriptBlock[][] = [];
+    let current: TranscriptBlock[] = [];
+    let windowStart = 0;
+
+    for (const block of blocks) {
+      if (current.length === 0) {
+        windowStart = block.createdAt;
+        current.push(block);
+        continue;
+      }
+
+      const prev = current[current.length - 1];
+      const exceededMax = block.createdAt - windowStart > PARAGRAPH_MAX_MS;
+
+      // Only break when previous block explicitly ended at a sentence boundary.
+      // Default to appending (partial undefined = still in-flight or unknown).
+      if (prev.partial === false || exceededMax) {
+        paragraphs.push(current);
+        current = [block];
+        windowStart = block.createdAt;
+      } else {
+        current.push(block);
+      }
+    }
+    if (current.length > 0) paragraphs.push(current);
+    return paragraphs;
+  }
+
+  function formatTimestamp(ms: number): string {
+    const d = new Date(ms);
+    return d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  function stripTrailingPunctuation(text: string): string {
+    return text.replace(/[.!?。！？]\s*$/, "");
+  }
+
+  function joinWithPartialAwareness(
+    paragraph: readonly TranscriptBlock[],
+    getText: (b: TranscriptBlock) => string | undefined
+  ): string {
+    return paragraph
+      .map((b, i) => {
+        const text = getText(b) ?? "";
+        if (!text) return "";
+        const isLast = i === paragraph.length - 1;
+        return b.partial && !isLast ? stripTrailingPunctuation(text) : text;
+      })
+      .filter(Boolean)
+      .join(" ");
+  }
+
   function renderBlocks() {
     if (blocks.length === 0) {
       transcriptBox.setContent("{gray-fg}Speak to see transcriptions here...{/}");
       return;
     }
 
+    const paragraphs = groupIntoParagraphs(blocks);
     const lines: string[] = [];
-    for (const block of blocks) {
-      const index = block.id.toString().padStart(3, "0");
-      const sourceColor = getColorForLabel(block.sourceLabel);
-      const targetColor = getColorForLabel(block.targetLabel);
 
-      lines.push(`{gray-fg}— ${index} —{/}`);
-      lines.push(`{bold}{${sourceColor}-fg}${block.sourceLabel}:{/} ${block.sourceText}`);
+    for (const paragraph of paragraphs) {
+      const first = paragraph[0];
+      const timestamp = formatTimestamp(first.createdAt);
+      const sourceColor = getColorForLabel(first.sourceLabel);
+      const targetColor = getColorForLabel(first.targetLabel);
+      const isTranscriptionOnly = first.sourceLabel === first.targetLabel;
 
-      // Skip translation line when source equals target (transcription mode)
-      const isTranscriptionOnly = block.sourceLabel === block.targetLabel;
+      lines.push(`{gray-fg}— ${timestamp} —{/}`);
+
+      const sourceTexts = joinWithPartialAwareness(paragraph, (b) => b.sourceText);
+      lines.push(`{bold}{${sourceColor}-fg}${first.sourceLabel}:{/} ${sourceTexts}`);
+
       if (!isTranscriptionOnly) {
-        if (block.translation) {
-          lines.push(`{bold}{${targetColor}-fg}${block.targetLabel}:{/} ${block.translation}`);
+        const translations = paragraph.map((b) => b.translation).filter(Boolean);
+        const pending = paragraph.some((b) => !b.translation);
+        if (translations.length > 0) {
+          const translationText = joinWithPartialAwareness(paragraph, (b) => b.translation) + (pending ? " …" : "");
+          lines.push(`{bold}{${targetColor}-fg}${first.targetLabel}:{/} ${translationText}`);
         } else {
-          lines.push(`{gray-fg}${block.targetLabel}: …{/}`);
+          lines.push(`{gray-fg}${first.targetLabel}: …{/}`);
         }
       }
       lines.push("");
