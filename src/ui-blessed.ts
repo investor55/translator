@@ -60,6 +60,11 @@ export function createBlessedUI(): BlessedUI {
     tags: true,
     border: { type: "line" },
     label: " SUMMARY ",
+    scrollable: true,
+    alwaysScroll: true,
+    keys: true,
+    vi: true,
+    mouse: true,
     style: {
       border: { fg: COLORS.border },
       label: { fg: COLORS.label, bold: true },
@@ -273,8 +278,30 @@ export function createBlessedUI(): BlessedUI {
     transcriptBox.setScrollPerc(100);
   }
 
+  // Focus management: Tab cycles between summary and transcript
+  const panels = [summary, transcriptBox] as const;
+  let focusedIndex = 1; // Start on transcript
+
+  function updatePanelBorders() {
+    for (let i = 0; i < panels.length; i++) {
+      const isFocused = i === focusedIndex;
+      panels[i].style.border = { fg: isFocused ? "white" : COLORS.border };
+      panels[i].setLabel(
+        i === 0
+          ? ` SUMMARY${isFocused ? " ●" : ""} `
+          : ` LIVE TRANSCRIPT${isFocused ? " ●" : ""} `
+      );
+    }
+  }
+
+  function focusedPanel() {
+    return panels[focusedIndex];
+  }
+
+  updatePanelBorders();
+
   function renderFooter() {
-    let content = "{gray-fg}SPACE:{/} pause  {gray-fg}│{/}  {gray-fg}Q:{/} quit  {gray-fg}│{/}  {gray-fg}↑↓:{/} scroll";
+    let content = "{gray-fg}SPACE:{/} pause  {gray-fg}│{/}  {gray-fg}TAB:{/} switch panel  {gray-fg}│{/}  {gray-fg}↑↓:{/} scroll  {gray-fg}│{/}  {gray-fg}Q:{/} quit";
     if (statusText) {
       content += `  {gray-fg}│{/}  ${statusText}`;
     }
@@ -290,23 +317,29 @@ export function createBlessedUI(): BlessedUI {
   }
 
   // Key bindings
+  screen.key(["tab"], () => {
+    focusedIndex = (focusedIndex + 1) % panels.length;
+    updatePanelBorders();
+    screen.render();
+  });
+
   screen.key(["up", "k"], () => {
-    transcriptBox.scroll(-1);
+    focusedPanel().scroll(-1);
     screen.render();
   });
 
   screen.key(["down", "j"], () => {
-    transcriptBox.scroll(1);
+    focusedPanel().scroll(1);
     screen.render();
   });
 
   screen.key(["pageup"], () => {
-    transcriptBox.scroll(-10);
+    focusedPanel().scroll(-10);
     screen.render();
   });
 
   screen.key(["pagedown"], () => {
-    transcriptBox.scroll(10);
+    focusedPanel().scroll(10);
     screen.render();
   });
 
