@@ -215,7 +215,8 @@ async function main() {
   let vertexFlushTimer: NodeJS.Timeout | null = null;
   let vertexChunkQueue: Buffer[] = [];
   let vertexInFlight = 0;
-  const vertexMaxConcurrency = 3;
+  const vertexMaxConcurrency = 5;
+  const vertexMaxQueueSize = 20;
   let vertexOverlap = Buffer.alloc(0);
 
   const recentTranslationLimit = 20;
@@ -588,6 +589,13 @@ async function main() {
     const overlapBytes = Math.floor(16000 * 2 * 0.5); // 0.5s overlap
     const overlap = vertexOverlap.subarray(0, overlapBytes);
     const combined = overlap.length ? Buffer.concat([overlap, chunk]) : chunk;
+
+    // Drop oldest chunks if queue is full to stay real-time
+    while (vertexChunkQueue.length >= vertexMaxQueueSize) {
+      vertexChunkQueue.shift();
+      log("WARN", `Dropped oldest chunk, queue was at ${vertexMaxQueueSize}`);
+    }
+
     vertexChunkQueue.push(combined);
     vertexOverlap = Buffer.from(
       chunk.subarray(Math.max(0, chunk.length - overlapBytes))
