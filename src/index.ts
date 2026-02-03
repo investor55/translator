@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
-import type { CliConfig, Device, Engine, Summary } from "./types";
+import type { CliConfig, Engine, Summary } from "./types";
 import {
   DEFAULT_MODEL_ID,
   DEFAULT_INTERVAL_MS,
@@ -15,6 +15,10 @@ import {
   DEFAULT_VERTEX_LOCATION,
 } from "./types";
 import {
+  createAudioRecorder,
+  checkMacOSVersion,
+  type AudioRecorder,
+  // Legacy imports for --legacy-audio mode
   listAvfoundationDevices,
   selectAudioDevice,
   formatDevices,
@@ -125,15 +129,29 @@ async function main() {
     return;
   }
 
+  // Legacy mode: list devices (for --legacy-audio compatibility)
   if (config.listDevices) {
-    try {
-      const devices = await listAvfoundationDevices();
-      console.log(formatDevices(devices));
-    } catch (error) {
-      console.error(
-        `Unable to list devices. Is ffmpeg installed? ${toReadableError(error)}`
-      );
+    if (config.legacyAudio) {
+      try {
+        const devices = await listAvfoundationDevices();
+        console.log(formatDevices(devices));
+      } catch (error) {
+        console.error(
+          `Unable to list devices. Is ffmpeg installed? ${toReadableError(error)}`
+        );
+      }
+    } else {
+      console.log("Device listing not needed - using ScreenCaptureKit for system audio.");
+      console.log("Add --legacy-audio flag to list AVFoundation devices.");
     }
+    return;
+  }
+
+  // Check macOS version for ScreenCaptureKit support
+  const { supported: macOSSupported, version: macOSVersion } = checkMacOSVersion();
+  if (!config.legacyAudio && !macOSSupported) {
+    console.error(`ScreenCaptureKit requires macOS 14.2 or later (detected macOS ${macOSVersion}).`);
+    console.error("Use --legacy-audio flag with a loopback device (BlackHole) instead.");
     return;
   }
 
@@ -149,28 +167,34 @@ async function main() {
 
   validateEnv(config.engine, config);
 
-  let devices: Device[] = [];
-  try {
-    devices = await listAvfoundationDevices();
-  } catch (error) {
-    console.error(
-      `Unable to list devices. Is ffmpeg installed? ${toReadableError(error)}`
-    );
-    return;
-  }
+  // Legacy audio mode: use ffmpeg + loopback device
+  let legacyDevice: { index: number; name: string } | null = null;
+  if (config.legacyAudio) {
+    let devices: { index: number; name: string }[] = [];
+    try {
+      devices = await listAvfoundationDevices();
+    } catch (error) {
+      console.error(
+        `Unable to list devices. Is ffmpeg installed? ${toReadableError(error)}`
+      );
+      return;
+    }
 
-  if (devices.length === 0) {
-    console.error("No avfoundation audio devices found.");
-    return;
-  }
+    if (devices.length === 0) {
+      console.error("No avfoundation audio devices found.");
+      return;
+    }
 
-  const device = selectAudioDevice(devices, config.device);
-  if (!device) {
-    console.error("No loopback device found. Use --device to override.");
-    console.log(formatDevices(devices));
-    return;
+    legacyDevice = selectAudioDevice(devices, config.device);
+    if (!legacyDevice) {
+      console.error("No loopback device found. Use --device to override.");
+      console.log(formatDevices(devices));
+      return;
+    }
+    log("INFO", `Selected device: [${legacyDevice.index}] ${legacyDevice.name}`);
+  } else {
+    log("INFO", "Using ScreenCaptureKit for system audio capture");
   }
-  log("INFO", `Selected device: [${device.index}] ${device.name}`);
 
   const bedrockModel = bedrock(config.modelId);
   const vertexModel = createVertex({
@@ -180,7 +204,8 @@ async function main() {
 
   let isRecording = false;
   let ws: WebSocket | null = null;
-  let ffmpegProcess: ReturnType<typeof spawnFfmpeg> | null = null;
+  let audioRecorder: AudioRecorder | null = null;
+  let ffmpegProcess: ReturnType<typeof spawnFfmpeg> | null = null; // Legacy mode only
   let audioBuffer = Buffer.alloc(0);
   let vertexBuffer = Buffer.alloc(0);
   let recordingStartedAt: number | null = null;
@@ -332,8 +357,11 @@ async function main() {
       config.engine === "vertex" ? config.vertexModelId : config.modelId;
     const engineLabel = config.engine === "vertex" ? "Vertex" : "ElevenLabs";
     const langPair = `${sourceLangName} → ${targetLangName}`;
+    const deviceName = config.legacyAudio && legacyDevice
+      ? legacyDevice.name
+      : "System Audio (ScreenCaptureKit)";
     return {
-      deviceName: device.name,
+      deviceName,
       modelId: `${langPair} | ${activeModelId} (${engineLabel})`,
       intervalMs: config.intervalMs,
       status,
@@ -700,30 +728,36 @@ async function main() {
   }
 
   function attachAudioStream(stream: NodeJS.ReadableStream) {
-    const chunkSize = 3200;
-    const vertexChunkBytes = Math.floor(16000 * 2 * (config.intervalMs / 1000));
     stream.on("data", (data: Buffer) => {
-      if (shouldStreamToScribe()) {
-        audioBuffer = Buffer.concat([audioBuffer, data]);
-        while (audioBuffer.length >= chunkSize) {
-          sendAudioChunk(audioBuffer.subarray(0, chunkSize));
-          audioBuffer = audioBuffer.subarray(chunkSize);
-        }
-      }
-
-      if (config.engine === "vertex") {
-        vertexBuffer = Buffer.concat([vertexBuffer, data]);
-        while (vertexBuffer.length >= vertexChunkBytes) {
-          const chunk = vertexBuffer.subarray(0, vertexChunkBytes);
-          vertexBuffer = vertexBuffer.subarray(vertexChunkBytes);
-          if (isAudioSilent(chunk)) {
-            continue;
-          }
-          enqueueVertexChunk(chunk);
-          void processVertexQueue();
-        }
-      }
+      handleAudioData(data);
     });
+  }
+
+  // Shared audio processing logic for both ScreenCaptureKit and legacy ffmpeg modes
+  const scribeChunkSize = 3200;
+  const vertexChunkBytes = Math.floor(16000 * 2 * (config.intervalMs / 1000));
+
+  function handleAudioData(data: Buffer) {
+    if (shouldStreamToScribe()) {
+      audioBuffer = Buffer.concat([audioBuffer, data]);
+      while (audioBuffer.length >= scribeChunkSize) {
+        sendAudioChunk(audioBuffer.subarray(0, scribeChunkSize));
+        audioBuffer = audioBuffer.subarray(scribeChunkSize);
+      }
+    }
+
+    if (config.engine === "vertex") {
+      vertexBuffer = Buffer.concat([vertexBuffer, data]);
+      while (vertexBuffer.length >= vertexChunkBytes) {
+        const chunk = vertexBuffer.subarray(0, vertexChunkBytes);
+        vertexBuffer = vertexBuffer.subarray(vertexChunkBytes);
+        if (isAudioSilent(chunk)) {
+          continue;
+        }
+        enqueueVertexChunk(chunk);
+        void processVertexQueue();
+      }
+    }
   }
 
   function startNoAudioTimer() {
@@ -834,48 +868,71 @@ async function main() {
       }
     }
 
-    try {
-      ffmpegProcess = spawnFfmpeg(device.index);
-    } catch (error) {
-      isRecording = false;
-      if (ui) ui.setStatus(`ffmpeg error: ${toReadableError(error)}`);
-      return;
-    }
-
-    if (!ffmpegProcess.stdout) {
-      isRecording = false;
-      if (ui) ui.setStatus("ffmpeg failed");
-      return;
-    }
-
-    attachAudioStream(ffmpegProcess.stdout);
-
-    // Capture ffmpeg errors
-    ffmpegProcess.stderr?.on("data", (data: Buffer) => {
-      const msg = data.toString().trim();
-      if (msg) {
-        log("WARN", `ffmpeg stderr: ${msg}`);
-        if (ui) ui.setStatus(`ffmpeg: ${msg.slice(0, 80)}`);
+    // Start audio capture (ScreenCaptureKit or legacy ffmpeg)
+    if (config.legacyAudio && legacyDevice) {
+      // Legacy mode: use ffmpeg + loopback device
+      try {
+        ffmpegProcess = spawnFfmpeg(legacyDevice.index);
+      } catch (error) {
+        isRecording = false;
+        if (ui) ui.setStatus(`ffmpeg error: ${toReadableError(error)}`);
+        return;
       }
-    });
 
-    ffmpegProcess.on("error", (err) => {
-      log("ERROR", `ffmpeg error: ${err.message}`);
-      if (ui) ui.setStatus(`ffmpeg error: ${err.message}`);
-    });
+      if (!ffmpegProcess.stdout) {
+        isRecording = false;
+        if (ui) ui.setStatus("ffmpeg failed");
+        return;
+      }
 
-    ffmpegProcess.on("close", (code, signal) => {
-      log("WARN", `ffmpeg closed: code=${code} signal=${signal}`);
-      if (code !== 0 && code !== null && isRecording) {
-        const msg = `ffmpeg exited with code ${code}`;
-        log("ERROR", msg);
-        if (ui) {
-          ui.setStatus(`❌ ${msg} - check translator.log`);
-          ui.render();
+      attachAudioStream(ffmpegProcess.stdout);
+
+      // Capture ffmpeg errors
+      ffmpegProcess.stderr?.on("data", (data: Buffer) => {
+        const msg = data.toString().trim();
+        if (msg) {
+          log("WARN", `ffmpeg stderr: ${msg}`);
+          if (ui) ui.setStatus(`ffmpeg: ${msg.slice(0, 80)}`);
         }
-        // Don't exit - let user see the error
+      });
+
+      ffmpegProcess.on("error", (err) => {
+        log("ERROR", `ffmpeg error: ${err.message}`);
+        if (ui) ui.setStatus(`ffmpeg error: ${err.message}`);
+      });
+
+      ffmpegProcess.on("close", (code, signal) => {
+        log("WARN", `ffmpeg closed: code=${code} signal=${signal}`);
+        if (code !== 0 && code !== null && isRecording) {
+          const msg = `ffmpeg exited with code ${code}`;
+          log("ERROR", msg);
+          if (ui) {
+            ui.setStatus(`❌ ${msg} - check translator.log`);
+            ui.render();
+          }
+        }
+      });
+    } else {
+      // ScreenCaptureKit mode: direct system audio capture
+      try {
+        audioRecorder = createAudioRecorder(16000);
+        audioRecorder.on("data", (data) => {
+          handleAudioData(data as Buffer);
+        });
+        audioRecorder.on("error", (err) => {
+          const error = err as Error;
+          log("ERROR", `Audio capture error: ${error.message}`);
+          if (ui) ui.setStatus(`Audio error: ${error.message}`);
+        });
+        await audioRecorder.start();
+      } catch (error) {
+        isRecording = false;
+        const msg = toReadableError(error);
+        log("ERROR", `ScreenCaptureKit error: ${msg}`);
+        if (ui) ui.setStatus(`Audio capture error: ${msg}`);
+        return;
       }
-    });
+    }
 
     startNoAudioTimer();
     startFlushTimer();
@@ -897,6 +954,11 @@ async function main() {
     stopSummaryTimer();
     flushBufferIfNeeded(true);
 
+    // Stop audio capture
+    if (audioRecorder) {
+      audioRecorder.stop();
+      audioRecorder = null;
+    }
     if (ffmpegProcess) {
       ffmpegProcess.kill("SIGTERM");
       ffmpegProcess = null;
@@ -970,7 +1032,6 @@ function printHelp() {
   console.log(`Usage: bun run src/index.ts [options]
 
 Options:
-  --device <name|index>      Audio device (auto-detects BlackHole)
   --source-lang <code>       Input language code (default: ko)
   --target-lang <code>       Output language code (default: en)
   --skip-intro               Skip language selection screen, use CLI values
@@ -984,12 +1045,16 @@ Options:
   --no-context               Disable context.md injection
   --compact                  Less vertical spacing
   --debug                    Log API response times to translator.log
-  --list-devices             List audio devices
+  --legacy-audio             Use ffmpeg + loopback device (BlackHole) instead of ScreenCaptureKit
+  --device <name|index>      Audio device for legacy mode (auto-detects BlackHole)
+  --list-devices             List audio devices (legacy mode only)
   -h, --help
 
 Supported languages: en, es, fr, de, it, pt, zh, ja, ko, ar, hi, ru
 
 Controls: SPACE start/pause, Q quit
+
+Requires: macOS 14.2+ for ScreenCaptureKit (or use --legacy-audio with BlackHole)
 
 Env: ELEVENLABS_API_KEY, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
      GOOGLE_APPLICATION_CREDENTIALS (Vertex)

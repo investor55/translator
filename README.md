@@ -4,7 +4,7 @@ A terminal-based real-time audio translation tool that captures system audio, tr
 
 ## Features
 
-- **Real-time audio capture** from system loopback devices (BlackHole, Loopback, etc.)
+- **Real-time audio capture** via ScreenCaptureKit (no loopback device required)
 - **Dual transcription engines**: ElevenLabs Scribe (streaming) or Google Vertex AI (batch)
 - **Bidirectional translation**: Korean ↔ English with auto-detection
 - **Context-aware translation** using sliding window of previous sentences
@@ -17,7 +17,11 @@ A terminal-based real-time audio translation tool that captures system audio, tr
 ### Required Software
 
 - [Bun](https://bun.sh) runtime
-- [ffmpeg](https://ffmpeg.org) with AVFoundation support (macOS)
+- **macOS 14.2+** (Sonoma or later) for ScreenCaptureKit audio capture
+- Screen Recording permission enabled in System Settings > Privacy & Security > Screen Recording
+
+**Legacy Mode (optional):** For older macOS versions, use `--legacy-audio` flag which requires:
+- [ffmpeg](https://ffmpeg.org) with AVFoundation support
 - Audio loopback device (e.g., [BlackHole](https://existential.audio/blackhole/))
 
 ### Required API Keys
@@ -53,6 +57,19 @@ bun run test
 
 ## Audio Setup (macOS)
 
+The app uses **ScreenCaptureKit** to capture system audio directly - no loopback device required.
+
+### First-time Setup
+
+1. On first run, macOS will prompt for **Screen Recording** permission
+2. Go to **System Settings > Privacy & Security > Screen Recording**
+3. Enable the permission for your terminal app (Terminal, iTerm2, etc.)
+4. Restart the terminal and run the app again
+
+### Legacy Mode (macOS < 14.2)
+
+If you're on an older macOS version, use the `--legacy-audio` flag with a loopback device:
+
 1. Install BlackHole:
    ```bash
    brew install blackhole-2ch
@@ -65,6 +82,11 @@ bun run test
    - Right-click > **Use This Device For Sound Output**
 
 3. Set system audio output to the Multi-Output Device in System Settings > Sound
+
+4. Run with legacy mode:
+   ```bash
+   bun run dev --legacy-audio
+   ```
 
 ## Usage
 
@@ -89,10 +111,12 @@ bun start
 bun run dev [options]
 
 Options:
-  --device <name|index>      Audio device (auto-detects BlackHole)
-  --direction auto|ko-en|en-ko  Translation direction (default: auto)
+  --source-lang <code>       Input language code (default: ko)
+  --target-lang <code>       Output language code (default: en)
+  --skip-intro               Skip language selection screen, use CLI values
+  --direction auto|source-target  Detection mode (default: auto)
   --model <bedrock-id>       Bedrock model ID (default: claude-haiku-4-5-20251001)
-  --engine elevenlabs|vertex Transcription engine (default: elevenlabs)
+  --engine elevenlabs|vertex Transcription engine (default: vertex)
   --vertex-model <id>        Vertex model ID (default: gemini-3-flash-preview)
   --vertex-project <id>      GCP project ID (default: $GOOGLE_VERTEX_PROJECT_ID)
   --vertex-location <id>     GCP region (default: global)
@@ -100,30 +124,35 @@ Options:
   --no-context               Disable context.md injection
   --compact                  Reduce vertical spacing in output
   --debug                    Enable debug logging
-  --list-devices             List available audio devices
+  --legacy-audio             Use ffmpeg + loopback device instead of ScreenCaptureKit
+  --device <name|index>      Audio device for legacy mode (auto-detects BlackHole)
+  --list-devices             List audio devices (legacy mode only)
   -h, --help                 Show help
 ```
 
 ### Examples
 
 ```bash
-# Use Vertex AI for both transcription and translation
-bun run dev --engine vertex
+# Start with default settings (Vertex AI, ScreenCaptureKit audio)
+bun run dev
 
-# Force Korean to English translation
-bun run dev --direction ko-en
+# Use ElevenLabs + Bedrock engine
+bun run dev --engine elevenlabs
 
-# Use specific audio device
-bun run dev --device "BlackHole 2ch"
-
-# List available audio devices
-bun run dev --list-devices
+# Skip intro screen with preset languages
+bun run dev --skip-intro --source-lang ja --target-lang en
 
 # Use custom Bedrock model
 bun run dev --model claude-sonnet-4-20250514
 
 # Compact output mode
 bun run dev --compact
+
+# Legacy mode with loopback device (for older macOS)
+bun run dev --legacy-audio --device "BlackHole 2ch"
+
+# List audio devices (legacy mode)
+bun run dev --list-devices --legacy-audio
 ```
 
 ## Context File
@@ -152,7 +181,7 @@ The content is injected into the system prompt for every translation, helping ma
 
 ### ElevenLabs Mode (Streaming)
 
-1. Captures system audio via ffmpeg → 16kHz mono PCM
+1. Captures system audio via ScreenCaptureKit → 16kHz mono PCM
 2. Streams audio chunks to ElevenLabs Scribe WebSocket
 3. Receives real-time transcripts (partial + committed)
 4. Translates committed transcripts using AWS Bedrock
@@ -160,8 +189,8 @@ The content is injected into the system prompt for every translation, helping ma
 
 ### Vertex Mode (Batch)
 
-1. Captures system audio via ffmpeg → 16kHz mono PCM
-2. Buffers audio into chunks (default: 3 seconds)
+1. Captures system audio via ScreenCaptureKit → 16kHz mono PCM
+2. Buffers audio into chunks (default: 2 seconds)
 3. Sends audio + prompt to Vertex AI multimodal model
 4. Receives JSON response with transcript + translation
 5. Displays both in terminal
@@ -220,11 +249,18 @@ VERTEX_MODEL_ID=gemini-3-flash-preview
 
 ### No audio detected
 
+1. **Check Screen Recording permission** - Go to System Settings > Privacy & Security > Screen Recording and ensure your terminal app is enabled
+2. **Restart terminal** - After granting permission, restart your terminal app
+3. **Check macOS version** - ScreenCaptureKit requires macOS 14.2+. Use `--legacy-audio` for older versions.
+
+### Legacy mode issues
+
+If using `--legacy-audio`:
 - Verify Multi-Output Device is set as system output
 - Check BlackHole is included in Multi-Output Device
-- Ensure the correct device is selected with `--list-devices`
+- Ensure the correct device is selected with `--list-devices --legacy-audio`
 
-### ffmpeg not found
+### ffmpeg not found (legacy mode only)
 
 ```bash
 brew install ffmpeg

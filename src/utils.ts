@@ -78,6 +78,7 @@ export function parseArgs(argv: string[]): CliConfig {
     compact: false,
     debug: false,
     skipIntro: false,
+    legacyAudio: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -145,6 +146,10 @@ export function parseArgs(argv: string[]): CliConfig {
     }
     if (arg === "--debug") {
       config.debug = true;
+      continue;
+    }
+    if (arg === "--legacy-audio") {
+      config.legacyAudio = true;
       continue;
     }
     if (arg.startsWith("--source-lang")) {

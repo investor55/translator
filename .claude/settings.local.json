@@ -9,7 +9,9 @@
       "Bash(bunx tsc:*)",
       "Bash(bun build:*)",
       "Bash(npx tsc:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "WebFetch(domain:github.com)",
+      "WebSearch"
     ]
   }
 }

@@ -22,6 +22,7 @@ export type CliConfig = {
   compact: boolean;
   debug: boolean;
   skipIntro: boolean; // Skip intro screen and use CLI-provided languages
+  legacyAudio: boolean; // Use ffmpeg + loopback device instead of ScreenCaptureKit
 };
 
 export type Summary = {

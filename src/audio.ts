@@ -1,6 +1,62 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
+import { AudioTee } from "audiotee";
+import { release } from "node:os";
 import type { Device } from "./types";
 
+// ============================================================================
+// ScreenCaptureKit-based Audio Capture (macOS 14.2+)
+// ============================================================================
+
+const MIN_DARWIN_VERSION = 23; // macOS 14 Sonoma = Darwin 23.x
+
+export function checkMacOSVersion(): { supported: boolean; version: string } {
+  const darwinVersion = parseInt(release().split(".")[0]);
+  const supported = darwinVersion >= MIN_DARWIN_VERSION;
+  // Map Darwin version to macOS version (approximate)
+  const macOSVersion =
+    darwinVersion >= 25
+      ? "15+"
+      : darwinVersion >= 24
+        ? "15"
+        : darwinVersion >= 23
+          ? "14"
+          : darwinVersion >= 22
+            ? "13"
+            : "12 or earlier";
+  return { supported, version: macOSVersion };
+}
+
+export type AudioRecorder = {
+  start: () => Promise<void>;
+  stop: () => void;
+  on: (event: "data" | "error", handler: (data: Buffer | Error) => void) => void;
+};
+
+export function createAudioRecorder(sampleRate = 16000): AudioRecorder {
+  const audiotee = new AudioTee({
+    sampleRate,
+    chunkDuration: 0.1, // 100ms chunks for low latency
+  });
+
+  return {
+    start: () => audiotee.start(),
+    stop: () => audiotee.stop(),
+    on: (event, handler) => {
+      if (event === "data") {
+        audiotee.on("data", ({ data }) => handler(data));
+      } else if (event === "error") {
+        audiotee.on("error", (err) => handler(err));
+      }
+    },
+  };
+}
+
+// ============================================================================
+// Legacy AVFoundation/ffmpeg Audio Capture (deprecated)
+// Kept for --legacy-audio fallback mode
+// ============================================================================
+
+/** @deprecated Use createAudioRecorder() with ScreenCaptureKit instead */
 export async function listAvfoundationDevices(): Promise<Device[]> {
   return new Promise((resolve, reject) => {
     const proc = spawn(
@@ -24,6 +80,7 @@ export async function listAvfoundationDevices(): Promise<Device[]> {
   });
 }
 
+/** @deprecated Use createAudioRecorder() with ScreenCaptureKit instead */
 export function parseAvfoundationOutput(output: string): Device[] {
   const lines = output.split("\n");
   const devices: Device[] = [];
@@ -51,6 +108,7 @@ export function parseAvfoundationOutput(output: string): Device[] {
   return devices;
 }
 
+/** @deprecated Use createAudioRecorder() with ScreenCaptureKit instead */
 export function selectAudioDevice(
   devices: Device[],
   override?: string
@@ -83,6 +141,7 @@ export function selectAudioDevice(
   );
 }
 
+/** @deprecated Use createAudioRecorder() with ScreenCaptureKit instead */
 export function formatDevices(devices: Device[]) {
   if (devices.length === 0) {
     return "No avfoundation audio devices found.";
@@ -90,7 +149,8 @@ export function formatDevices(devices: Device[]) {
   return devices.map((device) => `[${device.index}] ${device.name}`).join("\n");
 }
 
-export function spawnFfmpeg(deviceIndex: number) {
+/** @deprecated Use createAudioRecorder() with ScreenCaptureKit instead */
+export function spawnFfmpeg(deviceIndex: number): ChildProcess {
   const args = [
     "-f",
     "avfoundation",
