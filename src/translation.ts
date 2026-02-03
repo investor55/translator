@@ -14,6 +14,7 @@ export const LANG_NAMES: Record<LanguageCode, string> = {
   ar: "Arabic",
   hi: "Hindi",
   ru: "Russian",
+  tl: "Tagalog",
 };
 
 export function buildPrompt(

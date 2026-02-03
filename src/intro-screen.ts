@@ -2,7 +2,7 @@ import blessed from "blessed";
 
 export type LanguageCode =
   | "en" | "es" | "fr" | "de" | "it" | "pt"
-  | "zh" | "ja" | "ko" | "ar" | "hi" | "ru";
+  | "zh" | "ja" | "ko" | "ar" | "hi" | "ru" | "tl";
 
 export type Language = {
   code: LanguageCode;
@@ -23,6 +23,7 @@ export const SUPPORTED_LANGUAGES: Language[] = [
   { code: "ar", name: "Arabic", native: "العربية" },
   { code: "hi", name: "Hindi", native: "हिन्दी" },
   { code: "ru", name: "Russian", native: "Русский" },
+  { code: "tl", name: "Tagalog", native: "Tagalog" },
 ];
 
 export type Engine = "vertex" | "elevenlabs";
