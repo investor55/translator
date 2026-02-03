@@ -719,6 +719,8 @@ async function main() {
         (error instanceof Error && error.name === "AbortError") ||
         (error && typeof error === "object" && "name" in error && error.name === "AbortError");
       const errorMsg = isAbortError ? "Request timed out (15s)" : toReadableError(error);
+      const fullError = error instanceof Error ? `${error.name}: ${error.message}` : toReadableError(error);
+      log("ERROR", `Vertex chunk failed: ${fullError}`);
       updateBlock(block, {
         sourceText: "(Vertex error)",
         translation: errorMsg,
