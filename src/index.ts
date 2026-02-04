@@ -236,7 +236,6 @@ async function main() {
   const contextBuffer: string[] = [];
   const userContext = loadUserContext(config);
   const transcriptBlocks = new Map<number, TranscriptBlock>();
-  const inFlightBlockIds = new Set<number>();
   let nextBlockId = 1;
   let transcriptBuffer = "";
   let lastCommittedText = "";
@@ -626,7 +625,12 @@ async function main() {
   }
 
   function updateInFlightDisplay() {
-    // No-op: blocks are created with "Processing..." state directly
+    if (!ui) return;
+    if (vertexInFlight > 0) {
+      ui.setStatus(`Processing ${vertexInFlight} chunk${vertexInFlight > 1 ? "s" : ""}...`);
+    } else if (isRecording) {
+      ui.setStatus("Listening...");
+    }
   }
 
   async function processVertexQueue() {
@@ -635,11 +639,9 @@ async function main() {
     if (!chunk) return;
     vertexInFlight++;
 
-    const block = createBlock(sourceLangLabel, "Processing...", targetLangLabel, undefined);
-    inFlightBlockIds.add(block.id);
-
     const startTime = Date.now();
     const chunkDurationMs = (chunk.length / (16000 * 2)) * 1000;
+    updateInFlightDisplay();
 
     try {
       const prompt = buildAudioPromptForStructured(
@@ -689,10 +691,7 @@ async function main() {
       const detectedLang = result.sourceLanguage as LanguageCode;
 
       if (!translation && !transcript) {
-        updateBlock(block, {
-          sourceText: "(Vertex returned empty response)",
-          translation: "(no content)",
-        });
+        log("WARN", "Vertex returned empty transcript and translation");
         return;
       }
 
@@ -703,25 +702,17 @@ async function main() {
       const translatedToLabel = isTargetLang ? sourceLangLabel : targetLangLabel;
 
       if (isTargetLang || isEnglishPassthrough) {
-        // Target language or English passthrough: show transcription in both slots
-        updateBlock(block, {
-          sourceLabel: detectedLabel,
-          sourceText,
-          targetLabel: detectedLabel,
-          translation: sourceText,
-          partial: result.isPartial,
-          newTopic: result.isNewTopic,
-        });
+        createBlock(detectedLabel, sourceText, detectedLabel, sourceText);
       } else {
-        // Source language detected: show translation to target
-        updateBlock(block, {
-          sourceLabel: detectedLabel,
-          sourceText,
-          targetLabel: translatedToLabel,
-          translation: translation || undefined,
-          partial: result.isPartial,
-          newTopic: result.isNewTopic,
-        });
+        createBlock(detectedLabel, sourceText, translatedToLabel, translation || undefined);
+      }
+
+      // Update the last block with metadata
+      const block = transcriptBlocks.get(nextBlockId - 1);
+      if (block) {
+        block.partial = result.isPartial;
+        block.newTopic = result.isNewTopic;
+        if (ui) ui.updateBlock(block);
       }
 
       if (sourceText && hasTranslatableContent(sourceText)) {
@@ -738,20 +729,15 @@ async function main() {
       const isTimeout =
         isAbortError ||
         (error instanceof Error && error.name === "TimeoutError");
-      const errorMsg = isTimeout ? `Request timed out (${(elapsed / 1000).toFixed(1)}s)` : toReadableError(error);
+      const errorMsg = isTimeout ? `Timed out (${(elapsed / 1000).toFixed(1)}s)` : toReadableError(error);
       const fullError = error instanceof Error
         ? `${error.name}: ${error.message}${error.cause ? ` cause=${JSON.stringify(error.cause)}` : ""}`
         : toReadableError(error);
       log("ERROR", `Vertex chunk failed after ${elapsed}ms (audio=${chunkDurationMs.toFixed(0)}ms): ${fullError}`);
-      updateBlock(block, {
-        sourceText: "(Vertex error)",
-        translation: errorMsg,
-      });
+      if (ui) ui.setStatus(`⚠ ${errorMsg}`);
     } finally {
-      inFlightBlockIds.delete(block.id);
-      updateInFlightDisplay(); // Re-render remaining blocks
       vertexInFlight--;
-      // Trigger next chunk if queue has items and we have capacity
+      updateInFlightDisplay();
       if (vertexChunkQueue.length && vertexInFlight < vertexMaxConcurrency) {
         void processVertexQueue();
       }
@@ -1042,7 +1028,6 @@ async function main() {
     vadSpeechBuffer = Buffer.alloc(0);
     vadSilenceMs = 0;
     vadSpeechStarted = false;
-    inFlightBlockIds.clear();
 
     if (ui) {
       ui.updateHeader(getUIState("paused"));
