@@ -221,7 +221,7 @@ async function main() {
   const VAD_WINDOW_MS = 100;
   const VAD_WINDOW_BYTES = Math.floor(16000 * 2 * (VAD_WINDOW_MS / 1000)); // 3200 bytes
   const VAD_SILENCE_FLUSH_MS = 400;  // Silence duration to trigger flush
-  const VAD_MAX_CHUNK_MS = 8000;     // Force flush after 8s continuous speech
+  const VAD_MAX_CHUNK_MS = 4000;     // Force flush after 4s continuous speech
   const VAD_MIN_CHUNK_MS = 500;      // Don't send chunks shorter than 0.5s
   let vadAnalysisBuffer = Buffer.alloc(0);
   let vadSpeechBuffer = Buffer.alloc(0);
@@ -638,9 +638,8 @@ async function main() {
     const block = createBlock(sourceLangLabel, "Processing...", targetLangLabel, undefined);
     inFlightBlockIds.add(block.id);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
     const startTime = Date.now();
+    const chunkDurationMs = (chunk.length / (16000 * 2)) * 1000;
 
     try {
       const prompt = buildAudioPromptForStructured(
@@ -651,12 +650,17 @@ async function main() {
       );
       const wavBuffer = pcmToWavBuffer(chunk, 16000);
 
+      if (config.debug) {
+        log("INFO", `Vertex request: chunk=${chunkDurationMs.toFixed(0)}ms (${(wavBuffer.byteLength / 1024).toFixed(0)}KB), queue=${vertexChunkQueue.length}, inflight=${vertexInFlight}`);
+      }
+
       const { object: result, usage: finalUsage } = await generateObject({
         model: vertexModel(config.vertexModelId),
         schema: AudioTranscriptionSchema,
         system: userContext || undefined,
         temperature: 0,
-        abortSignal: controller.signal,
+        maxRetries: 2,
+        abortSignal: AbortSignal.timeout(30000),
         messages: [
           {
             role: "user",
@@ -671,7 +675,6 @@ async function main() {
           },
         ],
       });
-      clearTimeout(timeoutId);
 
       const elapsed = Date.now() - startTime;
       const inTok = finalUsage?.inputTokens ?? 0;
@@ -728,13 +731,18 @@ async function main() {
       }
       lastVertexTranscript = transcript;
     } catch (error) {
-      clearTimeout(timeoutId);
+      const elapsed = Date.now() - startTime;
       const isAbortError =
         (error instanceof Error && error.name === "AbortError") ||
         (error && typeof error === "object" && "name" in error && error.name === "AbortError");
-      const errorMsg = isAbortError ? "Request timed out (15s)" : toReadableError(error);
-      const fullError = error instanceof Error ? `${error.name}: ${error.message}` : toReadableError(error);
-      log("ERROR", `Vertex chunk failed: ${fullError}`);
+      const isTimeout =
+        isAbortError ||
+        (error instanceof Error && error.name === "TimeoutError");
+      const errorMsg = isTimeout ? `Request timed out (${(elapsed / 1000).toFixed(1)}s)` : toReadableError(error);
+      const fullError = error instanceof Error
+        ? `${error.name}: ${error.message}${error.cause ? ` cause=${JSON.stringify(error.cause)}` : ""}`
+        : toReadableError(error);
+      log("ERROR", `Vertex chunk failed after ${elapsed}ms (audio=${chunkDurationMs.toFixed(0)}ms): ${fullError}`);
       updateBlock(block, {
         sourceText: "(Vertex error)",
         translation: errorMsg,
