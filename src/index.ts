@@ -207,17 +207,26 @@ async function main() {
   let audioRecorder: AudioRecorder | null = null;
   let ffmpegProcess: ReturnType<typeof spawnFfmpeg> | null = null; // Legacy mode only
   let audioBuffer = Buffer.alloc(0);
-  let vertexBuffer = Buffer.alloc(0);
   let recordingStartedAt: number | null = null;
   let audioBytesSent = 0;
   let noAudioTimer: NodeJS.Timeout | null = null;
   let audioWarningShown = false;
-  let vertexFlushTimer: NodeJS.Timeout | null = null;
   let vertexChunkQueue: Buffer[] = [];
   let vertexInFlight = 0;
   const vertexMaxConcurrency = 5;
   const vertexMaxQueueSize = 20;
   let vertexOverlap = Buffer.alloc(0);
+
+  // Voice activity detection (VAD) for Vertex chunking
+  const VAD_WINDOW_MS = 100;
+  const VAD_WINDOW_BYTES = Math.floor(16000 * 2 * (VAD_WINDOW_MS / 1000)); // 3200 bytes
+  const VAD_SILENCE_FLUSH_MS = 400;  // Silence duration to trigger flush
+  const VAD_MAX_CHUNK_MS = 8000;     // Force flush after 8s continuous speech
+  const VAD_MIN_CHUNK_MS = 500;      // Don't send chunks shorter than 0.5s
+  let vadAnalysisBuffer = Buffer.alloc(0);
+  let vadSpeechBuffer = Buffer.alloc(0);
+  let vadSilenceMs = 0;
+  let vadSpeechStarted = false;
 
   const recentTranslationLimit = 20;
   const recentTranslations = new Set<string>();
@@ -267,6 +276,11 @@ async function main() {
       .boolean()
       .describe(
         "True if the audio was cut off mid-sentence (incomplete thought). False if speech ends at a natural sentence boundary or pause."
+      ),
+    isNewTopic: z
+      .boolean()
+      .describe(
+        "True if the speaker shifted to a new topic or subject compared to the context. False if continuing the same topic or if no context is available."
       ),
   });
 
@@ -693,6 +707,7 @@ async function main() {
           targetLabel: detectedLabel,
           translation: sourceText,
           partial: result.isPartial,
+          newTopic: result.isNewTopic,
         });
       } else {
         // Source language detected: show translation to target
@@ -702,6 +717,7 @@ async function main() {
           targetLabel: translatedToLabel,
           translation: translation || undefined,
           partial: result.isPartial,
+          newTopic: result.isNewTopic,
         });
       }
 
@@ -742,7 +758,18 @@ async function main() {
 
   // Shared audio processing logic for both ScreenCaptureKit and legacy ffmpeg modes
   const scribeChunkSize = 3200;
-  const vertexChunkBytes = Math.floor(16000 * 2 * (config.intervalMs / 1000));
+
+  function vadFlush() {
+    if (vadSpeechBuffer.length === 0) return;
+    const durationMs = (vadSpeechBuffer.length / (16000 * 2)) * 1000;
+    if (durationMs >= VAD_MIN_CHUNK_MS) {
+      enqueueVertexChunk(vadSpeechBuffer);
+      void processVertexQueue();
+    }
+    vadSpeechBuffer = Buffer.alloc(0);
+    vadSpeechStarted = false;
+    vadSilenceMs = 0;
+  }
 
   function handleAudioData(data: Buffer) {
     if (shouldStreamToScribe()) {
@@ -754,15 +781,31 @@ async function main() {
     }
 
     if (config.engine === "vertex") {
-      vertexBuffer = Buffer.concat([vertexBuffer, data]);
-      while (vertexBuffer.length >= vertexChunkBytes) {
-        const chunk = vertexBuffer.subarray(0, vertexChunkBytes);
-        vertexBuffer = vertexBuffer.subarray(vertexChunkBytes);
-        if (isAudioSilent(chunk)) {
-          continue;
+      vadAnalysisBuffer = Buffer.concat([vadAnalysisBuffer, data]);
+
+      while (vadAnalysisBuffer.length >= VAD_WINDOW_BYTES) {
+        const window = vadAnalysisBuffer.subarray(0, VAD_WINDOW_BYTES);
+        vadAnalysisBuffer = vadAnalysisBuffer.subarray(VAD_WINDOW_BYTES);
+        const silent = isAudioSilent(window);
+
+        if (silent) {
+          if (vadSpeechStarted) {
+            vadSpeechBuffer = Buffer.concat([vadSpeechBuffer, window]);
+            vadSilenceMs += VAD_WINDOW_MS;
+            if (vadSilenceMs >= VAD_SILENCE_FLUSH_MS) {
+              vadFlush();
+            }
+          }
+        } else {
+          vadSpeechBuffer = Buffer.concat([vadSpeechBuffer, window]);
+          vadSpeechStarted = true;
+          vadSilenceMs = 0;
+
+          const speechDurationMs = (vadSpeechBuffer.length / (16000 * 2)) * 1000;
+          if (speechDurationMs >= VAD_MAX_CHUNK_MS) {
+            vadFlush();
+          }
         }
-        enqueueVertexChunk(chunk);
-        void processVertexQueue();
       }
     }
   }
@@ -832,6 +875,10 @@ async function main() {
     audioBytesSent = 0;
     audioWarningShown = false;
     audioBuffer = Buffer.alloc(0);
+    vadAnalysisBuffer = Buffer.alloc(0);
+    vadSpeechBuffer = Buffer.alloc(0);
+    vadSilenceMs = 0;
+    vadSpeechStarted = false;
     transcriptBuffer = "";
     lastCommittedText = "";
     contextBuffer.length = 0;
@@ -979,10 +1026,14 @@ async function main() {
       ws = null;
     }
 
+    vadFlush(); // Send any remaining speech
     vertexChunkQueue = [];
-    vertexBuffer = Buffer.alloc(0);
     vertexOverlap = Buffer.alloc(0);
     vertexInFlight = 0;
+    vadAnalysisBuffer = Buffer.alloc(0);
+    vadSpeechBuffer = Buffer.alloc(0);
+    vadSilenceMs = 0;
+    vadSpeechStarted = false;
     inFlightBlockIds.clear();
 
     if (ui) {

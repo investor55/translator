@@ -198,12 +198,9 @@ export function createBlessedUI(): BlessedUI {
         continue;
       }
 
-      const prev = current[current.length - 1];
       const exceededMax = block.createdAt - windowStart > PARAGRAPH_MAX_MS;
 
-      // Only break when previous block explicitly ended at a sentence boundary.
-      // Default to appending (partial undefined = still in-flight or unknown).
-      if (prev.partial === false || exceededMax) {
+      if (block.newTopic || exceededMax) {
         paragraphs.push(current);
         current = [block];
         windowStart = block.createdAt;

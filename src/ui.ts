@@ -5,5 +5,6 @@ export type TranscriptBlock = {
   targetLabel: string; // Always "EN" for translation target
   translation?: string;
   partial?: boolean; // true if transcript was cut off mid-sentence
+  newTopic?: boolean; // true if this starts a new topic/subject shift
   createdAt: number;
 };
