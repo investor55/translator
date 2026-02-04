@@ -264,10 +264,10 @@ export function createBlessedUI(): BlessedUI {
         const translations = paragraph.map((b) => b.translation).filter(Boolean);
         const pending = paragraph.some((b) => !b.translation);
         if (translations.length > 0) {
-          const translationText = joinWithPartialAwareness(paragraph, (b) => b.translation) + (pending ? " …" : "");
+          const translationText = joinWithPartialAwareness(paragraph, (b) => b.translation) + (pending ? " {gray-fg}Processing...{/}" : "");
           lines.push(`{bold}{${targetColor}-fg}${first.targetLabel}:{/} ${translationText}`);
         } else {
-          lines.push(`{gray-fg}${first.targetLabel}: …{/}`);
+          lines.push(`{gray-fg}${first.targetLabel}: Processing...{/}`);
         }
       }
       lines.push("");
@@ -306,6 +306,20 @@ export function createBlessedUI(): BlessedUI {
       content += `  {gray-fg}│{/}  ${statusText}`;
     }
     footer.setContent(content);
+  }
+
+  let renderTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function scheduleRender() {
+    if (renderTimer) return;
+    renderTimer = setTimeout(() => {
+      renderTimer = null;
+      renderHeader();
+      renderSummary();
+      renderBlocks();
+      renderFooter();
+      screen.render();
+    }, 60);
   }
 
   function render() {
@@ -360,29 +374,25 @@ export function createBlessedUI(): BlessedUI {
 
     addBlock(block: TranscriptBlock) {
       blocks.push(block);
-      renderBlocks();
-      screen.render();
+      scheduleRender();
     },
 
     updateBlock(block: TranscriptBlock) {
       const idx = blocks.findIndex((b) => b.id === block.id);
       if (idx >= 0) {
         blocks[idx] = block;
-        renderBlocks();
-        screen.render();
+        scheduleRender();
       }
     },
 
     clearBlocks() {
       blocks.length = 0;
-      renderBlocks();
-      screen.render();
+      scheduleRender();
     },
 
     setStatus(text: string) {
       statusText = text;
-      renderFooter();
-      screen.render();
+      scheduleRender();
     },
 
     render,

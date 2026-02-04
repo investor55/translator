@@ -43,20 +43,41 @@ export function buildAudioPromptForStructured(
   const sourceLangName = LANG_NAMES[sourceLang];
   const targetLangName = LANG_NAMES[targetLang];
 
+  const englishIsConfigured = sourceLang === "en" || targetLang === "en";
+  const langList = englishIsConfigured
+    ? `${sourceLangName} or ${targetLangName}`
+    : `${sourceLangName}, ${targetLangName}, or English`;
+  const codeList = englishIsConfigured
+    ? `"${sourceLang}" or "${targetLang}"`
+    : `"${sourceLang}", "${targetLang}", or "en"`;
+
   if (direction === "auto") {
-    return `${contextBlock}Listen to the audio clip. The audio is either ${sourceLangName} or ${targetLangName}.
-1. Detect whether the language is ${sourceLangName} ("${sourceLang}") or ${targetLangName} ("${targetLang}")
+    let translateRule: string;
+    if (sourceLang === "en") {
+      translateRule = `If ${sourceLangName}, translate to ${targetLangName}. If ${targetLangName}, translate to ${sourceLangName}.`;
+    } else if (targetLang === "en") {
+      translateRule = `If ${sourceLangName}, translate to ${targetLangName}. If ${targetLangName} (English), leave translation empty — no translation needed.`;
+    } else {
+      translateRule = `If ${sourceLangName}, translate to ${targetLangName}. If ${targetLangName}, translate to ${sourceLangName}. If English, leave translation empty — no translation needed.`;
+    }
+
+    return `${contextBlock}Listen to the audio clip. The speaker may be speaking ${langList}. The speaker may occasionally use English words or phrases even when primarily speaking another language.
+1. Detect the spoken language (${codeList})
 2. Transcribe the audio in its original language
-3. If ${sourceLangName}, translate to ${targetLangName}. If ${targetLangName}, translate to ${sourceLangName}.
+3. ${translateRule}
 
 If the audio is cut off mid-sentence, transcribe only what was actually spoken — do not add trailing punctuation or complete unfinished words/sentences. Set isPartial to true.
 
 If there is no speech, silence, or unintelligible audio, return an empty transcript and empty translation.
 
-Return sourceLanguage ("${sourceLang}" or "${targetLang}"), transcript, isPartial, and translation.`;
+Return sourceLanguage (${codeList}), transcript, isPartial, and translation.`;
   }
 
-  return `${contextBlock}Listen to the audio clip spoken in ${sourceLangName}. Transcribe it in ${sourceLangName} and translate it into ${targetLangName}.
+  const englishNote = sourceLang !== "en"
+    ? ` The speaker may occasionally use English — if so, transcribe in English, set sourceLanguage to "en", and leave translation empty.`
+    : "";
+
+  return `${contextBlock}Listen to the audio clip spoken in ${sourceLangName}. Transcribe it in ${sourceLangName} and translate it into ${targetLangName}.${englishNote}
 
 If the audio is cut off mid-sentence, transcribe only what was actually spoken — do not add trailing punctuation or complete unfinished words/sentences. Set isPartial to true.
 

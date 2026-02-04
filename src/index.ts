@@ -248,17 +248,21 @@ async function main() {
   const targetLangLabel = getLanguageLabel(config.targetLang);
   const sourceLangName = LANG_NAMES[config.sourceLang];
   const targetLangName = LANG_NAMES[config.targetLang];
+  const englishIsConfigured = config.sourceLang === "en" || config.targetLang === "en";
+  const langEnumValues: [string, ...string[]] = englishIsConfigured
+    ? [config.sourceLang, config.targetLang]
+    : [config.sourceLang, config.targetLang, "en"];
   const AudioTranscriptionSchema = z.object({
     sourceLanguage: z
-      .enum([config.sourceLang, config.targetLang] as [string, string])
-      .describe(`The detected language: "${config.sourceLang}" for ${sourceLangName} or "${config.targetLang}" for ${targetLangName}`),
+      .enum(langEnumValues)
+      .describe(`The detected language: ${langEnumValues.map((c) => `"${c}" for ${LANG_NAMES[c as LanguageCode] ?? c}`).join(", ")}`),
     transcript: z
       .string()
       .describe("The transcription of the audio in the original language"),
     translation: z
       .string()
       .optional()
-      .describe(`The translation. Empty if audio matches target language (${targetLangName}).`),
+      .describe(`The translation. Empty if audio is in English or matches target language.`),
     isPartial: z
       .boolean()
       .describe(
@@ -608,20 +612,7 @@ async function main() {
   }
 
   function updateInFlightDisplay() {
-    if (inFlightBlockIds.size === 0) return;
-    const maxId = Math.max(...inFlightBlockIds);
-    for (const id of inFlightBlockIds) {
-      const b = transcriptBlocks.get(id);
-      if (!b) continue;
-      // Skip if block already has real content (not empty or placeholder)
-      if (b.sourceText && b.sourceText !== "" && b.sourceText !== "Processing...") continue;
-      // Show "Processing..." only if not the last in-flight block
-      const displayText = id < maxId ? "Processing..." : "";
-      if (b.sourceText !== displayText) {
-        b.sourceText = displayText;
-        if (ui) ui.updateBlock(b);
-      }
-    }
+    // No-op: blocks are created with "Processing..." state directly
   }
 
   async function processVertexQueue() {
@@ -630,10 +621,8 @@ async function main() {
     if (!chunk) return;
     vertexInFlight++;
 
-    // Create block with empty text initially (will show nothing for trailing block)
-    const block = createBlock(sourceLangLabel, "", targetLangLabel, undefined);
+    const block = createBlock(sourceLangLabel, "Processing...", targetLangLabel, undefined);
     inFlightBlockIds.add(block.id);
-    updateInFlightDisplay(); // Update all in-flight blocks' display
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
@@ -692,16 +681,17 @@ async function main() {
 
       const sourceText = transcript || "(unavailable)";
       const isTargetLang = detectedLang === config.targetLang;
+      const isEnglishPassthrough = detectedLang === "en" && config.sourceLang !== "en";
       const detectedLabel = getLanguageLabel(detectedLang);
       const translatedToLabel = isTargetLang ? sourceLangLabel : targetLangLabel;
 
-      if (isTargetLang) {
-        // Already in target language: transcription only, no translation needed
+      if (isTargetLang || isEnglishPassthrough) {
+        // Target language or English passthrough: show transcription in both slots
         updateBlock(block, {
           sourceLabel: detectedLabel,
           sourceText,
           targetLabel: detectedLabel,
-          translation: undefined,
+          translation: sourceText,
           partial: result.isPartial,
         });
       } else {

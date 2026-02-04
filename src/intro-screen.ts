@@ -222,6 +222,7 @@ export function showIntroScreen(): Promise<IntroSelection> {
 
     let currentFocus: "source" | "target" = "source";
     sourceList.focus();
+    applyFocusStyles(sourceList, targetList);
     renderEngineBar();
 
     function updateStatus() {
@@ -237,17 +238,22 @@ export function showIntroScreen(): Promise<IntroSelection> {
       screen.render();
     }
 
+    function applyFocusStyles(focused: blessed.Widgets.ListElement, unfocused: blessed.Widgets.ListElement) {
+      focused.style.border.fg = "white";
+      focused.style.selected = { bg: "cyan", fg: "black", bold: true };
+      unfocused.style.border.fg = "cyan";
+      unfocused.style.selected = { bg: "gray", fg: "white", bold: false };
+    }
+
     function switchFocus() {
       if (currentFocus === "source") {
         currentFocus = "target";
         targetList.focus();
-        sourceList.style.border.fg = "cyan";
-        targetList.style.border.fg = "white";
+        applyFocusStyles(targetList, sourceList);
       } else {
         currentFocus = "source";
         sourceList.focus();
-        targetList.style.border.fg = "cyan";
-        sourceList.style.border.fg = "white";
+        applyFocusStyles(sourceList, targetList);
       }
       screen.render();
     }
