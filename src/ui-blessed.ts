@@ -8,6 +8,7 @@ export type UIState = {
   intervalMs: number;
   status: "idle" | "connecting" | "recording" | "paused";
   contextLoaded: boolean;
+  cost?: number;
 };
 
 export type BlessedUI = {
@@ -18,6 +19,7 @@ export type BlessedUI = {
   updateBlock: (block: TranscriptBlock) => void;
   clearBlocks: () => void;
   setStatus: (text: string) => void;
+  updateCost: (cost: number) => void;
   render: () => void;
   destroy: () => void;
 };
@@ -56,7 +58,7 @@ export function createBlessedUI(): BlessedUI {
     top: 3,
     left: 0,
     width: "100%",
-    height: 6,
+    height: 8,
     tags: true,
     border: { type: "line" },
     label: " SUMMARY ",
@@ -73,10 +75,10 @@ export function createBlessedUI(): BlessedUI {
 
   // Transcript list - main scrollable area
   const transcriptBox = blessed.box({
-    top: 9,
+    top: 11,
     left: 0,
     width: "100%",
-    height: "100%-12",
+    height: "100%-14",
     tags: true,
     border: { type: "line" },
     label: " LIVE TRANSCRIPT ",
@@ -156,12 +158,13 @@ export function createBlessedUI(): BlessedUI {
     const interval = `${(uiState.intervalMs / 1000).toFixed(1)}s`;
     const statusLabel = getStatusLabel(uiState.status);
     const contextLabel = uiState.contextLoaded ? " {cyan-fg}[CTX]{/}" : "";
+    const costLabel = uiState.cost != null && uiState.cost > 0
+      ? `  {gray-fg}│{/}  {green-fg}$${uiState.cost.toFixed(4)}{/}`
+      : "";
 
     header.setContent(
       `{bold}{cyan-fg}◈ Rosetta{/}  {gray-fg}│{/}  ` +
-      `{gray-fg}Device:{/} ${uiState.deviceName}  {gray-fg}│{/}  ` +
-      `{gray-fg}Interval:{/} ${interval}  {gray-fg}│{/}  ` +
-      `${statusLabel}${contextLabel}  {gray-fg}│{/}  ` +
+      `${statusLabel}${costLabel}${contextLabel}  {gray-fg}│{/}  ` +
       `${uiState.modelId}`
     );
   }
@@ -172,16 +175,8 @@ export function createBlessedUI(): BlessedUI {
       return;
     }
 
-    const elapsed = Math.floor((Date.now() - currentSummary.updatedAt) / 1000);
-    const updatedLabel = elapsed < 60 ? `${elapsed}s ago` : `${Math.floor(elapsed / 60)}m ago`;
-
-    let content = "";
-    for (const point of currentSummary.keyPoints.slice(0, 4)) {
-      content += `  {cyan-fg}•{/} ${point}\n`;
-    }
-    content += `{gray-fg}Updated: ${updatedLabel}{/}`;
-
-    summary.setContent(content);
+    const lines = currentSummary.keyPoints.map((point) => `  {cyan-fg}•{/} ${point}`);
+    summary.setContent(lines.join("\n"));
   }
 
   const PARAGRAPH_MAX_MS = 30_000;
@@ -389,6 +384,11 @@ export function createBlessedUI(): BlessedUI {
 
     setStatus(text: string) {
       statusText = text;
+      scheduleRender();
+    },
+
+    updateCost(cost: number) {
+      uiState = { ...uiState, cost };
       scheduleRender();
     },
 

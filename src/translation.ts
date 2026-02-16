@@ -34,8 +34,12 @@ export function buildAudioPromptForStructured(
   direction: Direction,
   sourceLang: LanguageCode,
   targetLang: LanguageCode,
-  context: string[] = []
+  context: string[] = [],
+  summaryPoints: string[] = []
 ): string {
+  const summaryBlock = summaryPoints.length
+    ? `Conversation summary so far:\n${summaryPoints.map((p) => `• ${p}`).join("\n")}\n\n`
+    : "";
   const contextBlock = context.length
     ? `Context (previous sentences for reference):\n${context.join("\n")}\n\n`
     : "";
@@ -61,7 +65,7 @@ export function buildAudioPromptForStructured(
       translateRule = `If ${sourceLangName}, translate to ${targetLangName}. If ${targetLangName}, translate to ${sourceLangName}. If English, leave translation empty — no translation needed.`;
     }
 
-    return `${contextBlock}Listen to the audio clip. The speaker may be speaking ${langList}. The speaker may occasionally use English words or phrases even when primarily speaking another language.
+    return `${summaryBlock}${contextBlock}Listen to the audio clip. The speaker may be speaking ${langList}. The speaker may occasionally use English words or phrases even when primarily speaking another language.
 1. Detect the spoken language (${codeList})
 2. Transcribe the audio in its original language
 3. ${translateRule}
@@ -77,7 +81,7 @@ Return sourceLanguage (${codeList}), transcript, isPartial, and translation.`;
     ? ` The speaker may occasionally use English — if so, transcribe in English, set sourceLanguage to "en", and leave translation empty.`
     : "";
 
-  return `${contextBlock}Listen to the audio clip spoken in ${sourceLangName}. Transcribe it in ${sourceLangName} and translate it into ${targetLangName}.${englishNote}
+  return `${summaryBlock}${contextBlock}Listen to the audio clip spoken in ${sourceLangName}. Transcribe it in ${sourceLangName} and translate it into ${targetLangName}.${englishNote}
 
 If the audio is cut off mid-sentence, transcribe only what was actually spoken — do not add trailing punctuation or complete unfinished words/sentences. Set isPartial to true.
 

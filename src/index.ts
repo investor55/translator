@@ -244,6 +244,24 @@ async function main() {
   let lastFlushAt = Date.now();
   let lastVertexTranscript = "";
 
+  // Cost tracking
+  const costAccumulator = { totalInputTokens: 0, totalOutputTokens: 0, totalCost: 0 };
+
+  const VERTEX_PRICING = {
+    audioInputPerToken: 1.0 / 1_000_000,
+    textInputPerToken: 0.5 / 1_000_000,
+    outputPerToken: 3.0 / 1_000_000,
+  } as const;
+
+  function addCost(inputTokens: number, outputTokens: number, inputType: "audio" | "text") {
+    const inputRate = inputType === "audio" ? VERTEX_PRICING.audioInputPerToken : VERTEX_PRICING.textInputPerToken;
+    const cost = (inputTokens * inputRate) + (outputTokens * VERTEX_PRICING.outputPerToken);
+    costAccumulator.totalInputTokens += inputTokens;
+    costAccumulator.totalOutputTokens += outputTokens;
+    costAccumulator.totalCost += cost;
+    if (ui) ui.updateCost(costAccumulator.totalCost);
+  }
+
   // Blessed UI
   let ui: BlessedUI | null = null;
   let summaryTimer: NodeJS.Timeout | null = null;
@@ -285,7 +303,7 @@ async function main() {
 
   // Zod schema for conversation summary
   const SummarySchema = z.object({
-    keyPoints: z.array(z.string()).describe("3-4 key points from the recent conversation"),
+    keyPoints: z.array(z.string()).describe("4 key points from the recent conversation"),
   });
 
   async function generateSummary() {
@@ -305,24 +323,25 @@ async function main() {
         .map((b) => `${b.sourceLabel}: ${b.sourceText}${b.translation ? ` → ${b.targetLabel}: ${b.translation}` : ""}`)
         .join("\n");
 
-      const result = await generateObject({
+      const { object: summaryResult, usage: summaryUsage } = await generateObject({
         model: vertexModel(config.vertexModelId),
         schema: SummarySchema,
-        prompt: `Summarize this conversation in 3-4 bullets:\n\n${text}`,
+        prompt: `Summarize this conversation in exactly 4 bullets:\n\n${text}`,
         abortSignal: AbortSignal.timeout(10000),
         temperature: 0,
       });
 
       const elapsed = Date.now() - startTime;
+      addCost(summaryUsage?.inputTokens ?? 0, summaryUsage?.outputTokens ?? 0, "text");
       if (config.debug) {
         log("INFO", `Summary response: ${elapsed}ms`);
       }
 
       // Append all points to session log
-      allKeyPoints.push(...result.object.keyPoints);
+      allKeyPoints.push(...summaryResult.keyPoints);
 
       lastSummary = {
-        keyPoints: result.object.keyPoints,
+        keyPoints: summaryResult.keyPoints,
         updatedAt: Date.now(),
       };
       if (ui) {
@@ -389,6 +408,7 @@ async function main() {
       intervalMs: config.intervalMs,
       status,
       contextLoaded: !!userContext,
+      cost: costAccumulator.totalCost,
     };
   }
 
@@ -648,7 +668,8 @@ async function main() {
         config.direction,
         config.sourceLang,
         config.targetLang,
-        contextBuffer.slice(-contextWindowSize)
+        contextBuffer.slice(-contextWindowSize),
+        allKeyPoints.slice(-8)
       );
       const wavBuffer = pcmToWavBuffer(chunk, 16000);
 
@@ -681,6 +702,8 @@ async function main() {
       const elapsed = Date.now() - startTime;
       const inTok = finalUsage?.inputTokens ?? 0;
       const outTok = finalUsage?.outputTokens ?? 0;
+      addCost(inTok, outTok, "audio");
+
       if (config.debug) {
         log("INFO", `Vertex response: ${elapsed}ms, tokens: ${inTok}→${outTok}, queue: ${vertexChunkQueue.length}`);
         if (ui) ui.setStatus(`Response: ${elapsed}ms | T: ${inTok}→${outTok}`);
@@ -697,15 +720,10 @@ async function main() {
 
       const sourceText = transcript || "(unavailable)";
       const isTargetLang = detectedLang === config.targetLang;
-      const isEnglishPassthrough = detectedLang === "en" && config.sourceLang !== "en";
       const detectedLabel = getLanguageLabel(detectedLang);
       const translatedToLabel = isTargetLang ? sourceLangLabel : targetLangLabel;
 
-      if (isTargetLang || isEnglishPassthrough) {
-        createBlock(detectedLabel, sourceText, detectedLabel, sourceText);
-      } else {
-        createBlock(detectedLabel, sourceText, translatedToLabel, translation || undefined);
-      }
+      createBlock(detectedLabel, sourceText, translatedToLabel, translation || undefined);
 
       // Update the last block with metadata
       const block = transcriptBlocks.get(nextBlockId - 1);
@@ -880,6 +898,9 @@ async function main() {
     nextBlockId = 1;
     lastFlushAt = Date.now();
     lastSummary = null;
+    costAccumulator.totalInputTokens = 0;
+    costAccumulator.totalOutputTokens = 0;
+    costAccumulator.totalCost = 0;
 
     if (ui) {
       ui.clearBlocks();
