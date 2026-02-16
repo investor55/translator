@@ -17,19 +17,6 @@ export const LANG_NAMES: Record<LanguageCode, string> = {
   tl: "Tagalog",
 };
 
-export function buildPrompt(
-  text: string,
-  sourceLang: LanguageCode,
-  targetLang: LanguageCode,
-  context: string[] = []
-): string {
-  const targetName = LANG_NAMES[targetLang];
-  const contextBlock = context.length
-    ? `Context (previous sentences, do not translate):\n${context.join("\n")}\n\n`
-    : "";
-  return `${contextBlock}Current sentence to translate into ${targetName}. Output only the translated text, no explanations or markdown.\n${text}`;
-}
-
 export function buildAudioPromptForStructured(
   direction: Direction,
   sourceLang: LanguageCode,

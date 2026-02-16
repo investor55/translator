@@ -158,7 +158,6 @@ describe("parseArgs", () => {
   it("returns default config with no args", () => {
     const config = parseArgs([]);
     expect(config.direction).toBe("auto");
-    expect(config.engine).toBe("elevenlabs");
     expect(config.listDevices).toBe(false);
     expect(config.help).toBe(false);
     expect(config.useContext).toBe(true);
@@ -186,29 +185,13 @@ describe("parseArgs", () => {
   });
 
   it("parses --direction", () => {
-    expect(parseArgs(["--direction", "ko-en"]).direction).toBe("ko-en");
-    expect(parseArgs(["--direction=en-ko"]).direction).toBe("en-ko");
+    expect(parseArgs(["--direction", "source-target"]).direction).toBe("source-target");
     expect(parseArgs(["--direction", "auto"]).direction).toBe("auto");
   });
 
   it("ignores invalid direction values", () => {
     const config = parseArgs(["--direction", "invalid"]);
     expect(config.direction).toBe("auto");
-  });
-
-  it("parses --model", () => {
-    const config = parseArgs(["--model", "custom-model"]);
-    expect(config.modelId).toBe("custom-model");
-  });
-
-  it("parses --engine", () => {
-    expect(parseArgs(["--engine", "vertex"]).engine).toBe("vertex");
-    expect(parseArgs(["--engine=elevenlabs"]).engine).toBe("elevenlabs");
-  });
-
-  it("ignores invalid engine values", () => {
-    const config = parseArgs(["--engine", "invalid"]);
-    expect(config.engine).toBe("elevenlabs");
   });
 
   it("parses --vertex-model", () => {
@@ -243,15 +226,12 @@ describe("parseArgs", () => {
 
   it("parses multiple flags together", () => {
     const config = parseArgs([
-      "--engine",
-      "vertex",
       "--direction",
-      "ko-en",
+      "source-target",
       "--compact",
       "--no-context",
     ]);
-    expect(config.engine).toBe("vertex");
-    expect(config.direction).toBe("ko-en");
+    expect(config.direction).toBe("source-target");
     expect(config.compact).toBe(true);
     expect(config.useContext).toBe(false);
   });
@@ -267,19 +247,23 @@ describe("toReadableError", () => {
     expect(toReadableError("Plain string error")).toBe("Plain string error");
   });
 
-  it("converts number to string", () => {
-    expect(toReadableError(404)).toBe("404");
+  it("returns Unknown error for number", () => {
+    expect(toReadableError(404)).toBe("Unknown error");
   });
 
-  it("converts null to string", () => {
-    expect(toReadableError(null)).toBe("null");
+  it("returns Unknown error for null", () => {
+    expect(toReadableError(null)).toBe("Unknown error");
   });
 
-  it("converts undefined to string", () => {
-    expect(toReadableError(undefined)).toBe("undefined");
+  it("returns Unknown error for undefined", () => {
+    expect(toReadableError(undefined)).toBe("Unknown error");
   });
 
-  it("converts object to string", () => {
-    expect(toReadableError({ code: "ERR" })).toBe("[object Object]");
+  it("returns Unknown error for plain object", () => {
+    expect(toReadableError({ code: "ERR" })).toBe("Unknown error");
+  });
+
+  it("extracts message from error-like object", () => {
+    expect(toReadableError({ message: "oops" })).toBe("oops");
   });
 });

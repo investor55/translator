@@ -1,60 +1,40 @@
 import { describe, it, expect } from "vitest";
 import {
-  buildPrompt,
   buildAudioPromptForStructured,
   hasTranslatableContent,
-  resolveDirection,
   extractSentences,
 } from "./translation";
 
-describe("buildPrompt", () => {
-  it("builds ko-en prompt without context", () => {
-    const result = buildPrompt("안녕하세요", "ko-en", []);
-    expect(result).toContain("English");
-    expect(result).toContain("안녕하세요");
-    expect(result).not.toContain("Context");
-  });
-
-  it("builds en-ko prompt without context", () => {
-    const result = buildPrompt("Hello", "en-ko", []);
-    expect(result).toContain("Korean");
-    expect(result).toContain("Hello");
-  });
-
-  it("includes context when provided", () => {
-    const context = ["Previous sentence one.", "Previous sentence two."];
-    const result = buildPrompt("Current text", "ko-en", context);
-    expect(result).toContain("Context");
-    expect(result).toContain("Previous sentence one.");
-    expect(result).toContain("Previous sentence two.");
-  });
-});
-
 describe("buildAudioPromptForStructured", () => {
   it("builds auto-detect prompt for structured output", () => {
-    const result = buildAudioPromptForStructured("auto", []);
+    const result = buildAudioPromptForStructured("auto", "ko", "en", [], []);
     expect(result).toContain("Detect");
     expect(result).toContain("Korean or English");
     expect(result).not.toContain("JSON");
   });
 
-  it("builds ko-en prompt for structured output", () => {
-    const result = buildAudioPromptForStructured("ko-en", []);
+  it("builds source-target prompt for structured output", () => {
+    const result = buildAudioPromptForStructured("source-target", "ko", "en", [], []);
     expect(result).toContain("Korean");
     expect(result).toContain("English");
   });
 
-  it("builds en-ko prompt for structured output", () => {
-    const result = buildAudioPromptForStructured("en-ko", []);
+  it("builds reversed language prompt", () => {
+    const result = buildAudioPromptForStructured("source-target", "en", "ko", [], []);
     expect(result).toContain("English");
     expect(result).toContain("Korean");
   });
 
   it("includes context when provided", () => {
     const context = ["Context sentence."];
-    const result = buildAudioPromptForStructured("auto", context);
+    const result = buildAudioPromptForStructured("auto", "ko", "en", context, []);
     expect(result).toContain("Context");
     expect(result).toContain("Context sentence.");
+  });
+
+  it("includes summary points when provided", () => {
+    const result = buildAudioPromptForStructured("auto", "ko", "en", [], ["Point one"]);
+    expect(result).toContain("Point one");
   });
 });
 
@@ -89,28 +69,6 @@ describe("hasTranslatableContent", () => {
 
   it("returns false for punctuation only", () => {
     expect(hasTranslatableContent("...???!!!")).toBe(false);
-  });
-});
-
-describe("resolveDirection", () => {
-  it("returns fixed direction when not auto", () => {
-    expect(resolveDirection("any text", "ko-en")).toBe("ko-en");
-    expect(resolveDirection("any text", "en-ko")).toBe("en-ko");
-  });
-
-  it("detects Korean text and returns ko-en", () => {
-    expect(resolveDirection("안녕하세요", "auto")).toBe("ko-en");
-    expect(resolveDirection("Hello 안녕", "auto")).toBe("ko-en");
-  });
-
-  it("detects English text and returns en-ko", () => {
-    expect(resolveDirection("Hello world", "auto")).toBe("en-ko");
-    expect(resolveDirection("This is a test", "auto")).toBe("en-ko");
-  });
-
-  it("defaults to en-ko for non-Korean text", () => {
-    expect(resolveDirection("12345", "auto")).toBe("en-ko");
-    expect(resolveDirection("", "auto")).toBe("en-ko");
   });
 });
 

@@ -26,12 +26,9 @@ export const SUPPORTED_LANGUAGES: Language[] = [
   { code: "tl", name: "Tagalog", native: "Tagalog" },
 ];
 
-export type Engine = "vertex" | "elevenlabs";
-
 export type IntroSelection = {
   sourceLang: LanguageCode;
   targetLang: LanguageCode;
-  engine: Engine;
 };
 
 const PIXEL_ART = `
@@ -80,34 +77,12 @@ export function showIntroScreen(): Promise<IntroSelection> {
       content: useSmallArt ? SMALL_PIXEL_ART : PIXEL_ART,
     });
 
-    // Engine selector bar
-    let selectedEngine: Engine = "vertex";
-    const engineBar = blessed.box({
-      top: artHeight,
-      left: "center",
-      width: "80%",
-      height: 3,
-      tags: true,
-      border: { type: "line" },
-      style: { border: { fg: "cyan" } },
-    });
-
-    function renderEngineBar() {
-      const vertexStyle = selectedEngine === "vertex"
-        ? "{cyan-bg}{black-fg}{bold}" : "{gray-fg}";
-      const elevenStyle = selectedEngine === "elevenlabs"
-        ? "{cyan-bg}{black-fg}{bold}" : "{gray-fg}";
-      engineBar.setContent(
-        `{center}ENGINE:  ${vertexStyle} Vertex AI (Gemini) {/}    ${elevenStyle} ElevenLabs + Bedrock {/}{/center}`
-      );
-    }
-
     // Container for language selectors
     const selectorContainer = blessed.box({
-      top: artHeight + 4,
+      top: artHeight + 1,
       left: "center",
       width: "80%",
-      height: "100%-" + (artHeight + 9),
+      height: "100%-" + (artHeight + 6),
       tags: true,
     });
 
@@ -195,7 +170,7 @@ export function showIntroScreen(): Promise<IntroSelection> {
       border: { type: "line" },
       style: { border: { fg: "cyan" } },
       content:
-        "{center}{gray-fg}←→:{/} switch panels  {gray-fg}↑↓:{/} navigate  {gray-fg}TAB:{/} toggle engine  {gray-fg}ENTER:{/} start  {gray-fg}Q:{/} quit{/center}",
+        "{center}{gray-fg}←→:{/} switch panels  {gray-fg}↑↓:{/} navigate  {gray-fg}ENTER:{/} start  {gray-fg}Q:{/} quit{/center}",
     });
 
     // Status bar showing current selection
@@ -209,7 +184,6 @@ export function showIntroScreen(): Promise<IntroSelection> {
     });
 
     screen.append(logo);
-    screen.append(engineBar);
     screen.append(selectorContainer);
     screen.append(footer);
     screen.append(statusBar);
@@ -223,7 +197,6 @@ export function showIntroScreen(): Promise<IntroSelection> {
     let currentFocus: "source" | "target" = "source";
     sourceList.focus();
     applyFocusStyles(sourceList, targetList);
-    renderEngineBar();
 
     function updateStatus() {
       const sourceIdx = sourceList.selected as number;
@@ -261,13 +234,6 @@ export function showIntroScreen(): Promise<IntroSelection> {
     // Left/Right arrows to switch between language panels
     screen.key(["left", "right"], switchFocus);
 
-    // Tab to toggle engine
-    screen.key(["tab"], () => {
-      selectedEngine = selectedEngine === "vertex" ? "elevenlabs" : "vertex";
-      renderEngineBar();
-      screen.render();
-    });
-
     // Update status on selection change
     sourceList.on("select item", updateStatus);
     targetList.on("select item", updateStatus);
@@ -288,7 +254,7 @@ export function showIntroScreen(): Promise<IntroSelection> {
       }
 
       screen.destroy();
-      resolve({ sourceLang, targetLang, engine: selectedEngine });
+      resolve({ sourceLang, targetLang });
     });
 
     // Q to quit

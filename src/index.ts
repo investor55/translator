@@ -1,15 +1,12 @@
 import "dotenv/config";
-import WebSocket from "ws";
-import { generateText, generateObject } from "ai";
-import { bedrock } from "@ai-sdk/amazon-bedrock";
+import { generateObject } from "ai";
 import { createVertex } from "@ai-sdk/google-vertex";
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
-import type { CliConfig, Engine, Summary } from "./types";
+import type { CliConfig, Summary } from "./types";
 import {
-  DEFAULT_MODEL_ID,
   DEFAULT_INTERVAL_MS,
   DEFAULT_VERTEX_MODEL_ID,
   DEFAULT_VERTEX_LOCATION,
@@ -28,22 +25,17 @@ import { type TranscriptBlock } from "./ui";
 import { createBlessedUI, type BlessedUI, type UIState } from "./ui-blessed";
 import {
   buildAudioPromptForStructured,
-  buildPrompt,
-  extractSentences,
   hasTranslatableContent,
-  detectSourceLanguage,
   LANG_NAMES,
 } from "./translation";
 import {
   showIntroScreen,
   getLanguageLabel,
   type LanguageCode,
-  type IntroSelection,
 } from "./intro-screen";
 import {
   pcmToWavBuffer,
   normalizeText,
-  cleanTranslationOutput,
   parseArgs,
   toReadableError,
 } from "./utils";
@@ -122,7 +114,7 @@ process.on("exit", (code) => {
 
 async function main() {
   const config = parseArgs(process.argv.slice(2));
-  log("INFO", `Starting translator with engine=${config.engine}`);
+  log("INFO", "Starting translator");
 
   if (config.help) {
     printHelp();
@@ -155,17 +147,16 @@ async function main() {
     return;
   }
 
-  // Show intro screen for language/engine selection (unless --skip-intro)
+  // Show intro screen for language selection (unless --skip-intro)
   if (!config.skipIntro) {
     const selection = await showIntroScreen();
     config.sourceLang = selection.sourceLang;
     config.targetLang = selection.targetLang;
-    config.engine = selection.engine;
   }
 
   log("INFO", `Languages: ${config.sourceLang} → ${config.targetLang}`);
 
-  validateEnv(config.engine, config);
+  validateEnv(config);
 
   // Legacy audio mode: use ffmpeg + loopback device
   let legacyDevice: { index: number; name: string } | null = null;
@@ -196,21 +187,15 @@ async function main() {
     log("INFO", "Using ScreenCaptureKit for system audio capture");
   }
 
-  const bedrockModel = bedrock(config.modelId);
   const vertexModel = createVertex({
     project: config.vertexProject,
     location: config.vertexLocation,
-  }) as unknown as (modelId: string) => ReturnType<typeof bedrock>;
+  });
 
   let isRecording = false;
-  let ws: WebSocket | null = null;
   let audioRecorder: AudioRecorder | null = null;
   let ffmpegProcess: ReturnType<typeof spawnFfmpeg> | null = null; // Legacy mode only
-  let audioBuffer = Buffer.alloc(0);
   let recordingStartedAt: number | null = null;
-  let audioBytesSent = 0;
-  let noAudioTimer: NodeJS.Timeout | null = null;
-  let audioWarningShown = false;
   let vertexChunkQueue: Buffer[] = [];
   let vertexInFlight = 0;
   const vertexMaxConcurrency = 5;
@@ -231,17 +216,11 @@ async function main() {
   const recentTranslationLimit = 20;
   const recentTranslations = new Set<string>();
   const recentTranslationQueue: string[] = [];
-  const maxSentencesPerFlush = 1;
   const contextWindowSize = 10;
   const contextBuffer: string[] = [];
   const userContext = loadUserContext(config);
   const transcriptBlocks = new Map<number, TranscriptBlock>();
   let nextBlockId = 1;
-  let transcriptBuffer = "";
-  let lastCommittedText = "";
-  let flushTimer: NodeJS.Timeout | null = null;
-  let commitTimer: NodeJS.Timeout | null = null;
-  let lastFlushAt = Date.now();
   let lastVertexTranscript = "";
 
   // Cost tracking
@@ -395,73 +374,18 @@ async function main() {
   }
 
   function getUIState(status: UIState["status"]): UIState {
-    const activeModelId =
-      config.engine === "vertex" ? config.vertexModelId : config.modelId;
-    const engineLabel = config.engine === "vertex" ? "Vertex" : "ElevenLabs";
     const langPair = `${sourceLangName} → ${targetLangName}`;
     const deviceName = config.legacyAudio && legacyDevice
       ? legacyDevice.name
       : "System Audio (ScreenCaptureKit)";
     return {
       deviceName,
-      modelId: `${langPair} | ${activeModelId} (${engineLabel})`,
+      modelId: `${langPair} | ${config.vertexModelId}`,
       intervalMs: config.intervalMs,
       status,
       contextLoaded: !!userContext,
       cost: costAccumulator.totalCost,
     };
-  }
-
-  function flushBufferIfNeeded(force: boolean) {
-    if (!transcriptBuffer.trim()) return;
-    const now = Date.now();
-    const hasSentenceBoundary = /[.!?。！？]/.test(transcriptBuffer);
-    if (
-      force ||
-      hasSentenceBoundary ||
-      now - lastFlushAt >= config.intervalMs
-    ) {
-      lastFlushAt = now;
-      flushTranscriptBuffer();
-    }
-  }
-
-  async function translateAndPrint(
-    blockId: number,
-    text: string,
-    detectedLang: LanguageCode,
-    context: string[]
-  ) {
-    // Determine translation direction based on detected language
-    const fromLang = detectedLang;
-    const toLang = detectedLang === config.sourceLang ? config.targetLang : config.sourceLang;
-
-    const startTime = Date.now();
-    try {
-      const prompt = buildPrompt(text, fromLang, toLang, context);
-      const result = await generateText({
-        model: bedrockModel,
-        system: userContext || undefined,
-        prompt,
-        temperature: 0,
-        maxOutputTokens: 100,
-      });
-
-      const elapsed = Date.now() - startTime;
-      if (config.debug) {
-        log("INFO", `Bedrock response: ${elapsed}ms`);
-      }
-
-      const translated = cleanTranslationOutput(result.text);
-      if (translated) {
-        const block = transcriptBlocks.get(blockId);
-        if (!block) return;
-        block.translation = translated;
-        if (ui) ui.updateBlock(block);
-      }
-    } catch {
-      // Silent fail
-    }
   }
 
   function createBlock(
@@ -489,121 +413,6 @@ async function main() {
     if (contextBuffer.length > contextWindowSize) {
       contextBuffer.shift();
     }
-  }
-
-  function flushSentence(text: string) {
-    const sentence = normalizeText(text);
-    if (!hasTranslatableContent(sentence)) return;
-    if (!rememberTranslation(sentence)) return;
-
-    const detectedLang = detectSourceLanguage(sentence, config.sourceLang, config.targetLang);
-    const sourceLabel = getLanguageLabel(detectedLang);
-    const targetLabel = detectedLang === config.sourceLang ? targetLangLabel : sourceLangLabel;
-    const context = contextBuffer.slice(-contextWindowSize);
-
-    const block = createBlock(sourceLabel, sentence, targetLabel);
-    recordContext(sentence);
-    void translateAndPrint(block.id, sentence, detectedLang, context);
-  }
-
-  function flushTranscriptBuffer() {
-    const chunk = normalizeText(transcriptBuffer);
-    if (!chunk) return;
-    transcriptBuffer = "";
-    flushSentence(chunk);
-  }
-
-  function handleCommittedTranscript(text: string) {
-    const normalized = normalizeText(text);
-    if (!normalized) return;
-    if (!hasTranslatableContent(normalized)) return;
-
-    let incoming = normalized;
-    if (lastCommittedText && normalized.startsWith(lastCommittedText)) {
-      incoming = normalizeText(normalized.slice(lastCommittedText.length));
-    }
-    lastCommittedText = normalized;
-
-    if (!incoming) return;
-
-    transcriptBuffer = transcriptBuffer
-      ? `${transcriptBuffer} ${incoming}`
-      : incoming;
-
-    const { sentences, remainder } = extractSentences(transcriptBuffer);
-    if (sentences.length) {
-      const toFlush = sentences.slice(0, maxSentencesPerFlush);
-      for (const sentence of toFlush) {
-        flushSentence(sentence);
-      }
-      const leftover = sentences.slice(maxSentencesPerFlush);
-      transcriptBuffer = [...leftover, remainder]
-        .filter(Boolean)
-        .join(" ")
-        .trim();
-    } else {
-      transcriptBuffer = remainder;
-    }
-  }
-
-  async function connectScribe() {
-    const url =
-      "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime";
-    return new Promise<WebSocket>((resolve, reject) => {
-      const socket = new WebSocket(url, {
-        headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY ?? "" },
-      });
-      let ready = false;
-      const sessionTimeout = setTimeout(() => {
-        if (ready) return;
-        socket.close();
-        reject(new Error("Scribe timeout"));
-      }, 7000);
-
-      socket.on("message", (raw) => {
-        let msg: { message_type?: string; text?: string };
-        try {
-          msg = JSON.parse(raw.toString());
-        } catch {
-          return;
-        }
-
-        if (msg.message_type === "session_started" && !ready) {
-          ready = true;
-          clearTimeout(sessionTimeout);
-          resolve(socket);
-        } else if (
-          msg.message_type === "committed_transcript" ||
-          msg.message_type === "committed_transcript_with_timestamps"
-        ) {
-          handleCommittedTranscript(msg.text ?? "");
-        }
-      });
-
-      socket.on("error", (err) => {
-        clearTimeout(sessionTimeout);
-        if (!ready) reject(err);
-      });
-
-      socket.on("close", () => clearTimeout(sessionTimeout));
-    });
-  }
-
-  function sendAudioChunk(chunk: Buffer) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    audioBytesSent += chunk.length;
-    ws.send(
-      JSON.stringify({
-        message_type: "input_audio_chunk",
-        audio_base_64: chunk.toString("base64"),
-        commit: false,
-        sample_rate: 16000,
-      })
-    );
-  }
-
-  function shouldStreamToScribe(): boolean {
-    return config.engine === "elevenlabs";
   }
 
   function isAudioSilent(pcmBuffer: Buffer, threshold = 200): boolean {
@@ -637,11 +446,6 @@ async function main() {
     vertexOverlap = Buffer.from(
       chunk.subarray(Math.max(0, chunk.length - overlapBytes))
     );
-  }
-
-  function updateBlock(block: TranscriptBlock, updates: Partial<TranscriptBlock>) {
-    Object.assign(block, updates);
-    if (ui) ui.updateBlock(block);
   }
 
   function updateInFlightDisplay() {
@@ -768,9 +572,6 @@ async function main() {
     });
   }
 
-  // Shared audio processing logic for both ScreenCaptureKit and legacy ffmpeg modes
-  const scribeChunkSize = 3200;
-
   function vadFlush() {
     if (vadSpeechBuffer.length === 0) return;
     const durationMs = (vadSpeechBuffer.length / (16000 * 2)) * 1000;
@@ -784,119 +585,45 @@ async function main() {
   }
 
   function handleAudioData(data: Buffer) {
-    if (shouldStreamToScribe()) {
-      audioBuffer = Buffer.concat([audioBuffer, data]);
-      while (audioBuffer.length >= scribeChunkSize) {
-        sendAudioChunk(audioBuffer.subarray(0, scribeChunkSize));
-        audioBuffer = audioBuffer.subarray(scribeChunkSize);
-      }
-    }
+    vadAnalysisBuffer = Buffer.concat([vadAnalysisBuffer, data]);
 
-    if (config.engine === "vertex") {
-      vadAnalysisBuffer = Buffer.concat([vadAnalysisBuffer, data]);
+    while (vadAnalysisBuffer.length >= VAD_WINDOW_BYTES) {
+      const window = vadAnalysisBuffer.subarray(0, VAD_WINDOW_BYTES);
+      vadAnalysisBuffer = vadAnalysisBuffer.subarray(VAD_WINDOW_BYTES);
+      const silent = isAudioSilent(window);
 
-      while (vadAnalysisBuffer.length >= VAD_WINDOW_BYTES) {
-        const window = vadAnalysisBuffer.subarray(0, VAD_WINDOW_BYTES);
-        vadAnalysisBuffer = vadAnalysisBuffer.subarray(VAD_WINDOW_BYTES);
-        const silent = isAudioSilent(window);
-
-        if (silent) {
-          if (vadSpeechStarted) {
-            vadSpeechBuffer = Buffer.concat([vadSpeechBuffer, window]);
-            vadSilenceMs += VAD_WINDOW_MS;
-            if (vadSilenceMs >= VAD_SILENCE_FLUSH_MS) {
-              vadFlush();
-            }
-          }
-        } else {
+      if (silent) {
+        if (vadSpeechStarted) {
           vadSpeechBuffer = Buffer.concat([vadSpeechBuffer, window]);
-          vadSpeechStarted = true;
-          vadSilenceMs = 0;
-
-          const speechDurationMs = (vadSpeechBuffer.length / (16000 * 2)) * 1000;
-          if (speechDurationMs >= VAD_MAX_CHUNK_MS) {
+          vadSilenceMs += VAD_WINDOW_MS;
+          if (vadSilenceMs >= VAD_SILENCE_FLUSH_MS) {
             vadFlush();
           }
         }
+      } else {
+        vadSpeechBuffer = Buffer.concat([vadSpeechBuffer, window]);
+        vadSpeechStarted = true;
+        vadSilenceMs = 0;
+
+        const speechDurationMs = (vadSpeechBuffer.length / (16000 * 2)) * 1000;
+        if (speechDurationMs >= VAD_MAX_CHUNK_MS) {
+          vadFlush();
+        }
       }
     }
-  }
-
-  function startNoAudioTimer() {
-    noAudioTimer = setInterval(() => {
-      if (!isRecording || audioWarningShown) return;
-      if (!shouldStreamToScribe()) return;
-      if (audioBytesSent > 0) return;
-      if (!recordingStartedAt || Date.now() - recordingStartedAt < 3000) return;
-      audioWarningShown = true;
-      if (ui) {
-        ui.setStatus("⚠️ No audio - check Sound settings");
-      }
-    }, 1000);
-  }
-
-  function startFlushTimer() {
-    if (flushTimer) clearInterval(flushTimer);
-    flushTimer = setInterval(() => {
-      if (!isRecording) return;
-      if (!shouldStreamToScribe()) return;
-      const now = Date.now();
-      if (now - lastFlushAt < config.intervalMs) return;
-      lastFlushAt = now;
-      flushBufferIfNeeded(false);
-    }, Math.max(200, Math.floor(config.intervalMs / 2)));
-  }
-
-  function stopFlushTimer() {
-    if (!flushTimer) return;
-    clearInterval(flushTimer);
-    flushTimer = null;
-  }
-
-  function sendCommit() {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(
-      JSON.stringify({
-        message_type: "input_audio_chunk",
-        audio_base_64: "",
-        commit: true,
-        sample_rate: 16000,
-      })
-    );
-  }
-
-  function startCommitTimer() {
-    if (commitTimer) clearInterval(commitTimer);
-    commitTimer = setInterval(() => {
-      if (!isRecording) return;
-      if (!shouldStreamToScribe()) return;
-      sendCommit();
-    }, config.intervalMs);
-  }
-
-  function stopCommitTimer() {
-    if (!commitTimer) return;
-    clearInterval(commitTimer);
-    commitTimer = null;
   }
 
   async function startRecording() {
     if (isRecording) return;
     isRecording = true;
     recordingStartedAt = Date.now();
-    audioBytesSent = 0;
-    audioWarningShown = false;
-    audioBuffer = Buffer.alloc(0);
     vadAnalysisBuffer = Buffer.alloc(0);
     vadSpeechBuffer = Buffer.alloc(0);
     vadSilenceMs = 0;
     vadSpeechStarted = false;
-    transcriptBuffer = "";
-    lastCommittedText = "";
     contextBuffer.length = 0;
     transcriptBlocks.clear();
     nextBlockId = 1;
-    lastFlushAt = Date.now();
     lastSummary = null;
     costAccumulator.totalInputTokens = 0;
     costAccumulator.totalOutputTokens = 0;
@@ -909,32 +636,9 @@ async function main() {
       ui.setStatus("Connecting...");
     }
 
-    if (shouldStreamToScribe()) {
-      try {
-        ws = await connectScribe();
-        // Handle post-connection WebSocket events
-        ws.on("error", (err) => {
-          if (ui) ui.setStatus(`WebSocket error: ${err.message}`);
-        });
-        ws.on("close", (code, reason) => {
-          if (isRecording && ui) {
-            ui.setStatus(`WebSocket closed: ${code} ${reason?.toString() || ""}`);
-          }
-        });
-        if (ui) {
-          ui.updateHeader(getUIState("recording"));
-          ui.setStatus("Streaming. Speak now.");
-        }
-      } catch (error) {
-        isRecording = false;
-        if (ui) ui.setStatus(`Connection error: ${toReadableError(error)}`);
-        return;
-      }
-    } else {
-      if (ui) {
-        ui.updateHeader(getUIState("recording"));
-        ui.setStatus("Streaming. Speak now.");
-      }
+    if (ui) {
+      ui.updateHeader(getUIState("recording"));
+      ui.setStatus("Streaming. Speak now.");
     }
 
     // Start audio capture (ScreenCaptureKit or legacy ffmpeg)
@@ -1003,9 +707,6 @@ async function main() {
       }
     }
 
-    startNoAudioTimer();
-    startFlushTimer();
-    startCommitTimer();
     startSummaryTimer();
   }
 
@@ -1013,15 +714,7 @@ async function main() {
     if (!isRecording) return;
     isRecording = false;
 
-    if (noAudioTimer) {
-      clearInterval(noAudioTimer);
-      noAudioTimer = null;
-    }
-
-    stopFlushTimer();
-    stopCommitTimer();
     stopSummaryTimer();
-    flushBufferIfNeeded(true);
 
     // Stop audio capture
     if (audioRecorder) {
@@ -1031,14 +724,6 @@ async function main() {
     if (ffmpegProcess) {
       ffmpegProcess.kill("SIGTERM");
       ffmpegProcess = null;
-    }
-
-    if (ws) {
-      if (ws.readyState === WebSocket.OPEN) {
-        sendCommit();
-      }
-      ws.close();
-      ws = null;
     }
 
     vadFlush(); // Send any remaining speech
@@ -1108,8 +793,6 @@ Options:
   --target-lang <code>       Output language code (default: en)
   --skip-intro               Skip language selection screen, use CLI values
   --direction auto|source-target  Detection mode (default: auto)
-  --model <bedrock-id>       Default: ${DEFAULT_MODEL_ID}
-  --engine vertex|elevenlabs Default: vertex
   --vertex-model <id>        Default: ${DEFAULT_VERTEX_MODEL_ID}
   --vertex-project <id>      Default: $GOOGLE_VERTEX_PROJECT_ID
   --vertex-location <id>     Default: ${DEFAULT_VERTEX_LOCATION}
@@ -1128,34 +811,22 @@ Controls: SPACE start/pause, Q quit
 
 Requires: macOS 14.2+ for ScreenCaptureKit (or use --legacy-audio with BlackHole)
 
-Env: ELEVENLABS_API_KEY, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
-     GOOGLE_APPLICATION_CREDENTIALS (Vertex)
+Env: GOOGLE_APPLICATION_CREDENTIALS (Vertex)
      GOOGLE_VERTEX_PROJECT_ID, GOOGLE_VERTEX_PROJECT_LOCATION
 `);
 }
 
-function validateEnv(engine: Engine, config: CliConfig) {
+function validateEnv(config: CliConfig) {
   const missing: string[] = [];
 
-  if (engine === "elevenlabs") {
-    if (!process.env.ELEVENLABS_API_KEY) missing.push("ELEVENLABS_API_KEY");
-    if (!process.env.AWS_ACCESS_KEY_ID) missing.push("AWS_ACCESS_KEY_ID");
-    if (!process.env.AWS_SECRET_ACCESS_KEY)
-      missing.push("AWS_SECRET_ACCESS_KEY");
-    if (!process.env.AWS_REGION && !process.env.AWS_DEFAULT_REGION)
-      missing.push("AWS_REGION");
+  if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    missing.push("GOOGLE_APPLICATION_CREDENTIALS");
   }
-
-  if (engine === "vertex") {
-    if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      missing.push("GOOGLE_APPLICATION_CREDENTIALS");
-    }
-    if (!process.env.GOOGLE_VERTEX_PROJECT_ID && !config.vertexProject) {
-      missing.push("GOOGLE_VERTEX_PROJECT_ID");
-    }
-    if (!process.env.GOOGLE_VERTEX_PROJECT_LOCATION && !config.vertexLocation) {
-      missing.push("GOOGLE_VERTEX_PROJECT_LOCATION");
-    }
+  if (!process.env.GOOGLE_VERTEX_PROJECT_ID && !config.vertexProject) {
+    missing.push("GOOGLE_VERTEX_PROJECT_ID");
+  }
+  if (!process.env.GOOGLE_VERTEX_PROJECT_LOCATION && !config.vertexLocation) {
+    missing.push("GOOGLE_VERTEX_PROJECT_LOCATION");
   }
 
   if (missing.length) {

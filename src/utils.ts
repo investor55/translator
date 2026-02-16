@@ -3,7 +3,6 @@ import type { CliConfig } from "./types";
 import type { LanguageCode } from "./intro-screen";
 import { SUPPORTED_LANGUAGES } from "./intro-screen";
 import {
-  DEFAULT_MODEL_ID,
   DEFAULT_INTERVAL_MS,
   DEFAULT_VERTEX_MODEL_ID,
   DEFAULT_VERTEX_LOCATION,
@@ -66,8 +65,6 @@ export function parseArgs(argv: string[]): CliConfig {
     sourceLang: "ko",
     targetLang: "en",
     intervalMs: DEFAULT_INTERVAL_MS,
-    modelId: DEFAULT_MODEL_ID,
-    engine: "vertex",
     vertexModelId: DEFAULT_VERTEX_MODEL_ID,
     vertexProject: process.env.GOOGLE_VERTEX_PROJECT_ID,
     vertexLocation: DEFAULT_VERTEX_LOCATION,
@@ -104,16 +101,6 @@ export function parseArgs(argv: string[]): CliConfig {
     if (arg.startsWith("--direction")) {
       const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
       if (val === "auto" || val === "source-target") config.direction = val;
-      continue;
-    }
-    if (arg.startsWith("--model")) {
-      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
-      if (val) config.modelId = val;
-      continue;
-    }
-    if (arg.startsWith("--engine")) {
-      const val = arg.includes("=") ? arg.split("=")[1] : argv[++i];
-      if (val === "elevenlabs" || val === "vertex") config.engine = val;
       continue;
     }
     if (arg.startsWith("--vertex-model")) {
@@ -173,7 +160,6 @@ export function parseArgs(argv: string[]): CliConfig {
 export function toReadableError(e: unknown): string {
   if (e instanceof Error) return e.message;
   if (e && typeof e === "object") {
-    // Handle error-like objects (e.g., DOMException, AbortError from SDK)
     if ("message" in e && typeof e.message === "string") return e.message;
     if ("name" in e && typeof e.name === "string") return e.name;
   }

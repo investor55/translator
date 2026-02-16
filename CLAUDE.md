@@ -11,29 +11,19 @@ bun start            # Alternative: start the application
 bun run dev --list-devices  # List available audio devices
 ```
 
-There are no tests or linting configured in this project.
+Tests are run with `bun run test` (Vitest).
 
 ## Architecture Overview
 
 This is a terminal-based real-time audio translator for Korean ↔ English. It captures system audio, transcribes it, and translates between languages.
 
-### Two Engine Modes
+### Engine
 
-**ElevenLabs Mode (default):**
-
-- Streams audio to ElevenLabs Scribe WebSocket for real-time transcription
-- Uses AWS Bedrock (Claude) for translation
-- Requires: `ELEVENLABS_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
-
-**Vertex Mode:**
-
-- Batches audio chunks and sends to Google Vertex AI multimodal models
-- Single model handles both transcription and translation via structured output (Zod schema)
-- Requires: `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_VERTEX_PROJECT_ID`
+Uses Google Vertex AI (Gemini) multimodal models for both transcription and translation in a single pass via structured output (Zod schema). Requires: `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_VERTEX_PROJECT_ID`.
 
 ### Source Files
 
-- `src/index.ts` - Main entry point with CLI parsing, recording state machine, WebSocket connection to ElevenLabs, and Vertex AI integration. Manages audio buffering, transcript blocks, and summary generation.
+- `src/index.ts` - Main entry point with CLI parsing, recording state machine, Vertex AI integration. Manages audio buffering, VAD, transcript blocks, and summary generation.
 - `src/audio.ts` - ffmpeg spawning for AVFoundation audio capture (macOS), device detection, loopback device selection
 - `src/translation.ts` - Prompt builders for translation and audio transcription, sentence extraction, language detection via Hangul character presence
 - `src/ui-blessed.ts` - Full-screen terminal UI using blessed library with header, summary panel, scrollable transcript area, and footer
@@ -42,7 +32,7 @@ This is a terminal-based real-time audio translator for Korean ↔ English. It c
 
 ### Key Patterns
 
-- Uses Vercel AI SDK (`ai` package) for `generateText` and `generateObject` calls
+- Uses Vercel AI SDK (`ai` package) for `generateObject` calls
 - Zod schemas define structured responses for Vertex AI audio transcription
 - Context window (last 10 sentences) passed to translation for coherence
 - Deduplication via recent translation set prevents repeated outputs
@@ -50,15 +40,14 @@ This is a terminal-based real-time audio translator for Korean ↔ English. It c
 
 ### Audio Flow
 
-1. ffmpeg captures from loopback device (BlackHole/Loopback) as 16kHz mono PCM
-2. In ElevenLabs mode: chunks streamed to Scribe WebSocket, partial/committed transcripts trigger translation
-3. In Vertex mode: audio buffered into ~3s chunks with 0.5s overlap, sent as WAV to multimodal model
+1. ScreenCaptureKit captures system audio as 16kHz mono PCM (or ffmpeg with `--legacy-audio`)
+2. VAD segments audio into speech chunks (silence-based splitting with 0.5s overlap)
+3. Audio chunks sent as WAV to Vertex AI multimodal model for transcription + translation
 
 ### Environment Variables
 
 See README.md for full list. Key variables:
 
-- `BEDROCK_MODEL_ID` - Override default Bedrock model (`claude-haiku-4-5-20251001`)
 - `VERTEX_MODEL_ID` - Override default Vertex model (`gemini-3-flash-preview`)
 - `context.md` file in root provides persistent context for translations (speaker names, glossary, style)
 

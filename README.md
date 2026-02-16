@@ -1,12 +1,12 @@
 # Realtime Translator
 
-A terminal-based real-time audio translation tool that captures system audio, transcribes it using ElevenLabs Scribe or Google Vertex AI, and translates between Korean and English using AWS Bedrock or Google Vertex AI.
+A terminal-based real-time audio translation tool that captures system audio, transcribes and translates it using Google Vertex AI (Gemini).
 
 ## Features
 
 - **Real-time audio capture** via ScreenCaptureKit (no loopback device required)
-- **Dual transcription engines**: ElevenLabs Scribe (streaming) or Google Vertex AI (batch)
-- **Bidirectional translation**: Korean ↔ English with auto-detection
+- **Transcription + translation** via Google Vertex AI multimodal model in a single pass
+- **Multi-language support**: 13 languages with auto-detection
 - **Context-aware translation** using sliding window of previous sentences
 - **Full-screen terminal UI** with blessed library, live transcript blocks, and color-coded output
 - **Customizable context** via `context.md` for speaker names, terminology, and style guidance
@@ -26,13 +26,6 @@ A terminal-based real-time audio translation tool that captures system audio, tr
 
 ### Required API Keys
 
-Choose one of two engine modes:
-
-**ElevenLabs Mode** (default):
-- `ELEVENLABS_API_KEY` - for Scribe transcription
-- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` - for Bedrock translation
-
-**Vertex Mode**:
 - `GOOGLE_APPLICATION_CREDENTIALS` - path to service account JSON
 - `GOOGLE_VERTEX_PROJECT_ID` - GCP project ID
 - `GOOGLE_VERTEX_PROJECT_LOCATION` - region (default: `global`)
@@ -93,7 +86,7 @@ If you're on an older macOS version, use the `--legacy-audio` flag with a loopba
 ### Basic Usage
 
 ```bash
-# Start with default settings (ElevenLabs + Bedrock)
+# Start with default settings (Vertex AI)
 bun run dev
 
 # Or
@@ -115,8 +108,6 @@ Options:
   --target-lang <code>       Output language code (default: en)
   --skip-intro               Skip language selection screen, use CLI values
   --direction auto|source-target  Detection mode (default: auto)
-  --model <bedrock-id>       Bedrock model ID (default: claude-haiku-4-5-20251001)
-  --engine elevenlabs|vertex Transcription engine (default: vertex)
   --vertex-model <id>        Vertex model ID (default: gemini-3-flash-preview)
   --vertex-project <id>      GCP project ID (default: $GOOGLE_VERTEX_PROJECT_ID)
   --vertex-location <id>     GCP region (default: global)
@@ -136,14 +127,8 @@ Options:
 # Start with default settings (Vertex AI, ScreenCaptureKit audio)
 bun run dev
 
-# Use ElevenLabs + Bedrock engine
-bun run dev --engine elevenlabs
-
 # Skip intro screen with preset languages
 bun run dev --skip-intro --source-lang ja --target-lang en
-
-# Use custom Bedrock model
-bun run dev --model claude-sonnet-4-20250514
 
 # Compact output mode
 bun run dev --compact
@@ -179,28 +164,18 @@ The content is injected into the system prompt for every translation, helping ma
 
 ## How It Works
 
-### ElevenLabs Mode (Streaming)
-
 1. Captures system audio via ScreenCaptureKit → 16kHz mono PCM
-2. Streams audio chunks to ElevenLabs Scribe WebSocket
-3. Receives real-time transcripts (partial + committed)
-4. Translates committed transcripts using AWS Bedrock
-5. Displays source and translated text in terminal
-
-### Vertex Mode (Batch)
-
-1. Captures system audio via ScreenCaptureKit → 16kHz mono PCM
-2. Buffers audio into chunks (default: 2 seconds)
-3. Sends audio + prompt to Vertex AI multimodal model
-4. Receives JSON response with transcript + translation
-5. Displays both in terminal
+2. Voice activity detection segments audio into speech chunks
+3. Sends audio + prompt to Vertex AI multimodal model (Gemini)
+4. Receives structured JSON response with transcript + translation
+5. Displays source and translated text in terminal UI
 
 ### Translation Pipeline
 
-- **Sentence extraction**: Splits on `.!?。！？` boundaries
+- **VAD chunking**: Speech segments split on silence boundaries (400ms) or max duration (4s)
 - **Deduplication**: Tracks recent translations to avoid repeats
 - **Context window**: Maintains last 10 sentences for coherent translation
-- **Language detection**: Auto-detects Korean (Hangul) vs English
+- **Language detection**: Auto-detects source language from audio
 
 ## Project Structure
 
@@ -227,21 +202,12 @@ translator/
 ## Environment Variables
 
 ```bash
-# ElevenLabs (required for elevenlabs engine)
-ELEVENLABS_API_KEY=your_api_key
-
-# AWS Bedrock (required for elevenlabs engine)
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-AWS_REGION=us-west-2
-
-# Google Vertex AI (required for vertex engine)
+# Google Vertex AI (required)
 GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 GOOGLE_VERTEX_PROJECT_ID=your-project-id
 GOOGLE_VERTEX_PROJECT_LOCATION=global
 
 # Optional overrides
-BEDROCK_MODEL_ID=claude-haiku-4-5-20251001
 VERTEX_MODEL_ID=gemini-3-flash-preview
 ```
 
@@ -270,11 +236,9 @@ brew install ffmpeg
 
 - Verify all required environment variables are set
 - Check API key validity and quotas
-- Ensure AWS region supports your Bedrock model
 
 ### Transcription quality issues
 
-- Increase `--interval-ms` for longer audio chunks (Vertex mode)
 - Adjust speaker volume and audio quality
 - Use `--direction` to force specific language pair
 
