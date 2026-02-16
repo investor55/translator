@@ -18,6 +18,10 @@ build/
 out/
 *.tsbuildinfo
 
+# Electron Forge / Vite
+.vite/
+.webpack/
+
 # Environment variables
 .env
 .env.local
