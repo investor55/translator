@@ -258,20 +258,23 @@ export class Session {
     this.events.emit("state-change", this.getUIState("idle"));
   }
 
-  async startRecording(): Promise<void> {
+  async startRecording(resume = false): Promise<void> {
     if (this.isRecording) return;
     this.isRecording = true;
 
     resetVadState(this.systemPipeline.vadState);
-    resetContextState(this.contextState);
-    resetCost(this.costAccumulator);
     this.chunkQueue = [];
     this.systemPipeline.overlap = Buffer.alloc(0);
     this.inFlight = 0;
-    this.lastSummary = null;
 
-    this.events.emit("blocks-cleared");
-    this.events.emit("summary-updated", null);
+    if (!resume) {
+      resetContextState(this.contextState);
+      resetCost(this.costAccumulator);
+      this.lastSummary = null;
+      this.events.emit("blocks-cleared");
+      this.events.emit("summary-updated", null);
+    }
+
     this.events.emit("state-change", this.getUIState("connecting"));
     this.events.emit("status", "Connecting...");
 

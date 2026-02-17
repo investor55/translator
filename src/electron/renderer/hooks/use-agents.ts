@@ -68,10 +68,7 @@ export function useAgents(sessionActive: boolean) {
   const [state, dispatch] = useReducer(agentsReducer, initialState);
 
   useEffect(() => {
-    if (!sessionActive) {
-      dispatch({ kind: "reset" });
-      return;
-    }
+    if (!sessionActive) return;
 
     const api = window.electronAPI;
     const cleanups = [

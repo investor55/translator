@@ -190,7 +190,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     if (session.recording) {
       session.stopRecording();
     } else {
-      await session.startRecording();
+      await session.startRecording(true);
     }
     return { ok: true, recording: session.recording };
   });

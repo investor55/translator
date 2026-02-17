@@ -104,8 +104,9 @@ export function App() {
     setTodos([]);
     setSuggestions([]);
     setInsights([]);
+    seedAgents([]);
     setSessionActive(true);
-  }, []);
+  }, [seedAgents]);
 
   const handleSplashComplete = useCallback(() => {
     setSplashDone(true);
@@ -126,10 +127,11 @@ export function App() {
       setTodos([]);
       setSuggestions([]);
       setInsights([]);
+      seedAgents([]);
       setSessionActive(true);
     }, 100);
     window.electronAPI.getSessions().then(setSessions);
-  }, [micCapture]);
+  }, [micCapture, seedAgents]);
 
   const scrollUp = useCallback(() => {
     transcriptRef.current?.scrollBy({ top: -60, behavior: "smooth" });
@@ -192,17 +194,24 @@ export function App() {
     }
   }, [selectAgent]);
 
-  const handleSelectSession = useCallback((sessionId: string) => {
+  const handleSelectSession = useCallback(async (sessionId: string) => {
     micCapture.stop();
     setSessionActive(false);
-    setTimeout(() => {
-      setTodos([]);
-      setSuggestions([]);
-      setInsights([]);
-      setResumeSessionId(sessionId);
-      setSessionActive(true);
-    }, 100);
-  }, [micCapture]);
+    setResumeSessionId(null);
+    setSuggestions([]);
+
+    const api = window.electronAPI;
+    const [todos, insights, agents] = await Promise.all([
+      api.getSessionTodos(sessionId),
+      api.getSessionInsights(sessionId),
+      api.getSessionAgents(sessionId),
+    ]);
+
+    setTodos(todos);
+    setInsights(insights);
+    seedAgents(agents);
+    await session.viewSession(sessionId);
+  }, [micCapture, session, seedAgents]);
 
   const handleDeleteSession = useCallback((id: string) => {
     window.electronAPI.deleteSession(id);

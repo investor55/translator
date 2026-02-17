@@ -32,7 +32,8 @@ type SessionAction =
   | { kind: "error"; text: string }
   | { kind: "session-started"; sessionId: string }
   | { kind: "session-resumed"; data: ResumeData }
-  | { kind: "session-ended" };
+  | { kind: "session-ended" }
+  | { kind: "session-viewed"; sessionId: string; blocks: TranscriptBlock[]; keyPoints: string[] };
 
 function sessionReducer(state: SessionState, action: SessionAction): SessionState {
   switch (action.kind) {
@@ -78,7 +79,20 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
       };
     }
     case "session-ended":
-      return { ...state, sessionActive: false, sessionId: null, uiState: null, rollingKeyPoints: [] };
+      return { ...state, sessionActive: false, uiState: null, statusText: "", errorText: "" };
+    case "session-viewed":
+      return {
+        ...state,
+        sessionId: action.sessionId,
+        blocks: action.blocks,
+        rollingKeyPoints: action.keyPoints,
+        sessionActive: false,
+        uiState: null,
+        summary: null,
+        cost: 0,
+        statusText: "",
+        errorText: "",
+      };
   }
 }
 
@@ -167,5 +181,17 @@ export function useSession(
     }
   }, []);
 
-  return { ...state, toggleRecording };
+  const viewSession = useCallback(async (sessionId: string) => {
+    const api = window.electronAPI;
+    const [blocks, insights] = await Promise.all([
+      api.getSessionBlocks(sessionId),
+      api.getSessionInsights(sessionId),
+    ]);
+    const keyPoints = insights
+      .filter((i: Insight) => i.kind === "key-point")
+      .map((i: Insight) => i.text);
+    dispatch({ kind: "session-viewed", sessionId, blocks, keyPoints });
+  }, []);
+
+  return { ...state, toggleRecording, viewSession };
 }
