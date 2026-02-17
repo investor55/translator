@@ -71,7 +71,12 @@ Each insight should be something the listener could look up on Wikipedia — a d
 
 3. SUGGESTED TODOS: Extract any tasks, action items, or things to follow up on. Be aggressive — catch anything that sounds like a todo.
 - Triggers: "add a todo", "I need to", "we should", "let's", "remind me to", "don't forget", "I want to", "we have to", "gotta", "should check", "look into", "find out", any question implying research ("where is the best...?", "what's a good...?")
-- Rephrase as a clear, actionable task (e.g. "Find the best pho in Vancouver")
+- CRITICAL: Preserve ALL specific details — names, places, times, conditions, constraints. Read the ENTIRE transcript to gather the full context before writing the todo.
+  - BAD: "Find information for Victoria Drive" (too vague, lost the time constraint)
+  - GOOD: "Find places on Victoria Drive still open at 8 PM" (preserves location + time)
+  - BAD: "Look into restaurants" (missing specifics)
+  - GOOD: "Find a pho restaurant in Vancouver open past 9 PM" (preserves cuisine + city + time)
+- Combine related fragments: if someone says "add a todo" in one sentence and specifies details across the next few sentences, merge them into ONE complete todo
 - Do NOT duplicate existing todos
 - Empty array ONLY if truly nothing actionable was discussed`;
 }

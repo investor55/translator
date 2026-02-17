@@ -725,7 +725,7 @@ export class Session {
     this.analysisTimer = setInterval(() => {
       if (!this.isRecording) return;
       void this.generateAnalysis();
-    }, 30000);
+    }, 15000);
   }
 
   private stopAnalysisTimer() {
@@ -741,9 +741,11 @@ export class Session {
     const allBlocks = [...this.contextState.transcriptBlocks.values()];
     if (allBlocks.length <= this.lastAnalysisBlockCount) return;
 
-    const windowStart = Date.now() - 60000;
-    const recentBlocks = allBlocks.filter((b) => b.createdAt >= windowStart);
-    if (recentBlocks.length < 2) return;
+    // Send all blocks since last analysis, plus up to 10 earlier blocks for context continuity
+    const newBlocks = allBlocks.slice(this.lastAnalysisBlockCount);
+    if (newBlocks.length < 1) return;
+    const contextStart = Math.max(0, this.lastAnalysisBlockCount - 10);
+    const recentBlocks = allBlocks.slice(contextStart);
 
     this.analysisInFlight = true;
     this.lastAnalysisBlockCount = allBlocks.length;
