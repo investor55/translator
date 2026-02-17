@@ -1,3 +1,4 @@
+import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Language, LanguageCode } from "../../../core/types";
 
 type LanguagePickerProps = {
@@ -17,33 +18,35 @@ export function LanguagePicker({
 }: LanguagePickerProps) {
   return (
     <div
-      className={`flex-1 overflow-y-auto rounded border ${
-        focused ? "border-white" : "border-slate-600"
+      className={`flex-1 rounded-lg border transition-colors min-h-0 ${
+        focused ? "border-foreground/30" : "border-border"
       }`}
       onClick={onFocus}
     >
-      {languages.map((lang) => (
-        <button
-          key={lang.code}
-          onClick={() => {
-            onFocus();
-            onSelect(lang.code);
-          }}
-          className={`w-full text-left px-3 py-1.5 text-sm transition-colors ${
-            selected === lang.code
-              ? focused
-                ? "bg-cyan-500 text-black font-semibold"
-                : "bg-slate-600 text-white"
-              : "text-slate-300 hover:bg-slate-700"
-          }`}
-        >
-          <span className="inline-block w-8 text-xs opacity-70">
-            {lang.code.toUpperCase()}
-          </span>
-          {lang.name}
-          <span className="text-slate-400 ml-2">({lang.native})</span>
-        </button>
-      ))}
+      <ScrollArea className="h-full">
+        {languages.map((lang) => (
+          <button
+            key={lang.code}
+            onClick={() => {
+              onFocus();
+              onSelect(lang.code);
+            }}
+            className={`w-full text-left px-3 py-1.5 text-sm transition-colors ${
+              selected === lang.code
+                ? focused
+                  ? "bg-primary text-primary-foreground font-semibold"
+                  : "bg-secondary text-secondary-foreground"
+                : "text-foreground hover:bg-accent"
+            }`}
+          >
+            <span className="inline-block w-8 font-mono text-xs opacity-60">
+              {lang.code.toUpperCase()}
+            </span>
+            <span className="font-sans">{lang.name}</span>
+            <span className="text-muted-foreground ml-2">({lang.native})</span>
+          </button>
+        ))}
+      </ScrollArea>
     </div>
   );
 }

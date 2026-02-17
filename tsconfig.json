@@ -9,7 +9,11 @@
     "jsx": "react-jsx",
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/electron/renderer/*"]
+    }
   },
   "include": ["src/**/*"]
 }

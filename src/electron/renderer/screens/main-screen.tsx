@@ -33,7 +33,7 @@ export function MainScreen({ sourceLang, targetLang, onBack }: MainScreenProps) 
   });
 
   return (
-    <div className="flex flex-col h-screen bg-slate-900">
+    <div className="flex flex-col h-screen bg-background">
       <Header uiState={session.uiState} />
       <SummaryPanel summary={session.summary} />
       <TranscriptArea

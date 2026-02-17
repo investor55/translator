@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEventListener } from "usehooks-ts";
 
 type KeyboardActions = {
   onToggleRecording: () => void;
@@ -8,34 +8,29 @@ type KeyboardActions = {
 };
 
 export function useKeyboard(actions: KeyboardActions) {
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-
-      switch (e.code) {
-        case "Space":
-          e.preventDefault();
-          actions.onToggleRecording();
-          break;
-        case "KeyQ":
-          if (!e.metaKey && !e.ctrlKey) {
-            actions.onQuit();
-          }
-          break;
-        case "ArrowUp":
-          e.preventDefault();
-          actions.onScrollUp?.();
-          break;
-        case "ArrowDown":
-          e.preventDefault();
-          actions.onScrollDown?.();
-          break;
-      }
+  useEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      return;
     }
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [actions]);
+    switch (e.code) {
+      case "Space":
+        e.preventDefault();
+        actions.onToggleRecording();
+        break;
+      case "KeyQ":
+        if (!e.metaKey && !e.ctrlKey) {
+          actions.onQuit();
+        }
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        actions.onScrollUp?.();
+        break;
+      case "ArrowDown":
+        e.preventDefault();
+        actions.onScrollDown?.();
+        break;
+    }
+  });
 }

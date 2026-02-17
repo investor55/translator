@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useRef, useMemo } from "react";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import type { TranscriptBlock } from "../../../core/types";
 
 type TranscriptAreaProps = {
@@ -8,18 +9,18 @@ type TranscriptAreaProps = {
 const PARAGRAPH_MAX_MS = 30_000;
 
 const LABEL_COLORS: Record<string, string> = {};
-const COLOR_CLASSES = [
-  "text-green-400",
-  "text-cyan-400",
-  "text-yellow-400",
-  "text-fuchsia-400",
-  "text-blue-400",
+const SPEAKER_CLASSES = [
+  "text-speaker-1",
+  "text-speaker-2",
+  "text-speaker-3",
+  "text-speaker-4",
+  "text-speaker-5",
 ];
 let nextColorIdx = 0;
 
-function getColorClass(label: string): string {
+function getSpeakerColor(label: string): string {
   if (!LABEL_COLORS[label]) {
-    LABEL_COLORS[label] = COLOR_CLASSES[nextColorIdx % COLOR_CLASSES.length];
+    LABEL_COLORS[label] = SPEAKER_CLASSES[nextColorIdx % SPEAKER_CLASSES.length];
     nextColorIdx++;
   }
   return LABEL_COLORS[label];
@@ -78,10 +79,10 @@ function joinTexts(
     .join(" ");
 }
 
-function Paragraph({ blocks }: { blocks: TranscriptBlock[] }) {
+function Paragraph({ blocks, isLast }: { blocks: TranscriptBlock[]; isLast: boolean }) {
   const first = blocks[0];
-  const sourceColor = getColorClass(first.sourceLabel);
-  const targetColor = getColorClass(first.targetLabel);
+  const sourceColor = getSpeakerColor(first.sourceLabel);
+  const targetColor = getSpeakerColor(first.targetLabel);
   const isTranscriptionOnly = first.sourceLabel === first.targetLabel;
 
   const sourceText = joinTexts(blocks, (b) => b.sourceText);
@@ -89,30 +90,34 @@ function Paragraph({ blocks }: { blocks: TranscriptBlock[] }) {
   const hasPending = blocks.some((b) => !b.translation);
 
   return (
-    <div className="mb-3">
-      <div className="text-xs text-slate-500 mb-0.5">
-        {"\u2014"} {formatTimestamp(first.createdAt)} {"\u2014"}
+    <div className={`pb-3 ${isLast ? "" : "mb-3 border-b border-border/50"}`}>
+      <div className="font-mono text-muted-foreground text-[11px] mb-1">
+        {formatTimestamp(first.createdAt)}
       </div>
-      <div className="text-sm">
+      <div className="text-sm font-mono">
         <span className={`font-semibold ${sourceColor}`}>
           {first.sourceLabel}:
         </span>{" "}
-        <span className="text-slate-200">{sourceText}</span>
+        <span className="text-foreground">{sourceText}</span>
       </div>
       {!isTranscriptionOnly && (
-        <div className="text-sm">
+        <div className="text-sm font-sans mt-0.5">
           <span className={`font-semibold ${targetColor}`}>
             {first.targetLabel}:
           </span>{" "}
           {translationText ? (
-            <span className="text-slate-200">
+            <span className="text-foreground">
               {translationText}
               {hasPending && (
-                <span className="text-slate-500 ml-1">Processing...</span>
+                <span className="text-muted-foreground ml-1 animate-pulse">
+                  Translating...
+                </span>
               )}
             </span>
           ) : (
-            <span className="text-slate-500">Processing...</span>
+            <span className="text-muted-foreground animate-pulse">
+              Translating...
+            </span>
           )}
         </div>
       )}
@@ -130,18 +135,22 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
     }, [blocks.length]);
 
     return (
-      <div className="flex-1 flex flex-col min-h-0 border-b border-slate-700">
-        <h2 className="text-xs font-semibold text-cyan-400 uppercase tracking-wider px-4 pt-2 pb-1 shrink-0">
+      <div className="flex-1 flex flex-col min-h-0">
+        <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-4 pt-3 pb-1 shrink-0">
           Live Transcript
         </h2>
         <div ref={ref} className="flex-1 overflow-y-auto px-4 pb-2">
           {blocks.length === 0 ? (
-            <p className="text-sm text-slate-500 italic mt-2">
+            <p className="text-sm text-muted-foreground italic mt-2">
               Speak to see transcriptions here...
             </p>
           ) : (
             paragraphs.map((para, i) => (
-              <Paragraph key={para[0].id} blocks={para} />
+              <Paragraph
+                key={para[0].id}
+                blocks={para}
+                isLast={i === paragraphs.length - 1}
+              />
             ))
           )}
           <div ref={bottomRef} />
