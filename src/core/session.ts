@@ -530,6 +530,14 @@ export class Session {
     return this.agentManager?.getAllAgents() ?? [];
   }
 
+  followUpAgent(agentId: string, question: string): boolean {
+    return this.agentManager?.followUpAgent(agentId, question) ?? false;
+  }
+
+  cancelAgent(agentId: string): boolean {
+    return this.agentManager?.cancelAgent(agentId) ?? false;
+  }
+
   private getTranscriptContextForAgent(): string {
     const blocks = [...this.contextState.transcriptBlocks.values()].slice(-20);
     if (blocks.length === 0) return "(No transcript yet)";

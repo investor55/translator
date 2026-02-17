@@ -83,7 +83,7 @@ function Paragraph({ blocks, isLast }: { blocks: TranscriptBlock[]; isLast: bool
       <div className="text-sm font-mono">
         <span className="text-foreground">{sourceText}</span>
         {isNonEnglishSource && (
-          <span className="text-[10px] text-muted-foreground/60 ml-1.5 font-sans">
+          <span className="text-[11px] text-muted-foreground/60 ml-1.5 font-mono">
             {first.sourceLabel.toLowerCase()}
           </span>
         )}
@@ -121,7 +121,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
 
     return (
       <div className="flex-1 flex flex-col min-h-0">
-        <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-4 pt-3 pb-1 shrink-0">
+        <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-4 pt-2.5 pb-1.5 shrink-0">
           Live Transcript
         </h2>
         <div ref={ref} className="flex-1 overflow-y-auto px-4 pb-2">

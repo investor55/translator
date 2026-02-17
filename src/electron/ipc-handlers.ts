@@ -291,6 +291,20 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     return { ok: true, agent };
   });
 
+  ipcMain.handle("follow-up-agent", (_event, agentId: string, question: string) => {
+    if (!session) return { ok: false, error: "No active session" };
+    const started = session.followUpAgent(agentId, question);
+    if (!started) return { ok: false, error: "Agent not found or still running" };
+    return { ok: true };
+  });
+
+  ipcMain.handle("cancel-agent", (_event, agentId: string) => {
+    if (!session) return { ok: false, error: "No active session" };
+    const cancelled = session.cancelAgent(agentId);
+    if (!cancelled) return { ok: false, error: "Agent not found or already finished" };
+    return { ok: true };
+  });
+
   ipcMain.handle("get-agents", () => {
     if (!session) return [];
     return session.getAgents();

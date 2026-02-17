@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import type { TodoItem, TodoSuggestion, Agent } from "../../../core/types";
 import { PlusIcon, ChevronDownIcon, CheckIcon, XIcon, SearchIcon, LoaderCircleIcon } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { AgentList } from "./agent-list";
 
 const SUGGESTION_TTL_MS = 30_000;
@@ -56,7 +58,7 @@ function SuggestionItem({
 
   return (
     <li
-      className="relative overflow-hidden rounded-md bg-primary/5 border border-primary/10 transition-opacity duration-500"
+      className="relative overflow-hidden rounded-none bg-primary/5 border border-primary/10 transition-opacity duration-500"
       style={{ opacity }}
     >
       <div className="flex items-start gap-2 py-1.5 px-2 relative z-10">
@@ -66,7 +68,7 @@ function SuggestionItem({
         <button
           type="button"
           onClick={onAccept}
-          className="shrink-0 rounded p-0.5 text-primary hover:bg-primary/10 transition-colors"
+          className="shrink-0 rounded-none p-0.5 text-primary hover:bg-primary/10 transition-colors"
           aria-label="Accept suggestion"
         >
           <CheckIcon className="size-3.5" />
@@ -74,7 +76,7 @@ function SuggestionItem({
         <button
           type="button"
           onClick={onDismiss}
-          className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          className="shrink-0 rounded-none p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           aria-label="Dismiss suggestion"
         >
           <XIcon className="size-3.5" />
@@ -119,27 +121,26 @@ export function RightSidebar({ todos, suggestions, agents, selectedAgentId, onSe
 
   return (
     <div className="w-[300px] shrink-0 border-l border-border flex flex-col min-h-0 bg-sidebar">
-      <div className="px-3 pt-3 pb-2 shrink-0">
+      <div className="px-3 pt-2.5 pb-2 shrink-0">
         <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
           Todos
         </h2>
 
         {onAddTodo && (
           <form onSubmit={handleSubmit} className="flex gap-1.5 mb-3">
-            <input
-              type="text"
+            <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Add a todo..."
-              className="flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="flex-1 h-7"
             />
-            <button
+            <Button
               type="submit"
+              size="icon-sm"
               disabled={!input.trim()}
-              className="rounded-md bg-primary px-2 py-1.5 text-primary-foreground disabled:opacity-40 hover:bg-primary/90 transition-colors"
             >
               <PlusIcon className="size-3.5" />
-            </button>
+            </Button>
           </form>
         )}
       </div>
@@ -198,7 +199,7 @@ export function RightSidebar({ todos, suggestions, agents, selectedAgentId, onSe
                       <button
                         type="button"
                         onClick={() => onSelectAgent?.(todoAgent.id)}
-                        className="shrink-0 rounded p-0.5 text-primary hover:bg-primary/10 transition-colors"
+                        className="shrink-0 rounded-none p-0.5 text-primary hover:bg-primary/10 transition-colors"
                         aria-label="View agent"
                       >
                         {todoAgent.status === "running" ? (
@@ -211,14 +212,14 @@ export function RightSidebar({ todos, suggestions, agents, selectedAgentId, onSe
                       <button
                         type="button"
                         onClick={() => onLaunchAgent(todo.id, todo.text)}
-                        className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 transition-all"
+                        className="shrink-0 rounded-none p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 transition-all"
                         aria-label="Research this todo"
                       >
                         <SearchIcon className="size-3.5" />
                       </button>
                     ) : null}
                     {todo.source === "ai" && !hasAgent && (
-                      <span className="text-[10px] text-muted-foreground bg-muted px-1 py-0.5 rounded shrink-0 leading-none">
+                      <span className="text-[11px] text-muted-foreground bg-muted px-1 py-0.5 rounded-none shrink-0 leading-none">
                         AI
                       </span>
                     )}
@@ -275,7 +276,7 @@ export function RightSidebar({ todos, suggestions, agents, selectedAgentId, onSe
                         <button
                           type="button"
                           onClick={() => onSelectAgent(todoAgent.id)}
-                          className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 transition-all"
+                          className="shrink-0 rounded-none p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 transition-all"
                           aria-label="View agent results"
                         >
                           <SearchIcon className="size-3.5" />

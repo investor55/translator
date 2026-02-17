@@ -25,6 +25,8 @@ export type ElectronAPI = {
   getSessionInsights: (sessionId: string) => Promise<Insight[]>;
 
   launchAgent: (todoId: string, task: string) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
+  followUpAgent: (agentId: string, question: string) => Promise<{ ok: boolean; error?: string }>;
+  cancelAgent: (agentId: string) => Promise<{ ok: boolean; error?: string }>;
   getAgents: () => Promise<Agent[]>;
   getSessionAgents: (sessionId: string) => Promise<Agent[]>;
 
@@ -77,6 +79,8 @@ const api: ElectronAPI = {
   getSessionInsights: (sessionId) => ipcRenderer.invoke("get-session-insights", sessionId),
 
   launchAgent: (todoId, task) => ipcRenderer.invoke("launch-agent", todoId, task),
+  followUpAgent: (agentId, question) => ipcRenderer.invoke("follow-up-agent", agentId, question),
+  cancelAgent: (agentId) => ipcRenderer.invoke("cancel-agent", agentId),
   getAgents: () => ipcRenderer.invoke("get-agents"),
   getSessionAgents: (sessionId) => ipcRenderer.invoke("get-session-agents", sessionId),
 

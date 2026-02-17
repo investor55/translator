@@ -39,7 +39,7 @@ export function LeftSidebar({ rollingKeyPoints, insights, sessions, activeSessio
   return (
     <div className="w-[280px] shrink-0 border-r border-border flex flex-col min-h-0 bg-sidebar">
       {/* Summary section — scrollable, takes remaining space */}
-      <div className="px-3 pt-3 pb-2 flex-1 min-h-0 flex flex-col">
+      <div className="px-3 pt-2.5 pb-2 flex-1 min-h-0 flex flex-col">
         <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2 shrink-0">
           Summary
         </h2>
@@ -64,7 +64,7 @@ export function LeftSidebar({ rollingKeyPoints, insights, sessions, activeSessio
       <Separator />
 
       {/* Insights feed — bounded height */}
-      <div className="px-3 pt-2 pb-2 shrink-0 max-h-48 overflow-y-auto">
+      <div className="px-3 pt-2.5 pb-2 shrink-0 max-h-48 overflow-y-auto">
         <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
           Insights
         </h2>
@@ -89,7 +89,7 @@ export function LeftSidebar({ rollingKeyPoints, insights, sessions, activeSessio
       <Separator />
 
       {/* Session timeline */}
-      <div className="px-3 pt-2 pb-3 shrink-0 max-h-40 overflow-y-auto">
+      <div className="px-3 pt-2.5 pb-2 shrink-0 max-h-40 overflow-y-auto">
         <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
           Sessions
         </h2>
@@ -100,17 +100,17 @@ export function LeftSidebar({ rollingKeyPoints, insights, sessions, activeSessio
                 <button
                   type="button"
                   onClick={() => onSelectSession?.(session.id)}
-                  className={`w-full text-left px-2 py-1 rounded text-xs transition-colors ${activeSessionId === session.id ? "bg-sidebar-accent" : "hover:bg-sidebar-accent"}`}
+                  className={`w-full text-left px-2 py-1.5 rounded-none text-xs transition-colors ${activeSessionId === session.id ? "bg-sidebar-accent" : "hover:bg-sidebar-accent"}`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-foreground font-medium truncate">
                       {session.title ?? "Untitled Session"}
                     </span>
-                    <span className="text-muted-foreground text-[10px] shrink-0 ml-2">
+                    <span className="text-muted-foreground text-[11px] font-mono shrink-0 ml-2">
                       {session.blockCount}
                     </span>
                   </div>
-                  <div className="text-muted-foreground text-[10px]">
+                  <div className="text-muted-foreground text-[11px] font-mono">
                     {formatDate(session.startedAt)} · {formatTime(session.startedAt)}
                   </div>
                 </button>
@@ -118,7 +118,7 @@ export function LeftSidebar({ rollingKeyPoints, insights, sessions, activeSessio
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
-                    className="absolute right-1 top-1 hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    className="absolute right-1 top-1 hidden group-hover:flex items-center justify-center w-5 h-5 rounded-none text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                     title="Delete session"
                   >
                     ×

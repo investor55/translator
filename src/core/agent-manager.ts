@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
-import { runAgent } from "./agent";
+import type { ModelMessage } from "ai";
+import { runAgent, continueAgent } from "./agent";
 import { log } from "./logger";
 import type { AppDatabase } from "./db";
 import type { Agent, AgentStep, SessionEvents } from "./types";
@@ -18,6 +19,8 @@ type AgentManagerDeps = {
 
 export type AgentManager = {
   launchAgent: (todoId: string, task: string, sessionId?: string) => Agent;
+  followUpAgent: (agentId: string, question: string) => boolean;
+  cancelAgent: (id: string) => boolean;
   getAgent: (id: string) => Agent | undefined;
   getAllAgents: () => Agent[];
   getAgentsForSession: (sessionId: string) => Agent[];
@@ -27,6 +30,8 @@ const STEP_FLUSH_INTERVAL_MS = 2000;
 
 export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   const agents = new Map<string, Agent>();
+  const abortControllers = new Map<string, AbortController>();
+  const conversationHistory = new Map<string, ModelMessage[]>();
   const pendingFlush = new Map<string, NodeJS.Timeout>();
 
   // Lazy-import exa-js to avoid blocking module load if the package has resolution issues
@@ -64,6 +69,37 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     }
   }
 
+  function makeAgentCallbacks(agent: Agent) {
+    return {
+      onStep: (step: AgentStep) => {
+        agent.steps.push(step);
+        deps.events.emit("agent-step", agent.id, step);
+        scheduleStepFlush(agent.id);
+      },
+      onComplete: (result: string, messages: ModelMessage[]) => {
+        agent.status = "completed" as const;
+        agent.result = result;
+        agent.completedAt = Date.now();
+        conversationHistory.set(agent.id, messages);
+        abortControllers.delete(agent.id);
+        cancelFlush(agent.id);
+        deps.db?.updateAgent(agent.id, { status: "completed", result, steps: agent.steps, completedAt: agent.completedAt });
+        deps.events.emit("agent-completed", agent.id, result);
+        log("INFO", `Agent completed: ${agent.id}`);
+      },
+      onFail: (error: string) => {
+        agent.status = "failed" as const;
+        agent.result = error;
+        agent.completedAt = Date.now();
+        abortControllers.delete(agent.id);
+        cancelFlush(agent.id);
+        deps.db?.updateAgent(agent.id, { status: "failed", result: error, steps: agent.steps, completedAt: agent.completedAt });
+        deps.events.emit("agent-failed", agent.id, error);
+        log("ERROR", `Agent failed: ${agent.id} — ${error}`);
+      },
+    };
+  }
+
   function launchAgent(todoId: string, task: string, sessionId?: string): Agent {
     const agent: Agent = {
       id: crypto.randomUUID(),
@@ -94,40 +130,72 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       return agent;
     }
 
+    const controller = new AbortController();
+    abortControllers.set(agent.id, controller);
+
+    const callbacks = makeAgentCallbacks(agent);
+
     void runAgent(agent, {
       model: deps.model,
       exa,
       getTranscriptContext: deps.getTranscriptContext,
-      onStep: (step: AgentStep) => {
-        agent.steps.push(step);
-        deps.events.emit("agent-step", agent.id, step);
-        scheduleStepFlush(agent.id);
-      },
-      onComplete: (result: string) => {
-        agent.status = "completed";
-        agent.result = result;
-        agent.completedAt = Date.now();
-        cancelFlush(agent.id);
-        deps.db?.updateAgent(agent.id, { status: "completed", result, steps: agent.steps, completedAt: agent.completedAt });
-        deps.events.emit("agent-completed", agent.id, result);
-        log("INFO", `Agent completed: ${agent.id}`);
-      },
-      onFail: (error: string) => {
-        agent.status = "failed";
-        agent.result = error;
-        agent.completedAt = Date.now();
-        cancelFlush(agent.id);
-        deps.db?.updateAgent(agent.id, { status: "failed", result: error, steps: agent.steps, completedAt: agent.completedAt });
-        deps.events.emit("agent-failed", agent.id, error);
-        log("ERROR", `Agent failed: ${agent.id} — ${error}`);
-      },
+      abortSignal: controller.signal,
+      ...callbacks,
     });
 
     return agent;
   }
 
+  function followUpAgent(agentId: string, question: string): boolean {
+    const agent = agents.get(agentId);
+    if (!agent) return false;
+    if (agent.status === "running") return false;
+
+    const history = conversationHistory.get(agentId);
+    if (!history) return false;
+
+    let exa: ReturnType<typeof getExa>;
+    try {
+      exa = getExa();
+    } catch {
+      return false;
+    }
+
+    // Reset agent to running state
+    agent.status = "running";
+    agent.result = undefined;
+    agent.completedAt = undefined;
+    deps.db?.updateAgent(agentId, { status: "running", result: undefined, completedAt: undefined });
+    deps.events.emit("agent-started", agent);
+
+    const controller = new AbortController();
+    abortControllers.set(agentId, controller);
+
+    const callbacks = makeAgentCallbacks(agent);
+
+    void continueAgent(agent, history, question, {
+      model: deps.model,
+      exa,
+      getTranscriptContext: deps.getTranscriptContext,
+      abortSignal: controller.signal,
+      ...callbacks,
+    });
+
+    log("INFO", `Agent follow-up: ${agentId}`);
+    return true;
+  }
+
+  function cancelAgent(id: string): boolean {
+    const controller = abortControllers.get(id);
+    if (!controller) return false;
+    controller.abort();
+    return true;
+  }
+
   return {
     launchAgent,
+    followUpAgent,
+    cancelAgent,
     getAgent: (id) => agents.get(id),
     getAllAgents: () => [...agents.values()],
     getAgentsForSession: (sessionId) => {

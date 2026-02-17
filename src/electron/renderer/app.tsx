@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocalStorage } from "usehooks-ts";
-import type { Language, LanguageCode, TodoItem, TodoSuggestion, Insight, SessionMeta } from "../../core/types";
+import type { Agent, Language, LanguageCode, TodoItem, TodoSuggestion, Insight, SessionMeta } from "../../core/types";
 import { useSession } from "./hooks/use-session";
 import type { ResumeData } from "./hooks/use-session";
 import { useMicCapture } from "./hooks/use-mic-capture";
@@ -214,6 +214,14 @@ export function App() {
     }
   }, [session.sessionId, micCapture]);
 
+  const handleFollowUp = useCallback(async (agent: Agent, question: string) => {
+    await window.electronAPI.followUpAgent(agent.id, question);
+  }, []);
+
+  const handleCancelAgent = useCallback(async (agentId: string) => {
+    await window.electronAPI.cancelAgent(agentId);
+  }, []);
+
   const handleToggleTranslation = useCallback(async () => {
     await window.electronAPI.toggleTranslation();
   }, []);
@@ -272,6 +280,8 @@ export function App() {
             agents={agents}
             onSelectAgent={selectAgent}
             onClose={() => selectAgent(null)}
+            onFollowUp={handleFollowUp}
+            onCancel={handleCancelAgent}
           />
         )}
         <RightSidebar

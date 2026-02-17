@@ -56,7 +56,7 @@ export function AgentList({ agents, selectedAgentId, onSelectAgent }: AgentListP
             <button
               type="button"
               onClick={() => onSelectAgent(agent.id)}
-              className={`w-full text-left rounded-md px-2 py-1.5 transition-colors ${
+              className={`w-full text-left rounded-none px-2 py-1.5 transition-colors ${
                 selectedAgentId === agent.id
                   ? "bg-primary/10 border border-primary/20"
                   : "hover:bg-muted/50 border border-transparent"
@@ -68,7 +68,7 @@ export function AgentList({ agents, selectedAgentId, onSelectAgent }: AgentListP
                   <p className="text-xs text-foreground leading-relaxed line-clamp-2">
                     {agent.task}
                   </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                  <p className="text-[11px] text-muted-foreground mt-0.5 truncate font-mono">
                     {agent.status === "running"
                       ? lastStepSummary(agent)
                       : relativeTime(agent.completedAt ?? agent.createdAt)}

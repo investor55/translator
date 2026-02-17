@@ -7,7 +7,7 @@ type FooterProps = {
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="px-1.5 py-0.5 rounded bg-secondary font-mono text-[10px] text-secondary-foreground">
+    <kbd className="px-1.5 py-0.5 rounded-none bg-secondary font-mono text-[11px] text-secondary-foreground">
       {children}
     </kbd>
   );

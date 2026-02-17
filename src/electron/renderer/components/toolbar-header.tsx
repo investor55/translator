@@ -112,7 +112,7 @@ export function ToolbarHeader({
             <SelectContent>
               {languages.map((lang) => (
                 <SelectItem key={lang.code} value={lang.code}>
-                  <span className="font-mono text-[10px] opacity-60 mr-1.5">
+                  <span className="font-mono text-[11px] opacity-60 mr-1.5">
                     {lang.code.toUpperCase()}
                   </span>
                   {lang.name}
@@ -230,7 +230,7 @@ export function ToolbarHeader({
           <button
             type="button"
             onClick={onToggleMic}
-            className="ml-auto text-[11px] text-red-500 hover:text-red-700 dark:hover:text-red-300 font-medium titlebar-no-drag transition-colors"
+            className="ml-auto text-[11px] font-mono text-red-500 hover:text-red-700 dark:hover:text-red-300 font-medium titlebar-no-drag transition-colors"
           >
             Turn off
           </button>
