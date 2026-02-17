@@ -82,7 +82,7 @@ export function App() {
         setSuggestions((prev) => [suggestion, ...prev]);
       }),
       window.electronAPI.onInsightAdded((insight) => {
-        setInsights((prev) => [insight, ...prev]);
+        setInsights((prev) => [...prev, insight]);
       }),
     ];
     return () => cleanups.forEach((fn) => fn());

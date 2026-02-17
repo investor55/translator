@@ -144,7 +144,7 @@ export const DEFAULT_INTERVAL_MS = 2000;
 
 // Agent types
 export type AgentStatus = "running" | "completed" | "failed";
-export type AgentStepKind = "thinking" | "tool-call" | "tool-result" | "text";
+export type AgentStepKind = "thinking" | "tool-call" | "tool-result" | "text" | "user";
 
 export type AgentStep = Readonly<{
   id: string;

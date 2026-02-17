@@ -83,6 +83,13 @@ function StepItem({ step }: { step: AgentStep }) {
           </div>
         </div>
       );
+    case "user":
+      return (
+        <div className="py-2 border-t border-border mt-2">
+          <p className="text-xs text-muted-foreground font-medium mb-0.5">You</p>
+          <p className="text-xs text-foreground leading-relaxed">{step.content}</p>
+        </div>
+      );
   }
 }
 

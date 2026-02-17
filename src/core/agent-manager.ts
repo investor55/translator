@@ -161,11 +161,20 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       return false;
     }
 
+    // Add the user's follow-up as a visible step
+    const followUpStep: AgentStep = {
+      id: crypto.randomUUID(),
+      kind: "user",
+      content: question,
+      createdAt: Date.now(),
+    };
+    agent.steps.push(followUpStep);
+
     // Reset agent to running state
     agent.status = "running";
     agent.result = undefined;
     agent.completedAt = undefined;
-    deps.db?.updateAgent(agentId, { status: "running", result: undefined, completedAt: undefined });
+    deps.db?.updateAgent(agentId, { status: "running", result: undefined, completedAt: undefined, steps: agent.steps });
     deps.events.emit("agent-started", agent);
 
     const controller = new AbortController();

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { Insight, SessionMeta } from "../../../core/types";
 import { Separator } from "@/components/ui/separator";
 
@@ -36,6 +37,17 @@ const INSIGHT_ICONS: Record<string, string> = {
 };
 
 export function LeftSidebar({ rollingKeyPoints, insights, sessions, activeSessionId, onSelectSession, onDeleteSession }: LeftSidebarProps) {
+  const summaryBottomRef = useRef<HTMLDivElement>(null);
+  const insightsBottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    summaryBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [rollingKeyPoints.length]);
+
+  useEffect(() => {
+    insightsBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [insights.length]);
+
   return (
     <div className="w-[280px] shrink-0 border-r border-border flex flex-col min-h-0 bg-sidebar">
       {/* Summary section — scrollable, takes remaining space */}
@@ -58,6 +70,7 @@ export function LeftSidebar({ rollingKeyPoints, insights, sessions, activeSessio
               Summary will appear during recording...
             </p>
           )}
+          <div ref={summaryBottomRef} />
         </div>
       </div>
 
@@ -84,6 +97,7 @@ export function LeftSidebar({ rollingKeyPoints, insights, sessions, activeSessio
             AI insights will appear here...
           </p>
         )}
+        <div ref={insightsBottomRef} />
       </div>
 
       <Separator />

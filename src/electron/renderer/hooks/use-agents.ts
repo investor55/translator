@@ -17,8 +17,15 @@ type AgentsAction =
 
 function agentsReducer(state: AgentsState, action: AgentsAction): AgentsState {
   switch (action.kind) {
-    case "agent-started":
-      return { ...state, agents: [action.agent, ...state.agents] };
+    case "agent-started": {
+      const exists = state.agents.some((a) => a.id === action.agent.id);
+      return {
+        ...state,
+        agents: exists
+          ? state.agents.map((a) => a.id === action.agent.id ? action.agent : a)
+          : [action.agent, ...state.agents],
+      };
+    }
     case "agent-step":
       return {
         ...state,
