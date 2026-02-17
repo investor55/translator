@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildSessionPath, parseSessionRoute } from "./session-route";
 
 describe("session routes", () => {
-  it("parses root-like paths as /chat", () => {
+  it("parses root-like routes as /chat", () => {
     expect(parseSessionRoute("/")).toEqual({
       sessionId: null,
       normalizedPath: "/chat",
@@ -18,10 +18,25 @@ describe("session routes", () => {
       normalizedPath: "/chat",
       valid: true,
     });
+    expect(parseSessionRoute("")).toEqual({
+      sessionId: null,
+      normalizedPath: "/chat",
+      valid: true,
+    });
+    expect(parseSessionRoute("#/chat")).toEqual({
+      sessionId: null,
+      normalizedPath: "/chat",
+      valid: true,
+    });
   });
 
-  it("parses /chat/:sessionId", () => {
+  it("parses /chat/:sessionId and #/chat/:sessionId", () => {
     expect(parseSessionRoute("/chat/abc")).toEqual({
+      sessionId: "abc",
+      normalizedPath: "/chat/abc",
+      valid: true,
+    });
+    expect(parseSessionRoute("#/chat/abc")).toEqual({
       sessionId: "abc",
       normalizedPath: "/chat/abc",
       valid: true,

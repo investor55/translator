@@ -4,11 +4,25 @@ export type SessionRoute = {
   valid: boolean;
 };
 
-function trimTrailingSlash(pathname: string): string {
-  if (pathname.length > 1 && pathname.endsWith("/")) {
-    return pathname.slice(0, -1);
+function trimTrailingSlash(routePath: string): string {
+  if (routePath.length > 1 && routePath.endsWith("/")) {
+    return routePath.slice(0, -1);
   }
-  return pathname;
+  return routePath;
+}
+
+function normalizeInputToRoutePath(input: string): string {
+  const raw = (input || "").trim();
+  if (!raw || raw === "#") return "/chat";
+
+  if (raw.startsWith("#")) {
+    const hashPath = raw.slice(1);
+    if (!hashPath || hashPath === "/") return "/chat";
+    return hashPath.startsWith("/") ? hashPath : `/${hashPath}`;
+  }
+
+  if (raw === "/" || raw === "/index.html") return "/chat";
+  return raw;
 }
 
 export function buildSessionPath(sessionId?: string | null): string {
@@ -18,8 +32,10 @@ export function buildSessionPath(sessionId?: string | null): string {
 }
 
 export function parseSessionRoute(pathname: string): SessionRoute {
-  const cleanPath = trimTrailingSlash(pathname || "/");
-  if (cleanPath === "/" || cleanPath === "/index.html" || cleanPath === "/chat") {
+  const routePath = normalizeInputToRoutePath(pathname);
+  const cleanPath = trimTrailingSlash(routePath);
+
+  if (cleanPath === "/chat") {
     return {
       sessionId: null,
       normalizedPath: buildSessionPath(null),
@@ -61,9 +77,9 @@ export function parseSessionRoute(pathname: string): SessionRoute {
 }
 
 export function pushSessionPath(sessionId?: string | null): void {
-  window.history.pushState({}, "", buildSessionPath(sessionId));
+  window.history.pushState({}, "", `#${buildSessionPath(sessionId)}`);
 }
 
 export function replaceSessionPath(sessionId?: string | null): void {
-  window.history.replaceState({}, "", buildSessionPath(sessionId));
+  window.history.replaceState({}, "", `#${buildSessionPath(sessionId)}`);
 }

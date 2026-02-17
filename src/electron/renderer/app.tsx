@@ -91,9 +91,9 @@ export function App() {
 
   const session = useSession(sourceLang, targetLang, sessionActive, appConfig, resumeSessionId, { onResumed: handleResumed });
 
-  const applyRoutePath = useCallback((pathname: string, availableSessions: SessionMeta[]) => {
-    const parsed = parseSessionRoute(pathname);
-    if (window.location.pathname !== parsed.normalizedPath) {
+  const applyRoutePath = useCallback((routeInput: string, availableSessions: SessionMeta[]) => {
+    const parsed = parseSessionRoute(routeInput);
+    if (window.location.hash !== `#${parsed.normalizedPath}`) {
       replaceSessionPath(parsed.sessionId);
     }
 
@@ -144,7 +144,7 @@ export function App() {
     void (async () => {
       const loaded = await refreshSessions();
       if (cancelled) return;
-      applyRoutePath(window.location.pathname, loaded);
+      applyRoutePath(window.location.hash || window.location.pathname, loaded);
     })();
     return () => {
       cancelled = true;
@@ -152,12 +152,16 @@ export function App() {
   }, [applyRoutePath, refreshSessions]);
 
   useEffect(() => {
-    const onPopState = () => {
+    const onLocationChange = () => {
       const available = sessionsRef.current;
-      applyRoutePath(window.location.pathname, available);
+      applyRoutePath(window.location.hash || window.location.pathname, available);
     };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+    window.addEventListener("popstate", onLocationChange);
+    window.addEventListener("hashchange", onLocationChange);
+    return () => {
+      window.removeEventListener("popstate", onLocationChange);
+      window.removeEventListener("hashchange", onLocationChange);
+    };
   }, [applyRoutePath]);
 
   useEffect(() => {
@@ -172,7 +176,7 @@ export function App() {
     if (pendingNewSessionRouteRef.current) {
       pushSessionPath(session.sessionId);
       pendingNewSessionRouteRef.current = false;
-    } else if (window.location.pathname !== currentPath) {
+    } else if (parseSessionRoute(window.location.hash).normalizedPath !== currentPath) {
       replaceSessionPath(session.sessionId);
     }
     void refreshSessions();
