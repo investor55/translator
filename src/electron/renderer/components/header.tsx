@@ -29,7 +29,7 @@ function StatusBadge({ status }: { status: UIState["status"] }) {
 export function Header({ uiState }: HeaderProps) {
   if (!uiState) {
     return (
-      <div className="titlebar-drag border-b border-border px-4 py-2 flex items-center gap-3 h-10">
+      <div className="titlebar-drag border-b border-border pl-20 pr-4 py-2 flex items-center gap-3 h-10">
         <span className="font-mono font-bold text-foreground titlebar-no-drag">
           Rosetta
         </span>
@@ -38,7 +38,7 @@ export function Header({ uiState }: HeaderProps) {
   }
 
   return (
-    <div className="titlebar-drag border-b border-border px-4 py-2 flex items-center gap-3 h-10 text-sm">
+    <div className="titlebar-drag border-b border-border pl-20 pr-4 py-2 flex items-center gap-3 h-10 text-sm">
       <span className="font-mono font-bold text-foreground titlebar-no-drag">
         Rosetta
       </span>

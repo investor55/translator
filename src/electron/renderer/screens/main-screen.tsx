@@ -40,6 +40,11 @@ export function MainScreen({ sourceLang, targetLang, onBack }: MainScreenProps) 
         ref={transcriptRef}
         blocks={session.blocks}
       />
+      {session.errorText && (
+        <div className="px-4 py-2 text-destructive text-xs border-t border-destructive/20 bg-destructive/5">
+          {session.errorText}
+        </div>
+      )}
       <Footer statusText={session.statusText} />
     </div>
   );
