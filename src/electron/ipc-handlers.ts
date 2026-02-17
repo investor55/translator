@@ -17,36 +17,93 @@ function send(getWindow: () => BrowserWindow | null, channel: string, ...args: u
   }
 }
 
+function wireSessionEvents(s: Session, getWindow: () => BrowserWindow | null, db: AppDatabase) {
+  s.events.on("state-change", (state: UIState) => {
+    send(getWindow, "session:state-change", state);
+  });
+  s.events.on("block-added", (block: TranscriptBlock) => {
+    db.insertBlock(s.sessionId, block);
+    send(getWindow, "session:block-added", block);
+  });
+  s.events.on("block-updated", (block: TranscriptBlock) => {
+    send(getWindow, "session:block-updated", block);
+  });
+  s.events.on("blocks-cleared", () => {
+    send(getWindow, "session:blocks-cleared");
+  });
+  s.events.on("summary-updated", (summary: Summary | null) => {
+    send(getWindow, "session:summary-updated", summary);
+  });
+  s.events.on("cost-updated", (cost: number) => {
+    send(getWindow, "session:cost-updated", cost);
+  });
+  s.events.on("status", (text: string) => {
+    send(getWindow, "session:status", text);
+  });
+  s.events.on("error", (text: string) => {
+    send(getWindow, "session:error", text);
+  });
+  s.events.on("todo-added", (todo: TodoItem) => {
+    send(getWindow, "session:todo-added", todo);
+  });
+  s.events.on("todo-suggested", (suggestion: TodoSuggestion) => {
+    send(getWindow, "session:todo-suggested", suggestion);
+  });
+  s.events.on("insight-added", (insight) => {
+    send(getWindow, "session:insight-added", insight);
+  });
+  s.events.on("agent-started", (agent: Agent) => {
+    send(getWindow, "session:agent-started", agent);
+  });
+  s.events.on("agent-step", (agentId: string, step: AgentStep) => {
+    send(getWindow, "session:agent-step", agentId, step);
+  });
+  s.events.on("agent-completed", (agentId: string, result: string) => {
+    send(getWindow, "session:agent-completed", agentId, result);
+  });
+  s.events.on("agent-failed", (agentId: string, error: string) => {
+    send(getWindow, "session:agent-failed", agentId, error);
+  });
+}
+
+function buildConfig(sourceLang: LanguageCode, targetLang: LanguageCode): SessionConfig {
+  return {
+    direction: "auto",
+    sourceLang,
+    targetLang,
+    intervalMs: DEFAULT_INTERVAL_MS,
+    transcriptionProvider: "vertex",
+    transcriptionModelId: DEFAULT_TRANSCRIPTION_MODEL_ID,
+    analysisProvider: "openrouter",
+    analysisModelId: DEFAULT_ANALYSIS_MODEL_ID,
+    vertexProject: process.env.GOOGLE_VERTEX_PROJECT_ID,
+    vertexLocation: DEFAULT_VERTEX_LOCATION,
+    contextFile: "context.md",
+    useContext: false,
+    compact: false,
+    debug: !!process.env.DEBUG,
+    legacyAudio: false,
+    translationEnabled: true,
+  };
+}
+
+function shutdownCurrentSession(db: AppDatabase) {
+  if (session) {
+    db.endSession(session.sessionId);
+    session.shutdown();
+    session = null;
+  }
+}
+
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: AppDatabase) {
   ipcMain.handle("get-languages", () => {
     return SUPPORTED_LANGUAGES;
   });
 
   ipcMain.handle("start-session", async (_event, sourceLang: LanguageCode, targetLang: LanguageCode) => {
-    if (session) {
-      db.endSession(session.sessionId);
-      session.shutdown();
-      session = null;
-    }
+    shutdownCurrentSession(db);
 
-    const config: SessionConfig = {
-      direction: "auto",
-      sourceLang,
-      targetLang,
-      intervalMs: DEFAULT_INTERVAL_MS,
-      transcriptionProvider: "vertex",
-      transcriptionModelId: DEFAULT_TRANSCRIPTION_MODEL_ID,
-      analysisProvider: "openrouter",
-      analysisModelId: DEFAULT_ANALYSIS_MODEL_ID,
-      vertexProject: process.env.GOOGLE_VERTEX_PROJECT_ID,
-      vertexLocation: DEFAULT_VERTEX_LOCATION,
-      contextFile: "context.md",
-      useContext: false,
-      compact: false,
-      debug: !!process.env.DEBUG,
-      legacyAudio: false,
-      translationEnabled: true,
-    };
+    const config = buildConfig(sourceLang, targetLang);
 
     try {
       validateEnv(config);
@@ -54,10 +111,11 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
       return { ok: false, error: toReadableError(error) };
     }
 
-    // Session reuse: if last session was empty and not ended, reuse it
+    // Session reuse: if last session was truly empty (no blocks, no agents) and not ended, reuse it
     const recent = db.getMostRecentSession();
+    const recentAgents = recent ? db.getAgentsForSession(recent.id) : [];
     let sessionId: string;
-    if (recent && recent.blockCount === 0 && !recent.endedAt) {
+    if (recent && recent.blockCount === 0 && recentAgents.length === 0 && !recent.endedAt) {
       db.reuseSession(recent.id, sourceLang, targetLang);
       sessionId = recent.id;
       log("INFO", `Reusing empty session: ${sessionId}`);
@@ -67,59 +125,50 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     }
 
     session = new Session(config, db, sessionId);
-
-    session.events.on("state-change", (state: UIState) => {
-      send(getWindow, "session:state-change", state);
-    });
-    session.events.on("block-added", (block: TranscriptBlock) => {
-      db.insertBlock(session!.sessionId, block);
-      send(getWindow, "session:block-added", block);
-    });
-    session.events.on("block-updated", (block: TranscriptBlock) => {
-      send(getWindow, "session:block-updated", block);
-    });
-    session.events.on("blocks-cleared", () => {
-      send(getWindow, "session:blocks-cleared");
-    });
-    session.events.on("summary-updated", (summary: Summary | null) => {
-      send(getWindow, "session:summary-updated", summary);
-    });
-    session.events.on("cost-updated", (cost: number) => {
-      send(getWindow, "session:cost-updated", cost);
-    });
-    session.events.on("status", (text: string) => {
-      send(getWindow, "session:status", text);
-    });
-    session.events.on("error", (text: string) => {
-      send(getWindow, "session:error", text);
-    });
-    session.events.on("todo-added", (todo: TodoItem) => {
-      send(getWindow, "session:todo-added", todo);
-    });
-    session.events.on("todo-suggested", (suggestion: TodoSuggestion) => {
-      send(getWindow, "session:todo-suggested", suggestion);
-    });
-    session.events.on("insight-added", (insight) => {
-      send(getWindow, "session:insight-added", insight);
-    });
-    session.events.on("agent-started", (agent: Agent) => {
-      send(getWindow, "session:agent-started", agent);
-    });
-    session.events.on("agent-step", (agentId: string, step: AgentStep) => {
-      send(getWindow, "session:agent-step", agentId, step);
-    });
-    session.events.on("agent-completed", (agentId: string, result: string) => {
-      send(getWindow, "session:agent-completed", agentId, result);
-    });
-    session.events.on("agent-failed", (agentId: string, error: string) => {
-      send(getWindow, "session:agent-failed", agentId, error);
-    });
+    wireSessionEvents(session, getWindow, db);
 
     try {
       await session.initialize();
       return { ok: true, sessionId: session.sessionId };
     } catch (error) {
       log("ERROR", `Session init failed: ${toReadableError(error)}`);
+      return { ok: false, error: toReadableError(error) };
+    }
+  });
+
+  ipcMain.handle("resume-session", async (_event, sessionId: string) => {
+    shutdownCurrentSession(db);
+
+    const meta = db.getSession(sessionId);
+    if (!meta) {
+      return { ok: false, error: `Session ${sessionId} not found` };
+    }
+
+    const sourceLang = meta.sourceLang ?? "ko";
+    const targetLang = meta.targetLang ?? "en";
+    const config = buildConfig(sourceLang as LanguageCode, targetLang as LanguageCode);
+
+    try {
+      validateEnv(config);
+    } catch (error) {
+      return { ok: false, error: toReadableError(error) };
+    }
+
+    session = new Session(config, db, sessionId);
+    wireSessionEvents(session, getWindow, db);
+
+    try {
+      await session.initialize();
+      return {
+        ok: true,
+        sessionId,
+        blocks: db.getBlocksForSession(sessionId),
+        todos: db.getTodosForSession(sessionId),
+        insights: db.getInsightsForSession(sessionId),
+        agents: db.getAgentsForSession(sessionId),
+      };
+    } catch (error) {
+      log("ERROR", `Session resume failed: ${toReadableError(error)}`);
       return { ok: false, error: toReadableError(error) };
     }
   });
@@ -252,11 +301,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
   });
 
   ipcMain.handle("shutdown-session", () => {
-    if (session) {
-      db.endSession(session.sessionId);
-      session.shutdown();
-      session = null;
-    }
+    shutdownCurrentSession(db);
     return { ok: true };
   });
 }

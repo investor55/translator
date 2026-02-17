@@ -37,13 +37,25 @@ export function createDatabase(dbPath: string) {
     },
 
     endSession(id: string) {
-      const [row] = orm
+      const [blockRow] = orm
         .select({ n: count() })
         .from(blocks)
         .where(eq(blocks.sessionId, id))
         .all();
+      const [agentRow] = orm
+        .select({ n: count() })
+        .from(agents)
+        .where(eq(agents.sessionId, id))
+        .all();
+      const blockCount = blockRow?.n ?? 0;
+      const agentCount = agentRow?.n ?? 0;
+      const isEmpty = blockCount === 0 && agentCount === 0;
+
       orm.update(sessions)
-        .set({ endedAt: Date.now(), blockCount: row?.n ?? 0 })
+        .set({
+          endedAt: isEmpty ? null : Date.now(),
+          blockCount,
+        })
         .where(eq(sessions.id, id))
         .run();
     },
@@ -81,6 +93,25 @@ export function createDatabase(dbPath: string) {
         .select()
         .from(sessions)
         .orderBy(desc(sessions.startedAt))
+        .limit(1)
+        .all();
+      if (!row) return null;
+      return {
+        id: row.id,
+        startedAt: row.startedAt,
+        endedAt: row.endedAt ?? undefined,
+        title: row.title ?? undefined,
+        blockCount: row.blockCount ?? 0,
+        sourceLang: (row.sourceLang as LanguageCode) ?? undefined,
+        targetLang: (row.targetLang as LanguageCode) ?? undefined,
+      };
+    },
+
+    getSession(id: string): SessionMeta | null {
+      const [row] = orm
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, id))
         .limit(1)
         .all();
       if (!row) return null;

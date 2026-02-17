@@ -4,6 +4,7 @@ import type { Language, UIState, TranscriptBlock, Summary, LanguageCode, Device,
 export type ElectronAPI = {
   getLanguages: () => Promise<Language[]>;
   startSession: (sourceLang: LanguageCode, targetLang: LanguageCode) => Promise<{ ok: boolean; sessionId?: string; error?: string }>;
+  resumeSession: (sessionId: string) => Promise<{ ok: boolean; sessionId?: string; blocks?: TranscriptBlock[]; todos?: TodoItem[]; insights?: Insight[]; agents?: Agent[]; error?: string }>;
   startRecording: () => Promise<{ ok: boolean; error?: string }>;
   stopRecording: () => Promise<{ ok: boolean; error?: string }>;
   toggleRecording: () => Promise<{ ok: boolean; recording?: boolean; error?: string }>;
@@ -55,6 +56,7 @@ function createListener<T>(channel: string) {
 const api: ElectronAPI = {
   getLanguages: () => ipcRenderer.invoke("get-languages"),
   startSession: (sourceLang, targetLang) => ipcRenderer.invoke("start-session", sourceLang, targetLang),
+  resumeSession: (sessionId) => ipcRenderer.invoke("resume-session", sessionId),
   startRecording: () => ipcRenderer.invoke("start-recording"),
   stopRecording: () => ipcRenderer.invoke("stop-recording"),
   toggleRecording: () => ipcRenderer.invoke("toggle-recording"),

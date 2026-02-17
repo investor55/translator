@@ -1,5 +1,5 @@
-import { useEffect, useReducer, useCallback } from "react";
-import type { UIState, TranscriptBlock, Summary, LanguageCode } from "../../../core/types";
+import { useEffect, useReducer, useCallback, useRef } from "react";
+import type { UIState, TranscriptBlock, Summary, LanguageCode, TodoItem, Insight, Agent } from "../../../core/types";
 
 type SessionState = {
   sessionId: string | null;
@@ -13,6 +13,14 @@ type SessionState = {
   sessionActive: boolean;
 };
 
+type ResumeData = {
+  sessionId: string;
+  blocks: TranscriptBlock[];
+  todos: TodoItem[];
+  insights: Insight[];
+  agents: Agent[];
+};
+
 type SessionAction =
   | { kind: "state-change"; state: UIState }
   | { kind: "block-added"; block: TranscriptBlock }
@@ -23,6 +31,7 @@ type SessionAction =
   | { kind: "status"; text: string }
   | { kind: "error"; text: string }
   | { kind: "session-started"; sessionId: string }
+  | { kind: "session-resumed"; data: ResumeData }
   | { kind: "session-ended" };
 
 function sessionReducer(state: SessionState, action: SessionAction): SessionState {
@@ -56,6 +65,18 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
       return { ...state, errorText: action.text };
     case "session-started":
       return { ...state, sessionActive: true, sessionId: action.sessionId };
+    case "session-resumed": {
+      const keyPoints = action.data.insights
+        .filter((i) => i.kind === "key-point")
+        .map((i) => i.text);
+      return {
+        ...state,
+        sessionActive: true,
+        sessionId: action.data.sessionId,
+        blocks: action.data.blocks,
+        rollingKeyPoints: keyPoints,
+      };
+    }
     case "session-ended":
       return { ...state, sessionActive: false, sessionId: null, uiState: null, rollingKeyPoints: [] };
   }
@@ -73,8 +94,22 @@ const initialState: SessionState = {
   sessionActive: false,
 };
 
-export function useSession(sourceLang: LanguageCode, targetLang: LanguageCode, active: boolean) {
+export type { ResumeData };
+
+export type SessionOptions = {
+  onResumed?: (data: ResumeData) => void;
+};
+
+export function useSession(
+  sourceLang: LanguageCode,
+  targetLang: LanguageCode,
+  active: boolean,
+  resumeSessionId: string | null = null,
+  options: SessionOptions = {},
+) {
   const [state, dispatch] = useReducer(sessionReducer, initialState);
+  const onResumedRef = useRef(options.onResumed);
+  onResumedRef.current = options.onResumed;
 
   useEffect(() => {
     if (!active) return;
@@ -91,21 +126,39 @@ export function useSession(sourceLang: LanguageCode, targetLang: LanguageCode, a
     cleanups.push(api.onStatus((t) => dispatch({ kind: "status", text: t })));
     cleanups.push(api.onError((t) => dispatch({ kind: "error", text: t })));
 
-    api.startSession(sourceLang, targetLang).then(async (result) => {
-      if (result.ok && result.sessionId) {
-        dispatch({ kind: "session-started", sessionId: result.sessionId });
-        await api.startRecording();
-      } else {
-        dispatch({ kind: "error", text: result.error ?? "Failed to start session" });
-      }
-    });
+    if (resumeSessionId) {
+      api.resumeSession(resumeSessionId).then((result) => {
+        if (result.ok && result.sessionId) {
+          const data: ResumeData = {
+            sessionId: result.sessionId,
+            blocks: result.blocks ?? [],
+            todos: result.todos ?? [],
+            insights: result.insights ?? [],
+            agents: result.agents ?? [],
+          };
+          dispatch({ kind: "session-resumed", data });
+          onResumedRef.current?.(data);
+        } else {
+          dispatch({ kind: "error", text: result.error ?? "Failed to resume session" });
+        }
+      });
+    } else {
+      api.startSession(sourceLang, targetLang).then(async (result) => {
+        if (result.ok && result.sessionId) {
+          dispatch({ kind: "session-started", sessionId: result.sessionId });
+          await api.startRecording();
+        } else {
+          dispatch({ kind: "error", text: result.error ?? "Failed to start session" });
+        }
+      });
+    }
 
     return () => {
       cleanups.forEach((fn) => fn());
       api.shutdownSession();
       dispatch({ kind: "session-ended" });
     };
-  }, [sourceLang, targetLang, active]);
+  }, [sourceLang, targetLang, active, resumeSessionId]);
 
   const toggleRecording = useCallback(async () => {
     const result = await window.electronAPI.toggleRecording();

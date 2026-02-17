@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocalStorage } from "usehooks-ts";
-import type { Language, LanguageCode, TodoItem, TodoSuggestion, Insight, SessionMeta, TranscriptBlock } from "../../core/types";
+import type { Language, LanguageCode, TodoItem, TodoSuggestion, Insight, SessionMeta } from "../../core/types";
 import { useSession } from "./hooks/use-session";
+import type { ResumeData } from "./hooks/use-session";
 import { useMicCapture } from "./hooks/use-mic-capture";
 import { useAgents } from "./hooks/use-agents";
 import { useKeyboard } from "./hooks/use-keyboard";
@@ -47,10 +48,7 @@ export function App() {
   const [suggestions, setSuggestions] = useState<TodoSuggestion[]>([]);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
-  const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
-  const [viewingBlocks, setViewingBlocks] = useState<TranscriptBlock[]>([]);
-  const [viewingTodos, setViewingTodos] = useState<TodoItem[]>([]);
-  const [viewingInsights, setViewingInsights] = useState<Insight[]>([]);
+  const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     window.electronAPI.getSessions().then((loaded) => {
@@ -61,11 +59,16 @@ export function App() {
     });
   }, []);
 
-  const session = useSession(sourceLang, targetLang, sessionActive);
   const micCapture = useMicCapture();
-  const { agents, selectedAgentId, selectedAgent, selectAgent, loadAgentsForSession } = useAgents(sessionActive);
-  const [viewingAgents, setViewingAgents] = useState<import("../../core/types").Agent[]>([]);
-  const [viewingSelectedAgentId, setViewingSelectedAgentId] = useState<string | null>(null);
+  const { agents, selectedAgentId, selectedAgent, selectAgent, seedAgents } = useAgents(sessionActive);
+
+  const handleResumed = useCallback((data: ResumeData) => {
+    setTodos(data.todos);
+    setInsights(data.insights);
+    seedAgents(data.agents);
+  }, [seedAgents]);
+
+  const session = useSession(sourceLang, targetLang, sessionActive, resumeSessionId, { onResumed: handleResumed });
 
   useEffect(() => {
     window.electronAPI.getLanguages().then(setLanguages);
@@ -97,6 +100,7 @@ export function App() {
   const handleStart = useCallback(() => {
     setLangError("");
     setSplashDone(true);
+    setResumeSessionId(null);
     setTodos([]);
     setSuggestions([]);
     setInsights([]);
@@ -105,29 +109,23 @@ export function App() {
 
   const handleSplashComplete = useCallback(() => {
     setSplashDone(true);
-    setSessionActive(true);
   }, []);
 
   const handleStop = useCallback(() => {
     micCapture.stop();
     setSessionActive(false);
+    setResumeSessionId(null);
     window.electronAPI.getSessions().then(setSessions);
   }, [micCapture]);
 
   const handleNewSession = useCallback(() => {
     micCapture.stop();
     setSessionActive(false);
-    // Brief delay to let the old session teardown before starting fresh
     setTimeout(() => {
+      setResumeSessionId(null);
       setTodos([]);
       setSuggestions([]);
       setInsights([]);
-      setViewingSessionId(null);
-      setViewingBlocks([]);
-      setViewingTodos([]);
-      setViewingInsights([]);
-      setViewingAgents([]);
-      setViewingSelectedAgentId(null);
       setSessionActive(true);
     }, 100);
     window.electronAPI.getSessions().then(setSessions);
@@ -194,41 +192,27 @@ export function App() {
     }
   }, [selectAgent]);
 
-  const viewingKeyPoints = viewingInsights
-    .filter((i) => i.kind === "key-point")
-    .map((i) => i.text);
-  const viewingEducationalInsights = viewingInsights.filter((i) => i.kind !== "key-point");
-
   const handleSelectSession = useCallback((sessionId: string) => {
-    setViewingSessionId(sessionId);
-    setViewingSelectedAgentId(null);
-    window.electronAPI.getSessionBlocks(sessionId).then(setViewingBlocks);
-    window.electronAPI.getSessionTodos(sessionId).then(setViewingTodos);
-    window.electronAPI.getSessionInsights(sessionId).then(setViewingInsights);
-    window.electronAPI.getSessionAgents(sessionId).then(setViewingAgents);
-  }, []);
-
-  const handleCloseViewer = useCallback(() => {
-    setViewingSessionId(null);
-    setViewingBlocks([]);
-    setViewingTodos([]);
-    setViewingInsights([]);
-    setViewingAgents([]);
-    setViewingSelectedAgentId(null);
-  }, []);
+    micCapture.stop();
+    setSessionActive(false);
+    setTimeout(() => {
+      setTodos([]);
+      setSuggestions([]);
+      setInsights([]);
+      setResumeSessionId(sessionId);
+      setSessionActive(true);
+    }, 100);
+  }, [micCapture]);
 
   const handleDeleteSession = useCallback((id: string) => {
     window.electronAPI.deleteSession(id);
     setSessions((prev) => prev.filter((s) => s.id !== id));
-    if (viewingSessionId === id) {
-      setViewingSessionId(null);
-      setViewingBlocks([]);
-      setViewingTodos([]);
-      setViewingInsights([]);
-      setViewingAgents([]);
-      setViewingSelectedAgentId(null);
+    if (session.sessionId === id) {
+      micCapture.stop();
+      setSessionActive(false);
+      setResumeSessionId(null);
     }
-  }, [viewingSessionId]);
+  }, [session.sessionId, micCapture]);
 
   const handleToggleTranslation = useCallback(async () => {
     await window.electronAPI.toggleTranslation();
@@ -240,6 +224,8 @@ export function App() {
     onScrollUp: sessionActive ? scrollUp : undefined,
     onScrollDown: sessionActive ? scrollDown : undefined,
   });
+
+  const educationalInsights = insights.filter((i) => i.kind !== "key-point");
 
   if (!splashDone) {
     return (
@@ -270,54 +256,32 @@ export function App() {
 
       <div className="flex flex-1 min-h-0">
         <LeftSidebar
-          rollingKeyPoints={viewingSessionId ? viewingKeyPoints : session.rollingKeyPoints}
-          insights={viewingSessionId ? viewingEducationalInsights : insights}
+          rollingKeyPoints={session.rollingKeyPoints}
+          insights={educationalInsights}
           sessions={sessions}
-          activeSessionId={viewingSessionId}
+          activeSessionId={session.sessionId}
           onSelectSession={handleSelectSession}
           onDeleteSession={handleDeleteSession}
         />
         <main className="flex-1 flex flex-col min-h-0 min-w-0 relative">
           <TranscriptArea ref={transcriptRef} blocks={session.blocks} />
-          {viewingSessionId && (
-            <div className="absolute inset-0 bg-background/95 flex flex-col min-h-0 z-10">
-              <div className="flex items-center justify-between px-4 py-2 border-b border-border shrink-0">
-                <span className="text-xs font-medium text-muted-foreground">
-                  Viewing past session
-                </span>
-                <button
-                  type="button"
-                  onClick={handleCloseViewer}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Close
-                </button>
-              </div>
-              <TranscriptArea blocks={viewingBlocks} />
-            </div>
-          )}
         </main>
-        {(() => {
-          const activeAgent = viewingSessionId
-            ? viewingAgents.find((a) => a.id === viewingSelectedAgentId) ?? null
-            : selectedAgent;
-          return activeAgent && (
-            <AgentDetailPanel
-              agent={activeAgent}
-              agents={viewingSessionId ? viewingAgents : agents}
-              onSelectAgent={viewingSessionId ? setViewingSelectedAgentId : selectAgent}
-              onClose={() => viewingSessionId ? setViewingSelectedAgentId(null) : selectAgent(null)}
-            />
-          );
-        })()}
+        {selectedAgent && (
+          <AgentDetailPanel
+            agent={selectedAgent}
+            agents={agents}
+            onSelectAgent={selectAgent}
+            onClose={() => selectAgent(null)}
+          />
+        )}
         <RightSidebar
-          todos={viewingSessionId ? viewingTodos : todos}
-          suggestions={viewingSessionId ? [] : suggestions}
-          agents={viewingSessionId ? viewingAgents : agents}
-          selectedAgentId={viewingSessionId ? viewingSelectedAgentId : selectedAgentId}
-          onSelectAgent={viewingSessionId ? setViewingSelectedAgentId : selectAgent}
-          onLaunchAgent={viewingSessionId ? undefined : handleLaunchAgent}
-          onAddTodo={viewingSessionId ? undefined : handleAddTodo}
+          todos={todos}
+          suggestions={suggestions}
+          agents={agents}
+          selectedAgentId={selectedAgentId}
+          onSelectAgent={selectAgent}
+          onLaunchAgent={handleLaunchAgent}
+          onAddTodo={handleAddTodo}
           onToggleTodo={handleToggleTodo}
           onAcceptSuggestion={handleAcceptSuggestion}
           onDismissSuggestion={handleDismissSuggestion}

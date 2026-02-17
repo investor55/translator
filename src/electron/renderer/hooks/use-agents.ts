@@ -81,9 +81,8 @@ export function useAgents(sessionActive: boolean) {
     dispatch({ kind: "select-agent", agentId });
   }, []);
 
-  const loadAgentsForSession = useCallback(async (sessionId: string) => {
-    const saved = await window.electronAPI.getSessionAgents(sessionId);
-    dispatch({ kind: "load-agents", agents: saved });
+  const seedAgents = useCallback((agents: Agent[]) => {
+    dispatch({ kind: "load-agents", agents });
   }, []);
 
   const selectedAgent = state.selectedAgentId
@@ -95,6 +94,6 @@ export function useAgents(sessionActive: boolean) {
     selectedAgentId: state.selectedAgentId,
     selectedAgent,
     selectAgent,
-    loadAgentsForSession,
+    seedAgents,
   };
 }
