@@ -79,7 +79,8 @@ export function ToolbarHeader({
   settingsOpen,
   onToggleSettings,
 }: ToolbarHeaderProps) {
-  const isPaused = uiState?.status === "paused";
+  const isRecordingOrConnecting =
+    uiState?.status === "recording" || uiState?.status === "connecting";
   const loading = languages.length === 0;
   const translationEnabled = uiState?.translationEnabled ?? true;
   const micEnabled = uiState?.micEnabled ?? false;
@@ -142,10 +143,10 @@ export function ToolbarHeader({
                 variant="outline"
                 size="icon-sm"
                 onClick={onTogglePause}
-                aria-label={isPaused ? "Resume" : "Pause"}
+                aria-label={isRecordingOrConnecting ? "Pause recording" : "Start recording"}
               >
                 <HugeiconsIcon
-                  icon={isPaused ? PlayIcon : PauseIcon}
+                  icon={isRecordingOrConnecting ? PauseIcon : PlayIcon}
                   strokeWidth={2}
                   className="size-3.5"
                 />

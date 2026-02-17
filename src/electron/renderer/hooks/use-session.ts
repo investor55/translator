@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useCallback, useRef } from "react";
 import type { UIState, TranscriptBlock, Summary, LanguageCode, TodoItem, Insight, Agent, AppConfig } from "../../../core/types";
 
-type SessionState = {
+export type SessionState = {
   sessionId: string | null;
   uiState: UIState | null;
   blocks: TranscriptBlock[];
@@ -93,6 +93,10 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         sessionId: action.data.sessionId,
         blocks: sortBlocks(action.data.blocks),
         rollingKeyPoints: keyPoints,
+        summary: null,
+        cost: 0,
+        statusText: "",
+        errorText: "",
       };
     }
     case "session-ended":
@@ -125,7 +129,19 @@ const initialState: SessionState = {
   sessionActive: false,
 };
 
+export type InternalSessionAction = SessionAction | { kind: "session-cleared" };
+
+export function sessionStateReducer(state: SessionState, action: InternalSessionAction): SessionState {
+  if (action.kind === "session-cleared") {
+    return {
+      ...initialState,
+    };
+  }
+  return sessionReducer(state, action);
+}
+
 export type { ResumeData };
+export { sessionReducer, initialState };
 
 export type SessionOptions = {
   onResumed?: (data: ResumeData) => void;
@@ -139,7 +155,7 @@ export function useSession(
   resumeSessionId: string | null = null,
   options: SessionOptions = {},
 ) {
-  const [state, dispatch] = useReducer(sessionReducer, initialState);
+  const [state, dispatch] = useReducer(sessionStateReducer, initialState);
   const onResumedRef = useRef(options.onResumed);
   const appConfigRef = useRef(appConfig);
   onResumedRef.current = options.onResumed;
@@ -213,5 +229,9 @@ export function useSession(
     dispatch({ kind: "session-viewed", sessionId, blocks, keyPoints });
   }, []);
 
-  return { ...state, toggleRecording, viewSession };
+  const clearSession = useCallback(() => {
+    dispatch({ kind: "session-cleared" });
+  }, []);
+
+  return { ...state, toggleRecording, viewSession, clearSession };
 }

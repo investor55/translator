@@ -7,6 +7,7 @@ import type { ResumeData } from "./hooks/use-session";
 import { useMicCapture } from "./hooks/use-mic-capture";
 import { useAgents } from "./hooks/use-agents";
 import { useKeyboard } from "./hooks/use-keyboard";
+import { buildSessionPath, parseSessionRoute, pushSessionPath, replaceSessionPath } from "./lib/session-route";
 import { ToolbarHeader } from "./components/toolbar-header";
 import { TranscriptArea } from "./components/transcript-area";
 import { LeftSidebar } from "./components/left-sidebar";
@@ -43,9 +44,11 @@ export function App() {
   const [targetLang, setTargetLang] = useLocalStorage<LanguageCode>("rosetta-target-lang", "en");
   const [storedAppConfig, setStoredAppConfig] = useLocalStorage<AppConfig>("rosetta-app-config", DEFAULT_APP_CONFIG);
   const [sessionActive, setSessionActive] = useState(false);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [splashDone, setSplashDone] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [langError, setLangError] = useState("");
+  const [routeNotice, setRouteNotice] = useState("");
   const transcriptRef = useRef<HTMLDivElement>(null);
   const appConfig = useMemo(() => normalizeAppConfig(storedAppConfig), [storedAppConfig]);
 
@@ -56,30 +59,124 @@ export function App() {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
+  const languageSeededRef = useRef(false);
+  const pendingNewSessionRouteRef = useRef(false);
+  const sessionsRef = useRef<SessionMeta[]>([]);
 
-  useEffect(() => {
-    window.electronAPI.getSessions().then((loaded) => {
-      setSessions(loaded);
+  const refreshSessions = useCallback(async (): Promise<SessionMeta[]> => {
+    const loaded = await window.electronAPI.getSessions();
+    sessionsRef.current = loaded;
+    setSessions(loaded);
+
+    if (!languageSeededRef.current) {
       const last = loaded[0];
       if (last?.sourceLang) setSourceLang(last.sourceLang);
       if (last?.targetLang) setTargetLang(last.targetLang);
-    });
-  }, []);
+      languageSeededRef.current = true;
+    }
+
+    return loaded;
+  }, [setSourceLang, setTargetLang]);
 
   const micCapture = useMicCapture();
   const { agents, selectedAgentId, selectedAgent, selectAgent, seedAgents } = useAgents();
 
   const handleResumed = useCallback((data: ResumeData) => {
+    setSelectedSessionId(data.sessionId);
     setTodos(data.todos);
     setInsights(data.insights);
     seedAgents(data.agents);
-  }, [seedAgents]);
+    void refreshSessions();
+  }, [refreshSessions, seedAgents]);
 
   const session = useSession(sourceLang, targetLang, sessionActive, appConfig, resumeSessionId, { onResumed: handleResumed });
+
+  const applyRoutePath = useCallback((pathname: string, availableSessions: SessionMeta[]) => {
+    const parsed = parseSessionRoute(pathname);
+    if (window.location.pathname !== parsed.normalizedPath) {
+      replaceSessionPath(parsed.sessionId);
+    }
+
+    if (!parsed.sessionId) {
+      setRouteNotice(parsed.valid ? "" : "Unknown route. Showing empty state.");
+      micCapture.stop();
+      setSelectedSessionId(null);
+      setSessionActive(false);
+      setResumeSessionId(null);
+      setTodos([]);
+      setSuggestions([]);
+      setInsights([]);
+      seedAgents([]);
+      session.clearSession();
+      return;
+    }
+
+    const exists = availableSessions.some((entry) => entry.id === parsed.sessionId);
+    if (!exists) {
+      setRouteNotice(`Session ${parsed.sessionId} not found. Showing empty state.`);
+      micCapture.stop();
+      replaceSessionPath(null);
+      setSelectedSessionId(null);
+      setSessionActive(false);
+      setResumeSessionId(null);
+      setTodos([]);
+      setSuggestions([]);
+      setInsights([]);
+      seedAgents([]);
+      session.clearSession();
+      return;
+    }
+
+    setRouteNotice("");
+    setSplashDone(true);
+    setSettingsOpen(false);
+    setSuggestions([]);
+    setTodos([]);
+    setInsights([]);
+    seedAgents([]);
+    setSelectedSessionId(parsed.sessionId);
+    setResumeSessionId(parsed.sessionId);
+    setSessionActive(true);
+  }, [micCapture, seedAgents, session.clearSession]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const loaded = await refreshSessions();
+      if (cancelled) return;
+      applyRoutePath(window.location.pathname, loaded);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyRoutePath, refreshSessions]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const available = sessionsRef.current;
+      applyRoutePath(window.location.pathname, available);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [applyRoutePath]);
 
   useEffect(() => {
     window.electronAPI.getLanguages().then(setLanguages);
   }, []);
+
+  useEffect(() => {
+    if (!session.sessionId) return;
+
+    setSelectedSessionId(session.sessionId);
+    const currentPath = buildSessionPath(session.sessionId);
+    if (pendingNewSessionRouteRef.current) {
+      pushSessionPath(session.sessionId);
+      pendingNewSessionRouteRef.current = false;
+    } else if (window.location.pathname !== currentPath) {
+      replaceSessionPath(session.sessionId);
+    }
+    void refreshSessions();
+  }, [refreshSessions, session.sessionId]);
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") {
@@ -121,8 +218,7 @@ export function App() {
     }
   }, [session.statusText]);
 
-  // Listen for AI-generated suggestions and insights.
-  // Keep these listeners active so manual scans in viewed sessions also surface results.
+  // Keep these listeners active so manual scans in selected sessions surface results.
   useEffect(() => {
     const cleanups = [
       window.electronAPI.onTodoSuggested((suggestion) => {
@@ -148,13 +244,24 @@ export function App() {
     setLangError("");
     setSplashDone(true);
     setSettingsOpen(false);
+    setRouteNotice("");
+    setSuggestions([]);
+
+    if (selectedSessionId) {
+      setResumeSessionId(selectedSessionId);
+      setSessionActive(true);
+      return;
+    }
+
+    pendingNewSessionRouteRef.current = true;
+    replaceSessionPath(null);
+    setSelectedSessionId(null);
     setResumeSessionId(null);
     setTodos([]);
-    setSuggestions([]);
     setInsights([]);
     seedAgents([]);
     setSessionActive(true);
-  }, [seedAgents]);
+  }, [seedAgents, selectedSessionId]);
 
   const handleSplashComplete = useCallback(() => {
     setSplashDone(true);
@@ -164,23 +271,30 @@ export function App() {
     micCapture.stop();
     setSessionActive(false);
     setResumeSessionId(null);
-    window.electronAPI.getSessions().then(setSessions);
-  }, [micCapture]);
+    setRouteNotice("");
+    void refreshSessions();
+  }, [micCapture, refreshSessions]);
 
   const handleNewSession = useCallback(() => {
     micCapture.stop();
     setSessionActive(false);
     setSettingsOpen(false);
+    setRouteNotice("");
+    pendingNewSessionRouteRef.current = true;
+    replaceSessionPath(null);
+    setSelectedSessionId(null);
+    setResumeSessionId(null);
+    setTodos([]);
+    setSuggestions([]);
+    setInsights([]);
+    seedAgents([]);
+    session.clearSession();
+
     setTimeout(() => {
-      setResumeSessionId(null);
-      setTodos([]);
-      setSuggestions([]);
-      setInsights([]);
-      seedAgents([]);
       setSessionActive(true);
     }, 100);
-    window.electronAPI.getSessions().then(setSessions);
-  }, [micCapture, seedAgents]);
+    void refreshSessions();
+  }, [micCapture, refreshSessions, seedAgents, session.clearSession]);
 
   const scrollUp = useCallback(() => {
     transcriptRef.current?.scrollBy({ top: -60, behavior: "smooth" });
@@ -191,17 +305,23 @@ export function App() {
   }, []);
 
   const handleAddTodo = useCallback((text: string) => {
+    const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
+    if (!targetSessionId) {
+      setRouteNotice("Select or start a session before adding todos.");
+      return;
+    }
     const todo: TodoItem = {
       id: crypto.randomUUID(),
       text,
       completed: false,
       source: "manual",
       createdAt: Date.now(),
-      sessionId: session.sessionId ?? undefined,
+      sessionId: targetSessionId,
     };
+    setRouteNotice("");
     setTodos((prev) => [todo, ...prev]);
     window.electronAPI.addTodo(todo);
-  }, [session.sessionId]);
+  }, [selectedSessionId, session.sessionId]);
 
   const handleToggleTodo = useCallback((id: string) => {
     setTodos((prev) =>
@@ -215,41 +335,56 @@ export function App() {
   }, []);
 
   const handleAcceptSuggestion = useCallback(async (suggestion: TodoSuggestion) => {
+    const targetSessionId = suggestion.sessionId ?? selectedSessionId ?? session.sessionId ?? null;
+    if (!targetSessionId) {
+      setRouteNotice("Missing session id for suggestion.");
+      return;
+    }
+
     const todo: TodoItem = {
       id: suggestion.id,
       text: suggestion.text,
       completed: false,
       source: "ai",
       createdAt: suggestion.createdAt,
-      sessionId: suggestion.sessionId,
+      sessionId: targetSessionId,
     };
+    setRouteNotice("");
     setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
     setTodos((prev) => [todo, ...prev]);
     window.electronAPI.addTodo(todo);
-    const result = await window.electronAPI.launchAgent(suggestion.id, suggestion.text);
+
+    const useActiveRuntime = sessionActive && session.sessionId === targetSessionId;
+    const result = useActiveRuntime
+      ? await window.electronAPI.launchAgent(suggestion.id, suggestion.text)
+      : await window.electronAPI.launchAgentInSession(targetSessionId, suggestion.id, suggestion.text, appConfig);
+
     if (result.ok && result.agent) {
       selectAgent(result.agent.id);
+      return;
     }
-  }, [selectAgent]);
+    setRouteNotice(`Failed to launch agent: ${result.error ?? "Unknown error"}`);
+  }, [appConfig, selectAgent, selectedSessionId, session.sessionId, sessionActive]);
 
   const handleDismissSuggestion = useCallback((id: string) => {
     setSuggestions((prev) => prev.filter((s) => s.id !== id));
   }, []);
 
   const handleScanTodos = useCallback(async () => {
-    const targetSessionId = session.sessionId;
+    const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
     if (!targetSessionId) {
       setScanFeedback("No session selected.");
-      console.warn("Todo scan failed: No selected session");
+      setRouteNotice("Select or start a session before scanning todos.");
       return;
     }
+    setRouteNotice("");
     setScanFeedback("Scanning todos...");
     setScanningTodos(true);
     try {
       const result = await window.electronAPI.scanTodosInSession(targetSessionId, appConfig);
       if (!result.ok) {
         setScanFeedback(`Scan failed: ${result.error ?? "Unknown error"}`);
-        console.warn(`Todo scan failed: ${result.error ?? "Unknown error"}`);
+        setRouteNotice(`Todo scan failed: ${result.error ?? "Unknown error"}`);
       } else if (result.queued) {
         setScanFeedback("Scan queued...");
       }
@@ -258,60 +393,68 @@ export function App() {
         setScanningTodos(false);
       }, 500);
     }
-  }, [appConfig, session.sessionId]);
+  }, [appConfig, selectedSessionId, session.sessionId]);
 
   const handleLaunchAgent = useCallback(async (todoId: string, task: string) => {
-    const sessionId = session.sessionId;
-    if (!sessionId) return;
+    const todoSessionId = todos.find((todo) => todo.id === todoId)?.sessionId ?? null;
+    const targetSessionId = todoSessionId ?? selectedSessionId ?? session.sessionId ?? null;
+    if (!targetSessionId) {
+      setRouteNotice("Missing session id for this task.");
+      return;
+    }
 
-    const result = sessionActive
+    const useActiveRuntime = sessionActive && session.sessionId === targetSessionId;
+    const result = useActiveRuntime
       ? await window.electronAPI.launchAgent(todoId, task)
-      : await window.electronAPI.launchAgentInSession(sessionId, todoId, task, appConfig);
+      : await window.electronAPI.launchAgentInSession(targetSessionId, todoId, task, appConfig);
 
     if (result.ok && result.agent) {
+      setRouteNotice("");
       selectAgent(result.agent.id);
       return;
     }
-    console.warn(`Failed to launch agent: ${result.error ?? "Unknown error"}`);
-  }, [appConfig, selectAgent, session.sessionId, sessionActive]);
+    setRouteNotice(`Failed to launch agent: ${result.error ?? "Unknown error"}`);
+  }, [appConfig, selectAgent, selectedSessionId, session.sessionId, sessionActive, todos]);
 
-  const handleSelectSession = useCallback(async (sessionId: string) => {
+  const handleSelectSession = useCallback((sessionId: string) => {
     micCapture.stop();
     setSettingsOpen(false);
-    setSessionActive(false);
-    setResumeSessionId(null);
+    setRouteNotice("");
+    pushSessionPath(sessionId);
+    setSelectedSessionId(sessionId);
+    setResumeSessionId(sessionId);
     setSuggestions([]);
+    setTodos([]);
+    setInsights([]);
+    seedAgents([]);
+    setSessionActive(true);
+  }, [micCapture, seedAgents]);
 
-    const api = window.electronAPI;
-    const [todos, insights, agents] = await Promise.all([
-      api.getSessionTodos(sessionId),
-      api.getSessionInsights(sessionId),
-      api.getSessionAgents(sessionId),
-    ]);
-
-    setTodos(todos);
-    setInsights(insights);
-    seedAgents(agents);
-    await session.viewSession(sessionId);
-  }, [micCapture, session, seedAgents]);
-
-  const handleDeleteSession = useCallback((id: string) => {
-    window.electronAPI.deleteSession(id);
-    setSessions((prev) => prev.filter((s) => s.id !== id));
-    if (session.sessionId === id) {
+  const handleDeleteSession = useCallback(async (id: string) => {
+    await window.electronAPI.deleteSession(id);
+    const isDeletedSelected = selectedSessionId === id || session.sessionId === id;
+    if (isDeletedSelected) {
       micCapture.stop();
+      replaceSessionPath(null);
+      setSelectedSessionId(null);
       setSessionActive(false);
       setResumeSessionId(null);
+      setSuggestions([]);
+      setTodos([]);
+      setInsights([]);
+      seedAgents([]);
+      session.clearSession();
     }
-  }, [session.sessionId, micCapture]);
+    await refreshSessions();
+  }, [micCapture, refreshSessions, seedAgents, selectedSessionId, session.clearSession, session.sessionId]);
 
   const handleFollowUp = useCallback(async (agent: Agent, question: string) => {
-    const targetSessionId = agent.sessionId ?? session.sessionId ?? null;
+    const targetSessionId = agent.sessionId ?? selectedSessionId ?? session.sessionId ?? null;
     if (!targetSessionId) {
       return { ok: false, error: "Missing session id for this agent" };
     }
     return window.electronAPI.followUpAgentInSession(targetSessionId, agent.id, question, appConfig);
-  }, [session.sessionId, appConfig]);
+  }, [appConfig, selectedSessionId, session.sessionId]);
 
   const handleCancelAgent = useCallback(async (agentId: string) => {
     await window.electronAPI.cancelAgent(agentId);
@@ -382,7 +525,7 @@ export function App() {
               rollingKeyPoints={session.rollingKeyPoints}
               insights={educationalInsights}
               sessions={sessions}
-              activeSessionId={session.sessionId}
+              activeSessionId={selectedSessionId}
               onSelectSession={handleSelectSession}
               onDeleteSession={handleDeleteSession}
             />
@@ -417,6 +560,12 @@ export function App() {
           </>
         )}
       </div>
+
+      {routeNotice && (
+        <div className="px-4 py-2 text-muted-foreground text-xs border-t border-border bg-muted/40">
+          {routeNotice}
+        </div>
+      )}
 
       {session.errorText && (
         <div className="px-4 py-2 text-destructive text-xs border-t border-destructive/20 bg-destructive/5">
