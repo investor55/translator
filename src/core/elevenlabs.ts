@@ -1,17 +1,12 @@
-import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
+import {
+  ElevenLabsClient,
+  RealtimeEvents,
+  AudioFormat,
+  CommitStrategy,
+  type RealtimeConnection,
+} from "@elevenlabs/elevenlabs-js";
 import type { LanguageCode } from "./types";
 import { isValidLangCode } from "./language";
-
-type ElevenLabsSpeechToTextResponse = {
-  text?: unknown;
-  languageCode?: unknown;
-  language_code?: unknown;
-  languageProbability?: unknown;
-  language_probability?: unknown;
-};
-
-type ElevenLabsModelId = "scribe_v1" | "scribe_v2";
-const DEFAULT_MODEL_ID: ElevenLabsModelId = "scribe_v2";
 
 const ELEVENLABS_LANGUAGE_MAP: Record<string, LanguageCode> = {
   eng: "en",
@@ -30,94 +25,37 @@ const ELEVENLABS_LANGUAGE_MAP: Record<string, LanguageCode> = {
   tgl: "tl",
 };
 
-function normalizeLanguageCode(code?: string): LanguageCode | undefined {
+export function normalizeElevenLabsLanguageCode(code?: string): LanguageCode | undefined {
   if (!code) return undefined;
   const normalized = code.trim().toLowerCase();
   if (isValidLangCode(normalized)) return normalized;
   return ELEVENLABS_LANGUAGE_MAP[normalized];
 }
 
-export type ElevenLabsTranscription = {
-  transcript: string;
-  sourceLanguage?: LanguageCode;
-  languageProbability?: number;
-};
+export type { RealtimeConnection };
+export { RealtimeEvents };
 
-export type ElevenLabsTranscriptionOptions = {
+export type ElevenLabsRealtimeOptions = {
+  apiKey: string;
+  modelId: string;
   languageCode?: LanguageCode;
-  tagAudioEvents?: boolean;
 };
 
-function normalizeModelId(modelId: string): ElevenLabsModelId {
-  const normalized = modelId.trim().toLowerCase();
-  if (normalized === "scribe_v1" || normalized === "scribe_v2") {
-    return normalized;
-  }
-  return DEFAULT_MODEL_ID;
-}
-
-let cachedClient: ElevenLabsClient | null = null;
-let cachedApiKey: string | null = null;
-
-function getElevenLabsClient(apiKey: string): ElevenLabsClient {
-  if (!cachedClient || cachedApiKey !== apiKey) {
-    cachedClient = new ElevenLabsClient({ apiKey });
-    cachedApiKey = apiKey;
-  }
-  return cachedClient;
-}
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(() => {
-      reject(new Error(`ElevenLabs STT request timed out (${timeoutMs}ms)`));
-    }, timeoutMs);
+// Pure factory — creates client, opens WS, returns connection.
+// Caller owns lifecycle (close on stop, recreate on reconnect).
+export async function connectElevenLabsRealtime(
+  options: ElevenLabsRealtimeOptions
+): Promise<RealtimeConnection> {
+  const client = new ElevenLabsClient({ apiKey: options.apiKey });
+  return client.speechToText.realtime.connect({
+    modelId: options.modelId,
+    audioFormat: AudioFormat.PCM_16000,
+    sampleRate: 16000,
+    commitStrategy: CommitStrategy.VAD,
+    vadSilenceThresholdSecs: 0.5,
+    vadThreshold: 0.4,
+    minSpeechDurationMs: 300,
+    languageCode: options.languageCode,
+    includeTimestamps: true,
   });
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeoutHandle) clearTimeout(timeoutHandle);
-  }
-}
-
-export async function transcribeWithElevenLabs(
-  wavBuffer: Buffer,
-  modelId: string,
-  options: ElevenLabsTranscriptionOptions = {}
-): Promise<ElevenLabsTranscription> {
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-  if (!apiKey) {
-    throw new Error("Missing ELEVENLABS_API_KEY");
-  }
-
-  const bytes = Uint8Array.from(wavBuffer);
-  const file = new File([bytes], "chunk.wav", { type: "audio/wav" });
-  const payload = await withTimeout(
-    getElevenLabsClient(apiKey).speechToText.convert({
-      file,
-      modelId: normalizeModelId(modelId),
-      languageCode: options.languageCode,
-      tagAudioEvents: options.tagAudioEvents ?? false,
-    }),
-    30000
-  ) as ElevenLabsSpeechToTextResponse;
-  const languageCodeRaw =
-    typeof payload.languageCode === "string"
-      ? payload.languageCode
-      : typeof payload.language_code === "string"
-        ? payload.language_code
-        : undefined;
-  const languageProbabilityRaw =
-    typeof payload.languageProbability === "number"
-      ? payload.languageProbability
-      : typeof payload.language_probability === "number"
-        ? payload.language_probability
-        : undefined;
-
-  return {
-    transcript: typeof payload.text === "string" ? payload.text.trim() : "",
-    sourceLanguage: normalizeLanguageCode(languageCodeRaw),
-    languageProbability: languageProbabilityRaw,
-  };
 }

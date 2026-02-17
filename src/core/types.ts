@@ -150,7 +150,7 @@ export const DEFAULT_VERTEX_MODEL_ID =
 export const DEFAULT_VERTEX_LOCATION =
   ENV?.GOOGLE_VERTEX_PROJECT_LOCATION ?? "global";
 export const DEFAULT_TRANSCRIPTION_MODEL_ID =
-  ENV?.TRANSCRIPTION_MODEL_ID ?? "scribe_v2";
+  ENV?.TRANSCRIPTION_MODEL_ID ?? "scribe_v2_realtime";
 export const DEFAULT_ANALYSIS_MODEL_ID =
   ENV?.ANALYSIS_MODEL_ID ?? "moonshotai/kimi-k2-thinking";
 export const DEFAULT_TODO_MODEL_ID =

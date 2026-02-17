@@ -85,7 +85,7 @@ ${transcript}${todosSection}
 
 Task:
 - Extract only clear tasks, action items, or follow-ups.
-- Suggest todos when there is explicit intent, commitment, or concrete planning (for example: "I need to", "we should", "add a todo", "remind me to", "don't forget to", "I'm planning to", "I'm going to", "I'm looking to").
+- Suggest todos when there is explicit intent, commitment, or concrete planning (for example: "I need to", "we should", "add a todo", "remind me to", "don't forget to", "I'm planning to", "I'm going to", "I'm looking to", "I want to", "I wanna").
 - Treat first-person planning statements as actionable TODOs even when dates are not fixed yet.
 - Treat travel planning and scheduling intent as TODOs (for example: "I'm planning to visit X", "we should decide where else to go", "need to book X").
 - Skip vague brainstorming and informational statements without a clear next action.
