@@ -31,50 +31,67 @@ function send(getWindow: () => BrowserWindow | null, channel: string, ...args: u
 }
 
 function wireSessionEvents(s: Session, getWindow: () => BrowserWindow | null, db: AppDatabase) {
+  const isActiveSession = () => session?.sessionId === s.sessionId;
+
   s.events.on("state-change", (state: UIState) => {
+    if (!isActiveSession()) return;
     send(getWindow, "session:state-change", state);
   });
   s.events.on("block-added", (block: TranscriptBlock) => {
+    if (!isActiveSession()) return;
     db.insertBlock(s.sessionId, block);
     send(getWindow, "session:block-added", block);
   });
   s.events.on("block-updated", (block: TranscriptBlock) => {
+    if (!isActiveSession()) return;
     send(getWindow, "session:block-updated", block);
   });
   s.events.on("blocks-cleared", () => {
+    if (!isActiveSession()) return;
     send(getWindow, "session:blocks-cleared");
   });
   s.events.on("summary-updated", (summary: Summary | null) => {
+    if (!isActiveSession()) return;
     send(getWindow, "session:summary-updated", summary);
   });
   s.events.on("cost-updated", (cost: number) => {
+    if (!isActiveSession()) return;
     send(getWindow, "session:cost-updated", cost);
   });
   s.events.on("status", (text: string) => {
+    if (!isActiveSession()) return;
     send(getWindow, "session:status", text);
   });
   s.events.on("error", (text: string) => {
+    if (!isActiveSession()) return;
     send(getWindow, "session:error", text);
   });
   s.events.on("todo-added", (todo: TodoItem) => {
+    if (!isActiveSession()) return;
     send(getWindow, "session:todo-added", todo);
   });
   s.events.on("todo-suggested", (suggestion: TodoSuggestion) => {
+    if (!isActiveSession()) return;
     send(getWindow, "session:todo-suggested", suggestion);
   });
   s.events.on("insight-added", (insight) => {
+    if (!isActiveSession()) return;
     send(getWindow, "session:insight-added", insight);
   });
   s.events.on("agent-started", (agent: Agent) => {
+    if (!isActiveSession()) return;
     send(getWindow, "session:agent-started", agent);
   });
   s.events.on("agent-step", (agentId: string, step: AgentStep) => {
+    if (!isActiveSession()) return;
     send(getWindow, "session:agent-step", agentId, step);
   });
   s.events.on("agent-completed", (agentId: string, result: string) => {
+    if (!isActiveSession()) return;
     send(getWindow, "session:agent-completed", agentId, result);
   });
   s.events.on("agent-failed", (agentId: string, error: string) => {
+    if (!isActiveSession()) return;
     send(getWindow, "session:agent-failed", agentId, error);
   });
 }
@@ -108,9 +125,10 @@ function buildConfig(
 
 function shutdownCurrentSession(db: AppDatabase) {
   if (session) {
-    db.endSession(session.sessionId);
-    session.shutdown();
+    const activeSession = session;
     session = null;
+    activeSession.shutdown();
+    db.endSession(activeSession.sessionId);
   }
 }
 
@@ -176,9 +194,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
 
     // Session reuse: if last session was truly empty (no blocks, no agents) and not ended, reuse it
     const recent = db.getMostRecentSession();
-    const recentAgents = recent ? db.getAgentsForSession(recent.id) : [];
     let sessionId: string;
-    if (recent && recent.blockCount === 0 && recentAgents.length === 0 && !recent.endedAt) {
+    if (recent && !recent.endedAt && db.isSessionEmpty(recent.id)) {
       db.reuseSession(recent.id, sourceLang, targetLang);
       sessionId = recent.id;
       log("INFO", `Reusing empty session: ${sessionId}`);

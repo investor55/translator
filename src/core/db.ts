@@ -126,6 +126,34 @@ export function createDatabase(dbPath: string) {
       };
     },
 
+    isSessionEmpty(id: string): boolean {
+      const [blockRow] = orm
+        .select({ n: count() })
+        .from(blocks)
+        .where(eq(blocks.sessionId, id))
+        .all();
+      const [agentRow] = orm
+        .select({ n: count() })
+        .from(agents)
+        .where(eq(agents.sessionId, id))
+        .all();
+      const [insightRow] = orm
+        .select({ n: count() })
+        .from(insights)
+        .where(eq(insights.sessionId, id))
+        .all();
+      const [todoRow] = orm
+        .select({ n: count() })
+        .from(todos)
+        .where(eq(todos.sessionId, id))
+        .all();
+
+      return (blockRow?.n ?? 0) === 0
+        && (agentRow?.n ?? 0) === 0
+        && (insightRow?.n ?? 0) === 0
+        && (todoRow?.n ?? 0) === 0;
+    },
+
     reuseSession(id: string, sourceLang?: LanguageCode, targetLang?: LanguageCode) {
       orm.update(sessions)
         .set({

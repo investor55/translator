@@ -74,14 +74,6 @@ type AudioPipeline = {
   overlap: Buffer;
 };
 
-type PendingFastTodo = {
-  text: string;
-  createdAt: number;
-  flushAfterMs: number;
-};
-
-type FastTodoTriggerType = "explicit" | "implicit";
-
 export class Session {
   readonly events: TypedEmitter = new EventEmitter() as TypedEmitter;
   readonly config: SessionConfig;
@@ -137,13 +129,10 @@ export class Session {
   private readonly analysisDebounceMs = 300;
   private readonly analysisHeartbeatMs = 5000;
   private readonly analysisRetryDelayMs = 2000;
+  private readonly todoAnalysisIntervalMs = 10_000;
   private recentSuggestedTodoTexts: string[] = [];
-  private pendingFastTodo: PendingFastTodo | null = null;
-  private pendingFastTodoTimer: NodeJS.Timeout | null = null;
-  private lastFastTodoCandidate: { text: string; createdAt: number } | null = null;
-  private readonly fastTodoContinuationWindowMs = 3500;
-  private readonly fastTodoImplicitHoldMs = 1400;
-  private readonly fastTodoReferenceWindowMs = 90000;
+  private lastTodoAnalysisAt = 0;
+  private lastTodoAnalysisBlockCount = 0;
   private lastSummary: Summary | null = null;
   private lastAnalysisBlockCount = 0;
   private db: AppDatabase | null;
@@ -332,9 +321,9 @@ export class Session {
       resetCost(this.costAccumulator);
       this.lastSummary = null;
       this.lastAnalysisBlockCount = 0;
+      this.lastTodoAnalysisBlockCount = 0;
+      this.lastTodoAnalysisAt = Date.now();
       this.recentSuggestedTodoTexts = [];
-      this.pendingFastTodo = null;
-      this.lastFastTodoCandidate = null;
       this.events.emit("blocks-cleared");
       this.events.emit("summary-updated", null);
     }
@@ -703,9 +692,18 @@ export class Session {
       }
 
       if (this.config.transcriptionProvider === "elevenlabs") {
+        const elevenLabsLanguageCode =
+          this.config.direction === "source-target"
+            ? this.config.sourceLang
+            : undefined;
+
         const sttResult = await transcribeWithElevenLabs(
           wavBuffer,
-          this.config.transcriptionModelId
+          this.config.transcriptionModelId,
+          {
+            languageCode: elevenLabsLanguageCode,
+            tagAudioEvents: false,
+          }
         );
         transcript = sttResult.transcript;
         detectedLang = sttResult.sourceLanguage
@@ -817,7 +815,6 @@ export class Session {
         recordContext(this.contextState, translation);
       }
 
-      this.maybeEmitFastTodoSuggestion(block);
       this.scheduleAnalysis();
     } catch (error) {
       const elapsed = Date.now() - startTime;
@@ -947,7 +944,6 @@ Return:
     }
     this.analysisHeartbeatTimer = setInterval(() => {
       if (!this.isRecording) return;
-      this.flushPendingFastTodoIfStale();
       this.scheduleAnalysis(0);
     }, this.analysisHeartbeatMs);
     this.analysisRequested = false;
@@ -976,7 +972,6 @@ Return:
       clearInterval(this.analysisHeartbeatTimer);
       this.analysisHeartbeatTimer = null;
     }
-    this.flushPendingFastTodo(true);
     this.analysisRequested = false;
   }
 
@@ -1064,28 +1059,39 @@ Return:
       }
 
       let todoSuggestions: string[] = [];
-      try {
-        const todoPrompt = buildTodoPrompt(recentBlocks, existingTodos);
-        const { object: todoResult, usage: todoUsage } = await generateObject({
-          model: this.todoModel,
-          schema: todoAnalysisSchema,
-          prompt: todoPrompt,
-          abortSignal: AbortSignal.timeout(15000),
-          temperature: 0,
-        });
+      const shouldRunTodoAnalysis =
+        analysisTargetBlockCount > this.lastTodoAnalysisBlockCount
+        && Date.now() - this.lastTodoAnalysisAt >= this.todoAnalysisIntervalMs;
 
-        const totalWithTodo = addCostToAcc(
-          this.costAccumulator,
-          todoUsage?.inputTokens ?? 0,
-          todoUsage?.outputTokens ?? 0,
-          "text",
-          "openrouter"
-        );
-        this.events.emit("cost-updated", totalWithTodo);
-        todoSuggestions = todoResult.suggestedTodos;
-      } catch (todoError) {
-        if (this.config.debug) {
-          log("WARN", `Todo extraction failed: ${toReadableError(todoError)}`);
+      if (shouldRunTodoAnalysis) {
+        const todoContextStart = Math.max(0, this.lastTodoAnalysisBlockCount - 10);
+        const todoBlocks = allBlocks.slice(todoContextStart, analysisTargetBlockCount);
+        this.lastTodoAnalysisAt = Date.now();
+        this.lastTodoAnalysisBlockCount = analysisTargetBlockCount;
+
+        try {
+          const todoPrompt = buildTodoPrompt(todoBlocks, existingTodos);
+          const { object: todoResult, usage: todoUsage } = await generateObject({
+            model: this.todoModel,
+            schema: todoAnalysisSchema,
+            prompt: todoPrompt,
+            abortSignal: AbortSignal.timeout(15000),
+            temperature: 0,
+          });
+
+          const totalWithTodo = addCostToAcc(
+            this.costAccumulator,
+            todoUsage?.inputTokens ?? 0,
+            todoUsage?.outputTokens ?? 0,
+            "text",
+            "openrouter"
+          );
+          this.events.emit("cost-updated", totalWithTodo);
+          todoSuggestions = todoResult.suggestedTodos;
+        } catch (todoError) {
+          if (this.config.debug) {
+            log("WARN", `Todo extraction failed: ${toReadableError(todoError)}`);
+          }
         }
       }
 
@@ -1164,217 +1170,5 @@ Return:
     }
     this.events.emit("todo-suggested", suggestion);
     return true;
-  }
-
-  private clearPendingFastTodoTimer() {
-    if (!this.pendingFastTodoTimer) return;
-    clearTimeout(this.pendingFastTodoTimer);
-    this.pendingFastTodoTimer = null;
-  }
-
-  private setPendingFastTodo(text: string, createdAt: number, flushAfterMs: number) {
-    this.pendingFastTodo = {
-      text: text.trim(),
-      createdAt,
-      flushAfterMs: Math.max(200, flushAfterMs),
-    };
-    this.armPendingFastTodoTimer();
-  }
-
-  private clearPendingFastTodo() {
-    this.pendingFastTodo = null;
-    this.clearPendingFastTodoTimer();
-  }
-
-  private armPendingFastTodoTimer() {
-    this.clearPendingFastTodoTimer();
-    if (!this.pendingFastTodo) return;
-    const elapsed = Date.now() - this.pendingFastTodo.createdAt;
-    const remainingMs = Math.max(50, this.pendingFastTodo.flushAfterMs - elapsed);
-    this.pendingFastTodoTimer = setTimeout(() => {
-      this.pendingFastTodoTimer = null;
-      this.flushPendingFastTodoIfStale();
-    }, remainingMs);
-  }
-
-  private maybeEmitReferenceFastTodo(
-    candidates: readonly string[],
-    createdAt: number
-  ): boolean {
-    const isReferenceCommand = candidates.some((text) => this.isReferenceTodoCommand(text));
-    if (!isReferenceCommand) return false;
-
-    if (this.pendingFastTodo) {
-      const didEmit = this.tryEmitTodoSuggestion(this.pendingFastTodo.text);
-      this.clearPendingFastTodo();
-      return didEmit;
-    }
-
-    if (
-      this.lastFastTodoCandidate &&
-      createdAt - this.lastFastTodoCandidate.createdAt <= this.fastTodoReferenceWindowMs
-    ) {
-      return this.tryEmitTodoSuggestion(this.lastFastTodoCandidate.text);
-    }
-
-    return false;
-  }
-
-  private maybeEmitFastTodoSuggestion(block: {
-    sourceText: string;
-    translation?: string;
-    partial?: boolean;
-    createdAt: number;
-  }) {
-    this.flushPendingFastTodoIfStale(block.createdAt);
-
-    const candidates = [block.sourceText, block.translation].filter((value): value is string => !!value && value.trim().length > 0);
-    if (candidates.length === 0) return;
-
-    if (this.maybeEmitReferenceFastTodo(candidates, block.createdAt)) {
-      return;
-    }
-
-    if (
-      this.pendingFastTodo &&
-      block.createdAt - this.pendingFastTodo.createdAt <= this.fastTodoContinuationWindowMs
-    ) {
-      const preferredContinuation = candidates.find((value) => /[a-z]/i.test(value)) ?? candidates[0];
-      const continuation = this.cleanFastTodoText(preferredContinuation);
-      if (this.isLikelyTodoContinuation(continuation)) {
-        const merged = this.mergeTodoParts(this.pendingFastTodo.text, continuation);
-        if (this.shouldWaitForTodoContinuation(merged, !!block.partial)) {
-          this.setPendingFastTodo(merged, block.createdAt, this.fastTodoContinuationWindowMs);
-        } else {
-          const didEmit = this.tryEmitTodoSuggestion(merged);
-          if (!didEmit) {
-            this.lastFastTodoCandidate = { text: merged, createdAt: block.createdAt };
-          }
-          this.clearPendingFastTodo();
-        }
-        return;
-      }
-    }
-
-    for (const candidateText of candidates) {
-      const extracted = this.extractFastTodoCandidate(candidateText, !!block.partial);
-      if (!extracted) continue;
-      this.lastFastTodoCandidate = { text: extracted.text, createdAt: block.createdAt };
-
-      if (extracted.needsContinuation) {
-        this.setPendingFastTodo(extracted.text, block.createdAt, this.fastTodoContinuationWindowMs);
-      } else if (extracted.triggerType === "implicit") {
-        this.setPendingFastTodo(extracted.text, block.createdAt, this.fastTodoImplicitHoldMs);
-      } else {
-        const didEmit = this.tryEmitTodoSuggestion(extracted.text);
-        if (!didEmit) {
-          this.lastFastTodoCandidate = { text: extracted.text, createdAt: block.createdAt };
-        }
-        this.clearPendingFastTodo();
-      }
-      return;
-    }
-  }
-
-  private extractFastTodoCandidate(
-    text: string,
-    isPartial: boolean
-  ): { text: string; needsContinuation: boolean; triggerType: FastTodoTriggerType } | null {
-    const cleaned = this.cleanFastTodoText(text);
-    if (!cleaned) return null;
-
-    const explicitTrigger = /\b(add(?:\s+\w+){0,3}\s+(?:to-?do(?:s)?|to do(?:s)?)|to-?do(?:s)?|to do(?:s)?|todo(?:s)?|remind me to|don't forget to|do not forget to)\b/i;
-    const implicitTrigger = /\b(i need to|we need to|i want to|i wanna|we should|let's|look into|find out|should check)\b/i;
-    const explicitMatch = cleaned.match(explicitTrigger);
-    const implicitMatch = cleaned.match(implicitTrigger);
-    const explicitIdx = explicitMatch?.index ?? Number.POSITIVE_INFINITY;
-    const implicitIdx = implicitMatch?.index ?? Number.POSITIVE_INFINITY;
-    const triggerType: FastTodoTriggerType =
-      explicitIdx <= implicitIdx ? "explicit" : "implicit";
-    const startIndex = Math.min(explicitIdx, implicitIdx);
-    if (!Number.isFinite(startIndex)) return null;
-
-    let candidate = cleaned.slice(startIndex);
-    candidate = candidate.replace(
-      /^(?:add(?:\s+\w+){0,3}\s+(?:to-?do(?:s)?|to do(?:s)?)|to-?do(?:s)?|to do(?:s)?|todo(?:s)?|remind me to|don't forget to|do not forget to)[:\s,-]*/i,
-      ""
-    );
-    candidate = candidate.replace(/^(?:so|um|uh|okay|ok|well|like|please|just)\b[\s,.-]*/i, "");
-    candidate = candidate.replace(/\s+/g, " ").trim();
-
-    if (!candidate || candidate.length < 8) return null;
-    return {
-      text: candidate,
-      needsContinuation: this.shouldWaitForTodoContinuation(candidate, isPartial),
-      triggerType,
-    };
-  }
-
-  private isReferenceTodoCommand(text: string): boolean {
-    const cleaned = this.cleanFastTodoText(text).toLowerCase();
-    if (!cleaned) return false;
-    const hasAdd = /\badd\b/.test(cleaned);
-    if (!hasAdd) return false;
-
-    if (/\badd\b[\s\w]*\b(that|this|it)\b/.test(cleaned)) {
-      return true;
-    }
-
-    const commandOnlyMatch = cleaned.match(/\badd(?:\s+\w+){0,3}\s+(?:to-?do(?:s)?|to do(?:s)?|todo(?:s)?)\b/i);
-    if (!commandOnlyMatch || commandOnlyMatch.index == null) return false;
-    const trailing = cleaned
-      .slice(commandOnlyMatch.index + commandOnlyMatch[0].length)
-      .replace(/^[\s,.:;!?-]+/, "")
-      .trim();
-    return trailing.length === 0;
-  }
-
-  private cleanFastTodoText(text: string): string {
-    return text
-      .replace(/\[[^\]]+\]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
-  private isLikelyTodoContinuation(text: string): boolean {
-    const cleaned = text.trim();
-    if (!cleaned) return false;
-    if (!/[a-z0-9]/i.test(cleaned)) return false;
-    if (/^(?:ok|okay|yes|no|sure|hmm|uh|um)\b/i.test(cleaned)) return false;
-    return cleaned.split(/\s+/).length >= 2;
-  }
-
-  private mergeTodoParts(base: string, continuation: string): string {
-    const left = base.trim().replace(/[,\s-]+$/, "");
-    const right = continuation.trim().replace(/^[,\s-]+/, "");
-    if (!left) return right;
-    if (!right) return left;
-    return `${left} ${right}`.replace(/\s+/g, " ").trim();
-  }
-
-  private shouldWaitForTodoContinuation(text: string, isPartial: boolean): boolean {
-    if (isPartial) return true;
-    const t = text.trim().toLowerCase();
-    return /(?:-|:|,|;|\/)$/.test(t) || /\b(and|to|for|with|about|at|look at|look into)$/.test(t);
-  }
-
-  private flushPendingFastTodo(force = false) {
-    if (!this.pendingFastTodo) return;
-    if (!force) {
-      this.clearPendingFastTodoTimer();
-      return;
-    }
-    this.tryEmitTodoSuggestion(this.pendingFastTodo.text);
-    this.clearPendingFastTodo();
-  }
-
-  private flushPendingFastTodoIfStale(now = Date.now()) {
-    if (!this.pendingFastTodo) return;
-    if (now - this.pendingFastTodo.createdAt < this.pendingFastTodo.flushAfterMs) {
-      this.armPendingFastTodoTimer();
-      return;
-    }
-    this.tryEmitTodoSuggestion(this.pendingFastTodo.text);
-    this.clearPendingFastTodo();
   }
 }

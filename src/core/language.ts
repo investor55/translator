@@ -130,6 +130,7 @@ export function buildAudioPromptForStructured(
 3. ${translateRule}
 
 IMPORTANT: The transcript field must be in the detected source language. The translation field must ALWAYS be in a DIFFERENT language than the transcript. If you hear ${sourceLangName}, the translation must be ${targetLangName}, not ${sourceLangName}.
+IMPORTANT: Never translate or paraphrase the transcript into English. Keep transcript in the spoken language exactly as heard.
 
 You are a strict transcriber. Output ONLY the exact words spoken \u2014 never add, infer, or complete words or sentences beyond what is audible.
 
@@ -147,6 +148,7 @@ Return sourceLanguage (${codeList}), transcript, isPartial, and translation.`;
   return `${summaryBlock}${contextBlock}Listen to the audio clip spoken in ${sourceLangName}. Transcribe it in ${sourceLangName} and translate it into ${targetLangName}.${englishNote}
 
 IMPORTANT: The translation MUST be in ${targetLangName}. Never return a translation in the same language as the transcript.
+IMPORTANT: Transcript must stay in ${sourceLangName}. Do not translate transcript into English.
 
 You are a strict transcriber. Output ONLY the exact words spoken \u2014 never add, infer, or complete words or sentences beyond what is audible.
 

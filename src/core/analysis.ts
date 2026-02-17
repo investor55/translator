@@ -21,7 +21,7 @@ export const analysisSchema = z.object({
 export const todoAnalysisSchema = z.object({
   suggestedTodos: z
     .array(z.string())
-    .describe("Action items or tasks mentioned in the conversation. Include anything that sounds like something someone wants to do, needs to do, or should follow up on. Be liberal — it's better to suggest a todo that gets dismissed than to miss one."),
+    .describe("Clear action items explicitly stated in the conversation. Only include concrete tasks someone committed to doing or requested to track."),
 });
 
 export type AnalysisResult = z.infer<typeof analysisSchema>;
@@ -84,11 +84,11 @@ Recent transcript:
 ${transcript}${todosSection}
 
 Task:
-- Extract any tasks, action items, or follow-ups.
-- Be aggressive: it's better to suggest a todo the user can dismiss than to miss one.
-- Triggers include: "add a todo", "I need to", "we should", "let's", "remind me to", "don't forget", "I want to", "we have to", "gotta", "should check", "look into", "find out", or question-driven research tasks.
+- Extract only clear tasks, action items, or follow-ups.
+- Suggest todos only when there is explicit intent or commitment (for example: "I need to", "we should", "add a todo", "remind me to", "don't forget to").
+- Skip vague brainstorming, open-ended discussion, and informational statements without a clear next action.
 - Preserve details exactly: names, places, dates, times, constraints.
 - Merge fragments across neighboring lines into one complete todo.
 - Do NOT duplicate existing todos.
-- Return an empty list only if nothing actionable was discussed.`;
+- Return an empty list when no clear actionable todo was discussed.`;
 }

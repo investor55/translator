@@ -10,6 +10,7 @@ describe("buildAudioPromptForStructured", () => {
     const result = buildAudioPromptForStructured("auto", "ko", "en", [], []);
     expect(result).toContain("Detect");
     expect(result).toContain("Korean or English");
+    expect(result).toContain("Never translate or paraphrase the transcript into English");
     expect(result).not.toContain("JSON");
   });
 
@@ -17,6 +18,7 @@ describe("buildAudioPromptForStructured", () => {
     const result = buildAudioPromptForStructured("source-target", "ko", "en", [], []);
     expect(result).toContain("Korean");
     expect(result).toContain("English");
+    expect(result).toContain("Transcript must stay in Korean");
   });
 
   it("builds reversed language prompt", () => {

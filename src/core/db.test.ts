@@ -41,6 +41,40 @@ describe("sessions", () => {
     expect(sessions[0].blockCount).toBe(1);
   });
 
+  it("treats a session as non-empty when related records exist", () => {
+    db.createSession("s1");
+    expect(db.isSessionEmpty("s1")).toBe(true);
+
+    db.insertInsight({
+      id: "i1",
+      kind: "key-point",
+      text: "Point A",
+      sessionId: "s1",
+      createdAt: Date.now(),
+    });
+
+    expect(db.isSessionEmpty("s1")).toBe(false);
+  });
+
+  it("detects late-arriving records after endSession", () => {
+    db.createSession("s1");
+    db.endSession("s1");
+    expect(db.isSessionEmpty("s1")).toBe(true);
+
+    db.insertBlock("s1", {
+      id: 1,
+      sourceLabel: "K",
+      sourceText: "hello",
+      targetLabel: "E",
+      audioSource: "system",
+      partial: false,
+      newTopic: false,
+      createdAt: Date.now(),
+    });
+
+    expect(db.isSessionEmpty("s1")).toBe(false);
+  });
+
   it("returns sessions ordered by most recent first", () => {
     // Insert with explicit timestamps via raw DB to guarantee ordering
     db.raw.prepare("INSERT INTO sessions (id, started_at, title) VALUES (?, ?, ?)").run("s1", 1000, "First");

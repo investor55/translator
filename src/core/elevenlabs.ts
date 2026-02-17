@@ -40,6 +40,11 @@ export type ElevenLabsTranscription = {
   languageProbability?: number;
 };
 
+export type ElevenLabsTranscriptionOptions = {
+  languageCode?: LanguageCode;
+  tagAudioEvents?: boolean;
+};
+
 let cachedClient: ElevenLabsClient | null = null;
 let cachedApiKey: string | null = null;
 
@@ -67,7 +72,8 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 
 export async function transcribeWithElevenLabs(
   wavBuffer: Buffer,
-  modelId: string
+  modelId: string,
+  options: ElevenLabsTranscriptionOptions = {}
 ): Promise<ElevenLabsTranscription> {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {
@@ -80,6 +86,8 @@ export async function transcribeWithElevenLabs(
     getElevenLabsClient(apiKey).speechToText.convert({
       file,
       modelId,
+      languageCode: options.languageCode,
+      tagAudioEvents: options.tagAudioEvents ?? false,
     }),
     30000
   ) as ElevenLabsSpeechToTextResponse;

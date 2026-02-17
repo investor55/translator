@@ -72,7 +72,17 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
     case "error":
       return { ...state, errorText: action.text };
     case "session-started":
-      return { ...state, sessionActive: true, sessionId: action.sessionId };
+      return {
+        ...state,
+        sessionActive: true,
+        sessionId: action.sessionId,
+        blocks: [],
+        summary: null,
+        rollingKeyPoints: [],
+        cost: 0,
+        statusText: "",
+        errorText: "",
+      };
     case "session-resumed": {
       const keyPoints = action.data.insights
         .filter((i) => i.kind === "key-point")
