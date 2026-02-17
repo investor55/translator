@@ -24,8 +24,24 @@ export const todoAnalysisSchema = z.object({
     .describe("Clear action items from the conversation. Include explicit tasks and concrete planning intents, but skip vague chatter."),
 });
 
+export const todoFromSelectionSchema = z.object({
+  shouldCreateTodo: z
+    .boolean()
+    .describe("Whether the selected text contains a clear, actionable todo."),
+  todoTitle: z
+    .string()
+    .describe("Short actionable todo title (3-10 words). Empty when shouldCreateTodo is false."),
+  todoDetails: z
+    .string()
+    .describe("Detailed context for the todo preserving specifics, constraints, names, and timeline. Empty when shouldCreateTodo is false."),
+  reason: z
+    .string()
+    .describe("Brief explanation for decision."),
+});
+
 export type AnalysisResult = z.infer<typeof analysisSchema>;
 export type TodoAnalysisResult = z.infer<typeof todoAnalysisSchema>;
+export type TodoFromSelectionResult = z.infer<typeof todoFromSelectionSchema>;
 
 export function buildAnalysisPrompt(
   recentBlocks: TranscriptBlock[],
@@ -95,4 +111,36 @@ Task:
 - Rewrite each todo as a short imperative action phrase.
 - Do NOT duplicate existing todos.
 - Return an empty list when no clear actionable todo was discussed.`;
+}
+
+export function buildTodoFromSelectionPrompt(
+  selectedText: string,
+  existingTodos: ReadonlyArray<Pick<TodoItem, "text" | "completed">>,
+  userIntentText?: string,
+): string {
+  const todosSection =
+    existingTodos.length > 0
+      ? `\n\nExisting todos:\n${existingTodos.map((t) => `- [${t.completed ? "x" : " "}] ${t.text}`).join("\n")}`
+      : "";
+  const intent = userIntentText?.trim() ?? "";
+  const userIntentSection = intent
+    ? `\n\nUser intent for todo creation:\n${intent}`
+    : "";
+
+  return `You convert highlighted transcript text into one concrete TODO.
+
+Highlighted transcript:
+${selectedText}${userIntentSection}${todosSection}
+
+Task:
+- Treat the highlighted transcript as grounding context.
+- If user intent is provided, prioritize it and convert it into one short imperative todo that is consistent with context.
+- If no user intent is provided, decide whether the highlighted text contains a clear actionable commitment, follow-up, or planning intent.
+- Return both:
+  - todoTitle: concise action title.
+  - todoDetails: full context and constraints needed by an autonomous agent.
+- Preserve critical details (names, places, dates, constraints).
+- Do not create a todo when the text is unclear, conversational filler, or non-actionable.
+- Do not duplicate an existing todo.
+- Return empty todoTitle and todoDetails when shouldCreateTodo is false.`;
 }

@@ -55,12 +55,16 @@ export type Summary = {
 export type TodoItem = Readonly<{
   id: string;
   text: string;
+  details?: string;
+  size: TodoSize;
   completed: boolean;
   source: "ai" | "manual";
   createdAt: number;
   completedAt?: number;
   sessionId?: string;
 }>;
+
+export type TodoSize = "small" | "large";
 
 export type TodoSuggestion = Readonly<{
   id: string;
@@ -151,7 +155,7 @@ export const DEFAULT_VERTEX_LOCATION =
   ENV?.GOOGLE_VERTEX_PROJECT_LOCATION ?? "global";
 export const DEFAULT_TRANSCRIPTION_MODEL_ID =
   ENV?.TRANSCRIPTION_MODEL_ID ?? "scribe_v2_realtime";
-export const DEFAULT_WHISPER_MODEL_ID = "Xenova/whisper-small";
+export const DEFAULT_WHISPER_MODEL_ID = "Xenova/whisper-tiny";
 export const DEFAULT_ANALYSIS_MODEL_ID =
   ENV?.ANALYSIS_MODEL_ID ?? "moonshotai/kimi-k2-thinking";
 export const DEFAULT_TODO_MODEL_ID =
@@ -209,6 +213,14 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     Number.isFinite(merged.intervalMs) && merged.intervalMs > 0
       ? Math.round(merged.intervalMs)
       : DEFAULT_APP_CONFIG.intervalMs;
+  const rawTranscriptionModelId =
+    merged.transcriptionModelId?.trim() || DEFAULT_APP_CONFIG.transcriptionModelId;
+  const transcriptionModelId =
+    transcriptionProvider === "whisper" &&
+    (rawTranscriptionModelId === "Xenova/whisper-small" ||
+      rawTranscriptionModelId === "onnx-community/whisper-small")
+      ? DEFAULT_WHISPER_MODEL_ID
+      : rawTranscriptionModelId;
 
   return {
     ...merged,
@@ -217,7 +229,7 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     transcriptionProvider,
     analysisProvider,
     intervalMs,
-    transcriptionModelId: merged.transcriptionModelId?.trim() || DEFAULT_APP_CONFIG.transcriptionModelId,
+    transcriptionModelId,
     analysisModelId: merged.analysisModelId?.trim() || DEFAULT_APP_CONFIG.analysisModelId,
     todoModelId: merged.todoModelId?.trim() || DEFAULT_APP_CONFIG.todoModelId,
     contextFile: merged.contextFile?.trim() || DEFAULT_APP_CONFIG.contextFile,
@@ -248,6 +260,7 @@ export type Agent = {
   id: string;
   todoId: string;
   task: string;
+  taskContext?: string;
   status: AgentStatus;
   steps: AgentStep[];
   result?: string;

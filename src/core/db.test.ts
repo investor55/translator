@@ -209,6 +209,7 @@ describe("todos", () => {
     const todo: TodoItem = {
       id: "t1",
       text: "Buy groceries",
+      size: "small",
       completed: false,
       source: "manual",
       createdAt: Date.now(),
@@ -218,13 +219,14 @@ describe("todos", () => {
     const todos = db.getTodos();
     expect(todos).toHaveLength(1);
     expect(todos[0].text).toBe("Buy groceries");
+    expect(todos[0].size).toBe("small");
     expect(todos[0].completed).toBe(false);
     expect(todos[0].source).toBe("manual");
   });
 
   it("toggles todo completion", () => {
     db.insertTodo({
-      id: "t1", text: "Task", completed: false, source: "ai", createdAt: Date.now(),
+      id: "t1", text: "Task", size: "large", completed: false, source: "ai", createdAt: Date.now(),
     });
 
     db.updateTodo("t1", true);
@@ -240,8 +242,8 @@ describe("todos", () => {
 
   it("returns todos ordered by most recent first", () => {
     const now = Date.now();
-    db.insertTodo({ id: "t1", text: "First", completed: false, source: "manual", createdAt: now });
-    db.insertTodo({ id: "t2", text: "Second", completed: false, source: "manual", createdAt: now + 100 });
+    db.insertTodo({ id: "t1", text: "First", size: "small", completed: false, source: "manual", createdAt: now });
+    db.insertTodo({ id: "t2", text: "Second", size: "large", completed: false, source: "manual", createdAt: now + 100 });
 
     const todos = db.getTodos();
     expect(todos[0].text).toBe("Second");

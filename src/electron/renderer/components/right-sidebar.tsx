@@ -1,6 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
 import type { TodoItem, TodoSuggestion, Agent } from "../../../core/types";
-import { PlusIcon, ChevronDownIcon, CheckIcon, XIcon, SearchIcon, LoaderCircleIcon } from "lucide-react";
+import {
+  PlusIcon,
+  ChevronDownIcon,
+  CheckIcon,
+  XIcon,
+  SparklesIcon,
+  LoaderCircleIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AgentList } from "./agent-list";
@@ -13,12 +21,11 @@ type RightSidebarProps = {
   agents?: Agent[];
   selectedAgentId?: string | null;
   onSelectAgent?: (id: string | null) => void;
-  onLaunchAgent?: (todoId: string, task: string) => void;
+  onLaunchAgent?: (todo: TodoItem) => void;
   onAddTodo?: (text: string) => void;
   onToggleTodo?: (id: string) => void;
-  onScanTodos?: () => void;
-  scanningTodos?: boolean;
-  scanFeedback?: string;
+  onDeleteTodo?: (id: string) => void;
+  processingTodoIds?: string[];
   onAcceptSuggestion?: (suggestion: TodoSuggestion) => void;
   onDismissSuggestion?: (id: string) => void;
 };
@@ -105,22 +112,40 @@ export function RightSidebar({
   onLaunchAgent,
   onAddTodo,
   onToggleTodo,
-  onScanTodos,
-  scanningTodos = false,
-  scanFeedback,
+  onDeleteTodo,
+  processingTodoIds = [],
   onAcceptSuggestion,
   onDismissSuggestion,
 }: RightSidebarProps) {
   const [input, setInput] = useState("");
   const [completedOpen, setCompletedOpen] = useState(false);
+  const processingTodoIdSet = new Set(processingTodoIds);
 
-  const activeTodos = todos.filter((t) => !t.completed);
-  const completedTodos = todos.filter((t) => t.completed);
-  const agentTodoIds = new Set(agents?.map((a) => a.todoId) ?? []);
+  const agentByTodoId = new Map<string, Agent>();
+  for (const agent of agents ?? []) {
+    if (!agentByTodoId.has(agent.todoId)) {
+      agentByTodoId.set(agent.todoId, agent);
+    }
+  }
+
+  const activeTodos: TodoItem[] = [];
+  const completedTodos: TodoItem[] = [];
+  let pendingInAgentsCount = 0;
+  for (const todo of todos) {
+    if (todo.completed) {
+      completedTodos.push(todo);
+      continue;
+    }
+    if (agentByTodoId.has(todo.id)) {
+      pendingInAgentsCount += 1;
+      continue;
+    }
+    activeTodos.push(todo);
+  }
 
   // Auto-expand completed section when viewing past sessions with agent results
   const isViewingPast = !onAddTodo;
-  const completedHaveAgents = completedTodos.some((t) => agentTodoIds.has(t.id));
+  const completedHaveAgents = completedTodos.some((t) => agentByTodoId.has(t.id));
   useEffect(() => {
     if (isViewingPast && completedHaveAgents) setCompletedOpen(true);
   }, [isViewingPast, completedHaveAgents]);
@@ -159,25 +184,7 @@ export function RightSidebar({
               >
                 <PlusIcon className="size-3.5" />
               </Button>
-              {onScanTodos && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-7 px-2 text-xs"
-                  onClick={onScanTodos}
-                  disabled={scanningTodos}
-                >
-                  {scanningTodos ? (
-                    <LoaderCircleIcon className="size-3.5 animate-spin" />
-                  ) : (
-                    "Scan"
-                  )}
-                </Button>
-              )}
             </form>
-            {scanFeedback && (
-              <p className="mt-1 text-[11px] text-muted-foreground">{scanFeedback}</p>
-            )}
           </div>
         )}
       </div>
@@ -216,46 +223,52 @@ export function RightSidebar({
           <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
             Active ({activeTodos.length})
           </span>
+          {pendingInAgentsCount > 0 && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {pendingInAgentsCount} pending in agents
+            </p>
+          )}
           {activeTodos.length > 0 ? (
             <ul className="mt-1.5 space-y-1">
               {activeTodos.map((todo) => {
-                const hasAgent = agentTodoIds.has(todo.id);
-                const todoAgent = agents?.find((a) => a.todoId === todo.id);
+                const isProcessing = processingTodoIdSet.has(todo.id);
                 return (
                   <li key={todo.id} className="flex items-start gap-2 py-1 group">
                     <input
                       type="checkbox"
                       checked={false}
                       onChange={() => onToggleTodo?.(todo.id)}
-                      className="mt-0.5 size-3.5 rounded border-input accent-primary cursor-pointer shrink-0"
+                      disabled={isProcessing}
+                      className="mt-0.5 size-3.5 rounded border-input accent-primary cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
-                    <span className="text-xs text-foreground leading-relaxed flex-1">
+                    <span
+                      className={`text-xs leading-relaxed flex-1 ${isProcessing ? "text-muted-foreground italic" : "text-foreground"}`}
+                    >
                       {todo.text}
                     </span>
-                    {hasAgent && todoAgent ? (
-                      <button
-                        type="button"
-                        onClick={() => onSelectAgent?.(todoAgent.id)}
-                        className="shrink-0 rounded-none p-0.5 text-primary hover:bg-primary/10 transition-colors"
-                        aria-label="View agent"
-                      >
-                        {todoAgent.status === "running" ? (
-                          <LoaderCircleIcon className="size-3.5 animate-spin" />
-                        ) : (
-                          <SearchIcon className="size-3.5" />
-                        )}
-                      </button>
+                    {isProcessing ? (
+                      <span className="shrink-0 rounded-none p-0.5 text-muted-foreground" aria-label="Processing todo">
+                        <LoaderCircleIcon className="size-3.5 animate-spin" />
+                      </span>
                     ) : onLaunchAgent ? (
                       <button
                         type="button"
-                        onClick={() => onLaunchAgent(todo.id, todo.text)}
+                        onClick={() => onLaunchAgent(todo)}
                         className="shrink-0 rounded-none p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 transition-all"
                         aria-label="Research this todo"
                       >
-                        <SearchIcon className="size-3.5" />
+                        <SparklesIcon className="size-3.5" />
                       </button>
                     ) : null}
-                    {todo.source === "ai" && !hasAgent && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteTodo?.(todo.id)}
+                      className="shrink-0 rounded-none p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all"
+                      aria-label="Delete todo"
+                    >
+                      <Trash2Icon className="size-3.5" />
+                    </button>
+                    {todo.source === "ai" && !isProcessing && (
                       <span className="text-[11px] text-muted-foreground bg-muted px-1 py-0.5 rounded-none shrink-0 leading-none">
                         AI
                       </span>
@@ -287,7 +300,7 @@ export function RightSidebar({
             {completedOpen && (
               <ul className="mt-1.5 space-y-1">
                 {completedTodos.map((todo) => {
-                  const todoAgent = agents?.find((a) => a.todoId === todo.id);
+                  const todoAgent = agentByTodoId.get(todo.id);
                   return (
                     <li key={todo.id} className="flex items-start gap-2 py-1 group">
                       <input
@@ -316,9 +329,17 @@ export function RightSidebar({
                           className="shrink-0 rounded-none p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 transition-all"
                           aria-label="View agent results"
                         >
-                          <SearchIcon className="size-3.5" />
+                          <SparklesIcon className="size-3.5" />
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => onDeleteTodo?.(todo.id)}
+                        className="shrink-0 rounded-none p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all"
+                        aria-label="Delete todo"
+                      >
+                        <Trash2Icon className="size-3.5" />
+                      </button>
                     </li>
                   );
                 })}

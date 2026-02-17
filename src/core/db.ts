@@ -4,6 +4,7 @@ import { eq, desc, count } from "drizzle-orm";
 import { sessions, blocks, todos, insights, agents } from "./schema";
 import type {
   TodoItem,
+  TodoSize,
   Insight,
   InsightKind,
   SessionMeta,
@@ -205,6 +206,8 @@ export function createDatabase(dbPath: string) {
       orm.insert(todos).values({
         id: todo.id,
         text: todo.text,
+        details: todo.details ?? null,
+        size: todo.size,
         completed: todo.completed ? 1 : 0,
         source: todo.source,
         createdAt: todo.createdAt,
@@ -217,6 +220,30 @@ export function createDatabase(dbPath: string) {
         .set({ completed: completed ? 1 : 0, completedAt: completed ? Date.now() : null })
         .where(eq(todos.id, id))
         .run();
+    },
+
+    deleteTodo(id: string) {
+      orm.transaction((tx) => {
+        tx.delete(agents).where(eq(agents.todoId, id)).run();
+        tx.delete(todos).where(eq(todos.id, id)).run();
+      });
+    },
+
+    updateTodoText(id: string, text: string, size: TodoSize) {
+      orm.update(todos)
+        .set({ text, size })
+        .where(eq(todos.id, id))
+        .run();
+    },
+
+    getTodo(id: string): TodoItem | null {
+      const [row] = orm
+        .select()
+        .from(todos)
+        .where(eq(todos.id, id))
+        .limit(1)
+        .all();
+      return row ? mapTodoRow(row) : null;
     },
 
     getTodos(): TodoItem[] {
@@ -317,6 +344,7 @@ export function createDatabase(dbPath: string) {
         todoId: agent.todoId,
         sessionId: agent.sessionId ?? null,
         task: agent.task,
+        taskContext: agent.taskContext ?? null,
         status: agent.status,
         result: agent.result ?? null,
         steps: agent.steps,
@@ -345,6 +373,7 @@ export function createDatabase(dbPath: string) {
         id: r.id,
         todoId: r.todoId,
         task: r.task,
+        taskContext: r.taskContext ?? undefined,
         status: r.status as Agent["status"],
         result: r.result ?? undefined,
         steps: (r.steps ?? []) as AgentStep[],
@@ -380,6 +409,8 @@ function mapTodoRow(r: typeof todos.$inferSelect): TodoItem {
   return {
     id: r.id,
     text: r.text,
+    details: r.details ?? undefined,
+    size: (r.size as TodoSize) ?? "large",
     completed: r.completed === 1,
     source: r.source as "ai" | "manual",
     createdAt: r.createdAt,
@@ -426,6 +457,8 @@ function runMigrations(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS todos (
       id TEXT PRIMARY KEY,
       text TEXT NOT NULL,
+      details TEXT,
+      size TEXT NOT NULL DEFAULT 'large',
       completed INTEGER DEFAULT 0,
       source TEXT NOT NULL DEFAULT 'manual',
       created_at INTEGER NOT NULL,
@@ -445,6 +478,7 @@ function runMigrations(db: Database.Database) {
       todo_id TEXT NOT NULL,
       session_id TEXT REFERENCES sessions(id),
       task TEXT NOT NULL,
+      task_context TEXT,
       status TEXT NOT NULL DEFAULT 'running',
       result TEXT,
       steps TEXT DEFAULT '[]',
@@ -485,5 +519,17 @@ function runMigrations(db: Database.Database) {
   const todoColNames = new Set(todoCols.map((c) => c.name));
   if (!todoColNames.has("session_id")) {
     db.exec("ALTER TABLE todos ADD COLUMN session_id TEXT");
+  }
+  if (!todoColNames.has("size")) {
+    db.exec("ALTER TABLE todos ADD COLUMN size TEXT NOT NULL DEFAULT 'large'");
+  }
+  if (!todoColNames.has("details")) {
+    db.exec("ALTER TABLE todos ADD COLUMN details TEXT");
+  }
+
+  const agentCols = db.prepare("PRAGMA table_info(agents)").all() as Array<{ name: string }>;
+  const agentColNames = new Set(agentCols.map((c) => c.name));
+  if (!agentColNames.has("task_context")) {
+    db.exec("ALTER TABLE agents ADD COLUMN task_context TEXT");
   }
 }

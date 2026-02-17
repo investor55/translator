@@ -28,6 +28,16 @@ function getOpenRouterTodoProviderSort():
   return "latency";
 }
 
+function getOpenRouterTodoReasoningTokens(): number {
+  const raw = process.env.OPENROUTER_TODO_REASONING_TOKENS?.trim();
+  if (!raw) return 1024;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 1024;
+  }
+  return parsed;
+}
+
 export function createTranscriptionModel(config: SessionConfig): LanguageModel {
   switch (config.transcriptionProvider) {
     case "google": {
@@ -87,9 +97,10 @@ export function createTodoModel(config: SessionConfig): LanguageModel {
     apiKey: process.env.OPENROUTER_API_KEY,
   });
   const providerSort = getOpenRouterTodoProviderSort();
+  const reasoningTokens = getOpenRouterTodoReasoningTokens();
   const todoModelId = config.todoModelId ?? process.env.TODO_MODEL_ID ?? "openai/gpt-oss-120b";
   return openrouter(todoModelId, {
-    reasoning: { max_tokens: 0, exclude: true },
+    reasoning: { max_tokens: reasoningTokens, exclude: false },
     provider: providerSort ? { sort: providerSort } : undefined,
   });
 }

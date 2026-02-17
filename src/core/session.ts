@@ -18,7 +18,15 @@ import { createTranscriptionModel, createAnalysisModel, createTodoModel } from "
 import { log } from "./logger";
 import { pcmToWavBuffer, computeRms } from "./audio-utils";
 import { isLikelyDuplicateTodoText, normalizeTodoText, toReadableError } from "./text-utils";
-import { analysisSchema, todoAnalysisSchema, buildAnalysisPrompt, buildTodoPrompt } from "./analysis";
+import {
+  analysisSchema,
+  todoAnalysisSchema,
+  todoFromSelectionSchema,
+  buildAnalysisPrompt,
+  buildTodoPrompt,
+  buildTodoFromSelectionPrompt,
+} from "./analysis";
+import { classifyTodoSize as classifyTodoSizeWithModel, type TodoSizeClassification } from "./todo-size";
 import type { AppDatabase } from "./db";
 import {
   LANG_NAMES,
@@ -136,6 +144,7 @@ export class Session {
   private analysisTimer: NodeJS.Timeout | null = null;
   private analysisHeartbeatTimer: NodeJS.Timeout | null = null;
   private analysisInFlight = false;
+  private analysisIdleWaiters: Array<() => void> = [];
   private analysisRequested = false;
   private readonly analysisDebounceMs = 300;
   private readonly analysisHeartbeatMs = 5000;
@@ -628,31 +637,25 @@ export class Session {
     }
 
     this.todoScanRequested = true;
+    this.events.emit("status", "Todo scan running...");
     if (this.analysisInFlight) {
-      this.analysisRequested = true;
-      this.events.emit("status", "Todo scan queued...");
-      return {
-        ok: true,
-        queued: true,
-        todoAnalysisRan: false,
-        todoSuggestionsEmitted: 0,
-        suggestions: [],
-      };
+      this.events.emit("status", "Todo scan waiting for current analysis...");
+      await this.waitForAnalysisIdle();
     }
 
-    if (this.isRecording) {
-      this.events.emit("status", "Todo scan queued...");
-      this.scheduleAnalysis(0);
-      return {
-        ok: true,
-        queued: true,
-        todoAnalysisRan: false,
-        todoSuggestionsEmitted: 0,
-        suggestions: [],
-      };
+    if (this.analysisTimer) {
+      clearTimeout(this.analysisTimer);
+      this.analysisTimer = null;
+    }
+    this.analysisRequested = false;
+
+    let analysisResult = await this.generateAnalysis();
+    if (!analysisResult.todoAnalysisRan && this.todoScanRequested) {
+      // Rare race: another analysis started between idle/wakeup and our forced scan.
+      await this.waitForAnalysisIdle();
+      analysisResult = await this.generateAnalysis();
     }
 
-    const analysisResult = await this.generateAnalysis();
     return {
       ok: true,
       queued: false,
@@ -703,9 +706,82 @@ export class Session {
     writeSummaryLog(this.contextState.allKeyPoints);
   }
 
-  launchAgent(todoId: string, task: string): Agent | null {
+  launchAgent(todoId: string, task: string, taskContext?: string): Agent | null {
     if (!this.agentManager) return null;
-    return this.agentManager.launchAgent(todoId, task, this.sessionId);
+    return this.agentManager.launchAgent(todoId, task, this.sessionId, taskContext);
+  }
+
+  async classifyTodoSize(text: string): Promise<TodoSizeClassification> {
+    const result = await classifyTodoSizeWithModel(this.todoModel, text);
+    log(
+      "INFO",
+      `Todo size classified: size=${result.size} confidence=${result.confidence.toFixed(2)} reason=${result.reason}`
+    );
+    return result;
+  }
+
+  async extractTodoFromSelection(
+    selectedText: string,
+    userIntentText?: string,
+  ): Promise<{ ok: boolean; todoTitle?: string; todoDetails?: string; reason?: string; error?: string }> {
+    const trimmedSelection = selectedText.trim();
+    if (!trimmedSelection) {
+      return { ok: false, error: "Selected text is required" };
+    }
+
+    const existingTodos = this.db
+      ? this.db.getTodosForSession(this.sessionId)
+      : [];
+    const prompt = buildTodoFromSelectionPrompt(trimmedSelection, existingTodos, userIntentText);
+
+    try {
+      const { object, usage } = await generateObject({
+        model: this.todoModel,
+        schema: todoFromSelectionSchema,
+        prompt,
+        abortSignal: AbortSignal.timeout(10000),
+        temperature: 0,
+      });
+
+      const totalWithTodo = addCostToAcc(
+        this.costAccumulator,
+        usage?.inputTokens ?? 0,
+        usage?.outputTokens ?? 0,
+        "text",
+        "openrouter"
+      );
+      this.events.emit("cost-updated", totalWithTodo);
+
+      const todoTitle = object.todoTitle.trim();
+      const todoDetails = object.todoDetails.trim();
+      if (!object.shouldCreateTodo || !todoTitle) {
+        return {
+          ok: true,
+          reason: object.reason || "No actionable todo found in selection.",
+        };
+      }
+
+      const existingTexts = existingTodos.map((todo) => todo.text);
+      const isDuplicate = this.isDuplicateTodoSuggestion(todoTitle, existingTexts, []);
+      if (isDuplicate) {
+        return {
+          ok: true,
+          reason: "This todo already exists.",
+        };
+      }
+
+      return {
+        ok: true,
+        todoTitle,
+        todoDetails,
+        reason: object.reason,
+      };
+    } catch (error) {
+      if (this.config.debug) {
+        log("WARN", `Todo extraction from selection failed: ${toReadableError(error)}`);
+      }
+      return { ok: false, error: toReadableError(error) };
+    }
   }
 
   getAgents(): Agent[] {
@@ -970,6 +1046,7 @@ export class Session {
 
     const startTime = Date.now();
     const chunkDurationMs = (chunk.length / (16000 * 2)) * 1000;
+    let stopRecordingOnFatalWhisperError = false;
     this.updateInFlightDisplay();
 
     try {
@@ -1105,9 +1182,21 @@ export class Session {
         : toReadableError(error);
       log("ERROR", `Transcription chunk failed after ${elapsed}ms (audio=${chunkDurationMs.toFixed(0)}ms): ${fullError}`);
       this.events.emit("status", `⚠ ${errorMsg}`);
+      if (
+        this.config.transcriptionProvider === "whisper" &&
+        /Whisper process exited unexpectedly|Whisper worker exited unexpectedly|SIGTRAP|SIGABRT/i.test(fullError)
+      ) {
+        this.events.emit("error", `Whisper transcription failed: ${errorMsg}`);
+        this.chunkQueue = [];
+        stopRecordingOnFatalWhisperError = true;
+      }
     } finally {
       this.inFlight--;
       this.updateInFlightDisplay();
+      if (stopRecordingOnFatalWhisperError && this.isRecording) {
+        this.stopRecording();
+        return;
+      }
       if (this.chunkQueue.length && this.inFlight < this.maxConcurrency) {
         void this.processQueue();
       }
@@ -1248,6 +1337,13 @@ Return:
       this.analysisHeartbeatTimer = null;
     }
     this.analysisRequested = false;
+  }
+
+  private waitForAnalysisIdle(): Promise<void> {
+    if (!this.analysisInFlight) return Promise.resolve();
+    return new Promise((resolve) => {
+      this.analysisIdleWaiters.push(resolve);
+    });
   }
 
   private async generateAnalysis(): Promise<{
@@ -1455,6 +1551,10 @@ Return:
       }
     } finally {
       this.analysisInFlight = false;
+      const waiters = this.analysisIdleWaiters.splice(0);
+      for (const resolve of waiters) {
+        resolve();
+      }
       const hasUnanalyzedBlocks = this.contextState.transcriptBlocks.size > this.lastAnalysisBlockCount;
       if (this.isRecording && (this.analysisRequested || hasUnanalyzedBlocks)) {
         this.analysisRequested = false;

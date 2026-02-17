@@ -19,6 +19,15 @@ import { AgentDetailPanel } from "./components/agent-detail-panel";
 import { Footer } from "./components/footer";
 import { SettingsPage } from "./components/settings-page";
 import { SplashScreen } from "./components/splash-screen";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export function App() {
   const [languages, setLanguages] = useState<Language[]>([]);
@@ -36,9 +45,10 @@ export function App() {
   const appConfig = useMemo(() => normalizeAppConfig(storedAppConfig), [storedAppConfig]);
 
   const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [pendingApprovalTodo, setPendingApprovalTodo] = useState<TodoItem | null>(null);
+  const [approvingLargeTodo, setApprovingLargeTodo] = useState(false);
   const [suggestions, setSuggestions] = useState<TodoSuggestion[]>([]);
-  const [scanningTodos, setScanningTodos] = useState(false);
-  const [scanFeedback, setScanFeedback] = useState("");
+  const [processingTodoIds, setProcessingTodoIds] = useState<string[]>([]);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
@@ -55,6 +65,7 @@ export function App() {
   const handleResumed = useCallback((data: ResumeData) => {
     setSelectedSessionId(data.sessionId);
     setTodos(data.todos);
+    setProcessingTodoIds([]);
     setInsights(data.insights);
     seedAgents(data.agents);
     void refreshSessions();
@@ -83,6 +94,7 @@ export function App() {
       setSessionActive(false);
       setResumeSessionId(null);
       setTodos([]);
+      setProcessingTodoIds([]);
       setSuggestions([]);
       setInsights([]);
       seedAgents([]);
@@ -99,6 +111,7 @@ export function App() {
       setSessionActive(false);
       setResumeSessionId(null);
       setTodos([]);
+      setProcessingTodoIds([]);
       setSuggestions([]);
       setInsights([]);
       seedAgents([]);
@@ -111,6 +124,7 @@ export function App() {
     setSettingsOpen(false);
     setSuggestions([]);
     setTodos([]);
+    setProcessingTodoIds([]);
     setInsights([]);
     seedAgents([]);
     setSelectedSessionId(parsed.sessionId);
@@ -185,11 +199,8 @@ export function App() {
     setInsights((prev) => [...prev, insight]);
   }, []);
 
-  // Keep these listeners active so manual scans in selected sessions surface results.
+  // Keep these listeners active so todo suggestions and insights stream into the UI.
   useSessionEventStream({
-    statusText: session.statusText,
-    setScanFeedback,
-    setScanningTodos,
     onTodoSuggested: handleTodoSuggested,
     onInsightAdded: handleInsightAdded,
   });
@@ -221,6 +232,7 @@ export function App() {
     setSelectedSessionId(null);
     setResumeSessionId(null);
     setTodos([]);
+    setProcessingTodoIds([]);
     setInsights([]);
     seedAgents([]);
     setSessionActive(true);
@@ -246,11 +258,10 @@ export function App() {
     setSelectedSessionId(null);
     setResumeSessionId(null);
     setTodos([]);
+    setProcessingTodoIds([]);
     setSuggestions([]);
     setInsights([]);
     seedAgents([]);
-    setScanFeedback("");
-    setScanningTodos(false);
     session.clearSession();
     setSessionRestartKey((prev) => prev + 1);
     setSessionActive(true);
@@ -265,39 +276,142 @@ export function App() {
     transcriptRef.current?.scrollBy({ top: 60, behavior: "smooth" });
   }, []);
 
-  const handleAddTodo = useCallback((text: string) => {
+  const persistTodo = useCallback(async ({
+    targetSessionId,
+    text,
+    details,
+    source,
+    id,
+    createdAt,
+  }: {
+    targetSessionId: string;
+    text: string;
+    details?: string;
+    source: TodoItem["source"];
+    id?: string;
+    createdAt?: number;
+  }): Promise<{ ok: boolean; todo?: TodoItem; error?: string }> => {
+    const todo: TodoItem = {
+      id: id ?? crypto.randomUUID(),
+      text,
+      details,
+      size: "large",
+      completed: false,
+      source,
+      createdAt: createdAt ?? Date.now(),
+      sessionId: targetSessionId,
+    };
+    const result = await window.electronAPI.addTodo(todo, appConfig);
+    if (!result.ok) {
+      return { ok: false, error: result.error ?? "Unknown error" };
+    }
+    return { ok: true, todo: result.todo ?? todo };
+  }, [appConfig]);
+
+  const handleAddTodo = useCallback(async (text: string) => {
     const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
     if (!targetSessionId) {
       setRouteNotice("Select or start a session before adding todos.");
-      return;
+      return false;
     }
-    const todo: TodoItem = {
-      id: crypto.randomUUID(),
+
+    setRouteNotice("");
+    const result = await persistTodo({
+      targetSessionId,
       text,
+      source: "manual",
+    });
+    if (!result.ok) {
+      setRouteNotice(`Failed to add todo: ${result.error ?? "Unknown error"}`);
+      return false;
+    }
+
+    setTodos((prev) => [result.todo!, ...prev]);
+    return true;
+  }, [persistTodo, selectedSessionId, session.sessionId]);
+
+  const handleCreateTodoFromSelection = useCallback(async (selectionText: string, userIntentText?: string) => {
+    const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
+    if (!targetSessionId) {
+      const message = "Select or start a session before creating todos.";
+      setRouteNotice(message);
+      return { ok: false, message };
+    }
+
+    const placeholderId = `processing-${crypto.randomUUID()}`;
+    const trimmedIntent = userIntentText?.trim() ?? "";
+    const placeholderTodo: TodoItem = {
+      id: placeholderId,
+      text: trimmedIntent
+        ? `Processing: ${trimmedIntent}`
+        : "Processing highlighted text...",
+      size: "large",
       completed: false,
       source: "manual",
       createdAt: Date.now(),
       sessionId: targetSessionId,
     };
-    setRouteNotice("");
-    setTodos((prev) => [todo, ...prev]);
-    window.electronAPI.addTodo(todo);
+    setTodos((prev) => [placeholderTodo, ...prev]);
+    setProcessingTodoIds((prev) => [placeholderId, ...prev]);
+    setRouteNotice("Processing highlighted text into a todo...");
 
-    const useActiveRuntime = sessionActive && session.sessionId === targetSessionId;
     void (async () => {
-      const result = useActiveRuntime
-        ? await window.electronAPI.launchAgent(todo.id, todo.text)
-        : await window.electronAPI.launchAgentInSession(targetSessionId, todo.id, todo.text, appConfig);
+      const finalizeProcessing = () => {
+        setProcessingTodoIds((prev) => prev.filter((id) => id !== placeholderId));
+      };
+      const removePlaceholder = () => {
+        setTodos((prev) => prev.filter((todo) => todo.id !== placeholderId));
+      };
 
-      if (result.ok && result.agent) {
-        selectAgent(result.agent.id);
+      const extractResult = await window.electronAPI.extractTodoFromSelectionInSession(
+        targetSessionId,
+        selectionText,
+        trimmedIntent || undefined,
+        appConfig,
+      );
+
+      if (!extractResult.ok) {
+        removePlaceholder();
+        finalizeProcessing();
+        setRouteNotice(`Could not process selection: ${extractResult.error ?? "Unknown error"}`);
         return;
       }
-      setRouteNotice(`Todo added, but failed to launch agent: ${result.error ?? "Unknown error"}`);
+
+      if (!extractResult.todoTitle) {
+        removePlaceholder();
+        finalizeProcessing();
+        setRouteNotice(extractResult.reason ?? "No actionable todo found in selection.");
+        return;
+      }
+
+      const persistResult = await persistTodo({
+        targetSessionId,
+        text: extractResult.todoTitle,
+        details: extractResult.todoDetails,
+        source: "manual",
+      });
+      if (!persistResult.ok) {
+        removePlaceholder();
+        finalizeProcessing();
+        setRouteNotice(`Failed to add todo: ${persistResult.error ?? "Unknown error"}`);
+        return;
+      }
+
+      setTodos((prev) => [
+        persistResult.todo!,
+        ...prev.filter((todo) => todo.id !== placeholderId),
+      ]);
+      finalizeProcessing();
+      setRouteNotice(`Todo created: ${persistResult.todo!.text}`);
     })();
-  }, [appConfig, selectAgent, selectedSessionId, session.sessionId, sessionActive]);
+
+    return { ok: true };
+  }, [appConfig, persistTodo, selectedSessionId, session.sessionId]);
 
   const handleToggleTodo = useCallback((id: string) => {
+    if (processingTodoIds.includes(id)) {
+      return;
+    }
     setTodos((prev) =>
       prev.map((t) =>
         t.id === id
@@ -306,7 +420,32 @@ export function App() {
       )
     );
     window.electronAPI.toggleTodo(id);
-  }, []);
+  }, [processingTodoIds]);
+
+  const handleDeleteTodo = useCallback(async (id: string) => {
+    if (processingTodoIds.includes(id)) {
+      setProcessingTodoIds((prev) => prev.filter((itemId) => itemId !== id));
+      setTodos((prev) => prev.filter((todo) => todo.id !== id));
+      return;
+    }
+
+    let removedTodo: TodoItem | undefined;
+    setTodos((prev) => {
+      removedTodo = prev.find((todo) => todo.id === id);
+      return prev.filter((todo) => todo.id !== id);
+    });
+
+    const result = await window.electronAPI.deleteTodo(id);
+    if (result.ok) {
+      setRouteNotice("");
+      return;
+    }
+
+    if (removedTodo) {
+      setTodos((prev) => [removedTodo!, ...prev]);
+    }
+    setRouteNotice(`Failed to delete todo: ${result.error ?? "Unknown error"}`);
+  }, [processingTodoIds]);
 
   const handleAcceptSuggestion = useCallback(async (suggestion: TodoSuggestion) => {
     const targetSessionId = suggestion.sessionId ?? selectedSessionId ?? session.sessionId ?? null;
@@ -315,89 +454,87 @@ export function App() {
       return;
     }
 
-    const todo: TodoItem = {
-      id: suggestion.id,
-      text: suggestion.text,
-      completed: false,
-      source: "ai",
-      createdAt: suggestion.createdAt,
-      sessionId: targetSessionId,
-    };
     setRouteNotice("");
     setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
-    setTodos((prev) => [todo, ...prev]);
-    window.electronAPI.addTodo(todo);
-
-    const useActiveRuntime = sessionActive && session.sessionId === targetSessionId;
-    const result = useActiveRuntime
-      ? await window.electronAPI.launchAgent(suggestion.id, suggestion.text)
-      : await window.electronAPI.launchAgentInSession(targetSessionId, suggestion.id, suggestion.text, appConfig);
-
-    if (result.ok && result.agent) {
-      selectAgent(result.agent.id);
+    const result = await persistTodo({
+      targetSessionId,
+      text: suggestion.text,
+      source: "ai",
+      id: suggestion.id,
+      createdAt: suggestion.createdAt,
+    });
+    if (!result.ok) {
+      setRouteNotice(`Failed to add todo from suggestion: ${result.error ?? "Unknown error"}`);
       return;
     }
-    setRouteNotice(`Failed to launch agent: ${result.error ?? "Unknown error"}`);
-  }, [appConfig, selectAgent, selectedSessionId, session.sessionId, sessionActive]);
+
+    setTodos((prev) => [result.todo!, ...prev]);
+    if (result.todo!.size === "large") {
+      setRouteNotice("Suggestion accepted as large. Approval is required before running the agent.");
+    }
+  }, [persistTodo, selectedSessionId, session.sessionId]);
 
   const handleDismissSuggestion = useCallback((id: string) => {
     setSuggestions((prev) => prev.filter((s) => s.id !== id));
   }, []);
 
-  const handleScanTodos = useCallback(async () => {
-    const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
-    if (!targetSessionId) {
-      setScanFeedback("No session selected.");
-      setRouteNotice("Select or start a session before scanning todos.");
-      return;
-    }
-    setRouteNotice("");
-    setScanFeedback("Scanning todos...");
-    setScanningTodos(true);
-    try {
-      const result = await window.electronAPI.scanTodosInSession(targetSessionId, appConfig);
-      if (!result.ok) {
-        setScanFeedback(`Scan failed: ${result.error ?? "Unknown error"}`);
-        setRouteNotice(`Todo scan failed: ${result.error ?? "Unknown error"}`);
-        setScanningTodos(false);
-      } else if (result.queued) {
-        setScanFeedback("Scan queued...");
-      } else if (result.todoAnalysisRan) {
-        appendSuggestions(result.suggestions ?? []);
-        const suffix = result.todoSuggestionsEmitted === 1 ? "" : "s";
-        setScanFeedback(`Todo scan complete: ${result.todoSuggestionsEmitted} suggestion${suffix}.`);
-        setScanningTodos(false);
-      } else {
-        setScanFeedback("Todo scan skipped.");
-        setScanningTodos(false);
-      }
-    } catch (error) {
-      setScanFeedback(`Scan failed: ${String(error)}`);
-      setRouteNotice(`Todo scan failed: ${String(error)}`);
-      setScanningTodos(false);
-    }
-  }, [appConfig, appendSuggestions, selectedSessionId, session.sessionId]);
-
-  const handleLaunchAgent = useCallback(async (todoId: string, task: string) => {
-    const todoSessionId = todos.find((todo) => todo.id === todoId)?.sessionId ?? null;
+  const launchTodoAgent = useCallback(async (todo: TodoItem, approvalToken?: string) => {
+    const todoSessionId = todo.sessionId ?? null;
     const targetSessionId = todoSessionId ?? selectedSessionId ?? session.sessionId ?? null;
     if (!targetSessionId) {
       setRouteNotice("Missing session id for this task.");
-      return;
+      return false;
     }
 
     const useActiveRuntime = sessionActive && session.sessionId === targetSessionId;
     const result = useActiveRuntime
-      ? await window.electronAPI.launchAgent(todoId, task)
-      : await window.electronAPI.launchAgentInSession(targetSessionId, todoId, task, appConfig);
+      ? await window.electronAPI.launchAgent(todo.id, todo.text, todo.details, approvalToken)
+      : await window.electronAPI.launchAgentInSession(
+          targetSessionId,
+          todo.id,
+          todo.text,
+          todo.details,
+          appConfig,
+          approvalToken,
+        );
 
     if (result.ok && result.agent) {
       setRouteNotice("");
       selectAgent(result.agent.id);
-      return;
+      return true;
     }
     setRouteNotice(`Failed to launch agent: ${result.error ?? "Unknown error"}`);
-  }, [appConfig, selectAgent, selectedSessionId, session.sessionId, sessionActive, todos]);
+    return false;
+  }, [appConfig, selectAgent, selectedSessionId, session.sessionId, sessionActive]);
+
+  const handleLaunchAgent = useCallback(async (todo: TodoItem) => {
+    if (processingTodoIds.includes(todo.id)) {
+      setRouteNotice("Todo is still processing. Wait a moment before launching.");
+      return;
+    }
+    if (todo.size === "large") {
+      setPendingApprovalTodo(todo);
+      return;
+    }
+    await launchTodoAgent(todo);
+  }, [launchTodoAgent, processingTodoIds]);
+
+  const handleApproveLargeTodo = useCallback(async () => {
+    if (!pendingApprovalTodo) return;
+    setApprovingLargeTodo(true);
+    const approval = await window.electronAPI.approveLargeTodo(pendingApprovalTodo.id);
+    if (!approval.ok || !approval.approvalToken) {
+      setApprovingLargeTodo(false);
+      setRouteNotice(`Failed to approve large todo: ${approval.error ?? "Unknown error"}`);
+      return;
+    }
+
+    const launched = await launchTodoAgent(pendingApprovalTodo, approval.approvalToken);
+    setApprovingLargeTodo(false);
+    if (launched) {
+      setPendingApprovalTodo(null);
+    }
+  }, [launchTodoAgent, pendingApprovalTodo]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
     micCapture.stop();
@@ -408,6 +545,7 @@ export function App() {
     setResumeSessionId(sessionId);
     setSuggestions([]);
     setTodos([]);
+    setProcessingTodoIds([]);
     setInsights([]);
     seedAgents([]);
     setSessionActive(true);
@@ -424,6 +562,7 @@ export function App() {
       setResumeSessionId(null);
       setSuggestions([]);
       setTodos([]);
+      setProcessingTodoIds([]);
       setInsights([]);
       seedAgents([]);
       session.clearSession();
@@ -512,7 +651,12 @@ export function App() {
               onDeleteSession={handleDeleteSession}
             />
             <main className="flex-1 flex flex-col min-h-0 min-w-0 relative">
-              <TranscriptArea ref={transcriptRef} blocks={session.blocks} partialText={session.partialText} />
+              <TranscriptArea
+                ref={transcriptRef}
+                blocks={session.blocks}
+                partialText={session.partialText}
+                onCreateTodoFromSelection={handleCreateTodoFromSelection}
+              />
             </main>
             {selectedAgent && (
               <AgentDetailPanel
@@ -533,15 +677,52 @@ export function App() {
               onLaunchAgent={handleLaunchAgent}
               onAddTodo={handleAddTodo}
               onToggleTodo={handleToggleTodo}
-              onScanTodos={handleScanTodos}
-              scanningTodos={scanningTodos}
-              scanFeedback={scanFeedback}
+              onDeleteTodo={handleDeleteTodo}
+              processingTodoIds={processingTodoIds}
               onAcceptSuggestion={handleAcceptSuggestion}
               onDismissSuggestion={handleDismissSuggestion}
             />
           </>
         )}
       </div>
+
+      <Dialog
+        open={!!pendingApprovalTodo}
+        onOpenChange={(open) => {
+          if (!open && !approvingLargeTodo) {
+            setPendingApprovalTodo(null);
+          }
+        }}
+      >
+        <DialogContent showCloseButton={!approvingLargeTodo}>
+          <DialogHeader>
+            <DialogTitle>Approve Large Todo</DialogTitle>
+            <DialogDescription>
+              This todo was classified as large and needs human approval before the agent can run.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-none border border-border bg-muted/40 px-3 py-2 text-xs text-foreground">
+            {pendingApprovalTodo?.text}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={approvingLargeTodo}
+              onClick={() => setPendingApprovalTodo(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={approvingLargeTodo}
+              onClick={() => void handleApproveLargeTodo()}
+            >
+              {approvingLargeTodo ? "Approving..." : "Approve & Run"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {routeNotice && (
         <div className="px-4 py-2 text-muted-foreground text-xs border-t border-border bg-muted/40">

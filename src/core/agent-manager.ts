@@ -18,7 +18,7 @@ type AgentManagerDeps = {
 };
 
 export type AgentManager = {
-  launchAgent: (todoId: string, task: string, sessionId?: string) => Agent;
+  launchAgent: (todoId: string, task: string, sessionId?: string, taskContext?: string) => Agent;
   followUpAgent: (agentId: string, question: string) => boolean;
   cancelAgent: (id: string) => boolean;
   hydrateAgents: (items: Agent[]) => void;
@@ -38,7 +38,10 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   function buildHistoryFromSteps(agent: Agent): ModelMessage[] {
     const history: ModelMessage[] = [];
     if (agent.task.trim()) {
-      history.push({ role: "user", content: agent.task });
+      const taskPrompt = agent.taskContext?.trim()
+        ? `${agent.task}\n\nAdditional context:\n${agent.taskContext}`
+        : agent.task;
+      history.push({ role: "user", content: taskPrompt });
     }
 
     for (const step of agent.steps) {
@@ -125,11 +128,12 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     };
   }
 
-  function launchAgent(todoId: string, task: string, sessionId?: string): Agent {
+  function launchAgent(todoId: string, task: string, sessionId?: string, taskContext?: string): Agent {
     const agent: Agent = {
       id: crypto.randomUUID(),
       todoId,
       task,
+      taskContext,
       status: "running",
       steps: [],
       createdAt: Date.now(),

@@ -319,7 +319,7 @@ export function SettingsPage({
             </div>
             {config.transcriptionProvider === "whisper" && (
               <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
-                Whisper runs locally — no API key required. The model is downloaded on first use (~150 MB for whisper-small). Use <code className="font-mono">Xenova/whisper-large-v3-turbo</code> for higher accuracy.
+                Whisper runs locally with no API key. Start with <code className="font-mono">Xenova/whisper-tiny</code> for best stability; larger models use much more memory and can be slower.
               </p>
             )}
           </section>

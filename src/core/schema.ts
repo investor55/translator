@@ -29,6 +29,8 @@ export const blocks = sqliteTable("blocks", {
 export const todos = sqliteTable("todos", {
   id: text("id").primaryKey(),
   text: text("text").notNull(),
+  details: text("details"),
+  size: text("size").notNull().default("large"),
   completed: integer("completed").default(0),
   source: text("source").notNull().default("manual"),
   createdAt: integer("created_at").notNull(),
@@ -49,6 +51,7 @@ export const agents = sqliteTable("agents", {
   todoId: text("todo_id").notNull(),
   sessionId: text("session_id").references(() => sessions.id),
   task: text("task").notNull(),
+  taskContext: text("task_context"),
   status: text("status").notNull().default("running"),
   result: text("result"),
   steps: text("steps", { mode: "json" }).$type<AgentStep[]>().default([]),

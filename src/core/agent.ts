@@ -129,7 +129,10 @@ function summarizeToolResult(
  * Run agent with an initial prompt (first turn).
  */
 export async function runAgent(agent: Agent, deps: AgentDeps): Promise<void> {
-  const inputMessages: ModelMessage[] = [{ role: "user", content: agent.task }];
+  const initialPrompt = agent.taskContext?.trim()
+    ? `${agent.task}\n\nAdditional context:\n${agent.taskContext}`
+    : agent.task;
+  const inputMessages: ModelMessage[] = [{ role: "user", content: initialPrompt }];
   await runAgentWithMessages(agent, inputMessages, deps);
 }
 

@@ -29,10 +29,16 @@ export type ElectronAPI = {
   shutdownSession: () => Promise<{ ok: boolean }>;
 
   getTodos: () => Promise<TodoItem[]>;
-  addTodo: (todo: TodoItem) => Promise<{ ok: boolean }>;
+  addTodo: (todo: TodoItem, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; todo?: TodoItem; error?: string }>;
+  updateTodoText: (id: string, text: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; todo?: TodoItem; error?: string }>;
   toggleTodo: (id: string) => Promise<{ ok: boolean; error?: string }>;
-  scanTodos: () => Promise<{ ok: boolean; queued: boolean; todoAnalysisRan: boolean; todoSuggestionsEmitted: number; suggestions?: TodoSuggestion[]; error?: string }>;
-  scanTodosInSession: (sessionId: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; queued: boolean; todoAnalysisRan: boolean; todoSuggestionsEmitted: number; suggestions?: TodoSuggestion[]; error?: string }>;
+  deleteTodo: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  extractTodoFromSelectionInSession: (
+    sessionId: string,
+    selectedText: string,
+    userIntentText?: string,
+    appConfig?: AppConfigOverrides,
+  ) => Promise<{ ok: boolean; todoTitle?: string; todoDetails?: string; reason?: string; error?: string }>;
   getSessions: (limit?: number) => Promise<SessionMeta[]>;
   getSessionBlocks: (sessionId: string) => Promise<TranscriptBlock[]>;
   deleteSession: (id: string) => Promise<{ ok: boolean }>;
@@ -40,8 +46,16 @@ export type ElectronAPI = {
   getSessionTodos: (sessionId: string) => Promise<TodoItem[]>;
   getSessionInsights: (sessionId: string) => Promise<Insight[]>;
 
-  launchAgent: (todoId: string, task: string) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
-  launchAgentInSession: (sessionId: string, todoId: string, task: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
+  approveLargeTodo: (todoId: string) => Promise<{ ok: boolean; approvalToken?: string; error?: string }>;
+  launchAgent: (todoId: string, task: string, taskContext?: string, approvalToken?: string) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
+  launchAgentInSession: (
+    sessionId: string,
+    todoId: string,
+    task: string,
+    taskContext?: string,
+    appConfig?: AppConfigOverrides,
+    approvalToken?: string,
+  ) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
   followUpAgent: (agentId: string, question: string) => Promise<{ ok: boolean; error?: string }>;
   followUpAgentInSession: (sessionId: string, agentId: string, question: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; error?: string }>;
   cancelAgent: (agentId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -88,10 +102,18 @@ const api: ElectronAPI = {
   shutdownSession: () => ipcRenderer.invoke("shutdown-session"),
 
   getTodos: () => ipcRenderer.invoke("get-todos"),
-  addTodo: (todo) => ipcRenderer.invoke("add-todo", todo),
+  addTodo: (todo, appConfig) => ipcRenderer.invoke("add-todo", todo, appConfig),
+  updateTodoText: (id, text, appConfig) => ipcRenderer.invoke("update-todo-text", id, text, appConfig),
   toggleTodo: (id) => ipcRenderer.invoke("toggle-todo", id),
-  scanTodos: () => ipcRenderer.invoke("scan-todos"),
-  scanTodosInSession: (sessionId, appConfig) => ipcRenderer.invoke("scan-todos-in-session", sessionId, appConfig),
+  deleteTodo: (id) => ipcRenderer.invoke("delete-todo", id),
+  extractTodoFromSelectionInSession: (sessionId, selectedText, userIntentText, appConfig) =>
+    ipcRenderer.invoke(
+      "extract-todo-from-selection-in-session",
+      sessionId,
+      selectedText,
+      userIntentText,
+      appConfig,
+    ),
   getSessions: (limit) => ipcRenderer.invoke("get-sessions", limit),
   getSessionBlocks: (sessionId) => ipcRenderer.invoke("get-session-blocks", sessionId),
   deleteSession: (id) => ipcRenderer.invoke("delete-session", id),
@@ -99,9 +121,11 @@ const api: ElectronAPI = {
   getSessionTodos: (sessionId) => ipcRenderer.invoke("get-session-todos", sessionId),
   getSessionInsights: (sessionId) => ipcRenderer.invoke("get-session-insights", sessionId),
 
-  launchAgent: (todoId, task) => ipcRenderer.invoke("launch-agent", todoId, task),
-  launchAgentInSession: (sessionId, todoId, task, appConfig) =>
-    ipcRenderer.invoke("launch-agent-in-session", sessionId, todoId, task, appConfig),
+  approveLargeTodo: (todoId) => ipcRenderer.invoke("approve-large-todo", todoId),
+  launchAgent: (todoId, task, taskContext, approvalToken) =>
+    ipcRenderer.invoke("launch-agent", todoId, task, taskContext, approvalToken),
+  launchAgentInSession: (sessionId, todoId, task, taskContext, appConfig, approvalToken) =>
+    ipcRenderer.invoke("launch-agent-in-session", sessionId, todoId, task, taskContext, appConfig, approvalToken),
   followUpAgent: (agentId, question) => ipcRenderer.invoke("follow-up-agent", agentId, question),
   followUpAgentInSession: (sessionId, agentId, question, appConfig) => ipcRenderer.invoke("follow-up-agent-in-session", sessionId, agentId, question, appConfig),
   cancelAgent: (agentId) => ipcRenderer.invoke("cancel-agent", agentId),
