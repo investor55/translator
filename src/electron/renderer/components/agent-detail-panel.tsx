@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   XIcon,
   LoaderCircleIcon,
@@ -16,6 +16,11 @@ import {
   PromptInputSubmit,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
 import type { Agent, AgentStep } from "../../../core/types";
 
 type FollowUpResult = { ok: boolean; error?: string };
@@ -85,16 +90,11 @@ export function AgentDetailPanel({
   onFollowUp,
   onCancel,
 }: AgentDetailPanelProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
   const [followUpError, setFollowUpError] = useState("");
   const visibleSteps = useMemo(
     () => agent.steps.filter((step) => step.kind === "user" || step.kind === "text"),
     [agent.steps]
   );
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [visibleSteps.length, agent.status]);
 
   const currentIndex = agents.findIndex((a) => a.id === agent.id);
   const hasPrev = currentIndex < agents.length - 1;
@@ -180,29 +180,31 @@ export function AgentDetailPanel({
       </div>
 
       {/* Step timeline */}
-      <div className="flex-1 overflow-y-auto px-3 py-2.5">
-        {visibleSteps.length === 0 && isRunning && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <LoaderCircleIcon className="size-3.5 animate-spin" />
-            Starting agent...
-          </div>
-        )}
-        {visibleSteps.length === 0 && !isRunning && (
-          <p className="text-xs italic text-muted-foreground">
-            No messages yet.
-          </p>
-        )}
-        {visibleSteps.map((step) => (
-          <StepItem key={step.id} step={step} />
-        ))}
-        {isRunning && visibleSteps.length > 0 && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
-            <LoaderCircleIcon className="size-3.5 animate-spin" />
-            Streaming...
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </div>
+      <Conversation className="flex-1 min-h-0">
+        <ConversationContent className="px-3 py-2.5">
+          {visibleSteps.length === 0 && isRunning && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <LoaderCircleIcon className="size-3.5 animate-spin" />
+              Starting agent...
+            </div>
+          )}
+          {visibleSteps.length === 0 && !isRunning && (
+            <p className="text-xs italic text-muted-foreground">
+              No messages yet.
+            </p>
+          )}
+          {visibleSteps.map((step) => (
+            <StepItem key={step.id} step={step} />
+          ))}
+          {isRunning && visibleSteps.length > 0 && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+              <LoaderCircleIcon className="size-3.5 animate-spin" />
+              Streaming...
+            </div>
+          )}
+        </ConversationContent>
+        <ConversationScrollButton />
+      </Conversation>
 
       {/* Follow-up input — shown when agent is done */}
       {!isRunning && onFollowUp && (

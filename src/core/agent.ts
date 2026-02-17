@@ -1,6 +1,7 @@
 import { streamText, tool, stepCountIs, type ModelMessage } from "ai";
 import { z } from "zod";
 import type { AgentStep, Agent } from "./types";
+import { log } from "./logger";
 
 type ExaClient = {
   searchAndContents: (query: string, options: Record<string, unknown>) => Promise<{
@@ -109,12 +110,17 @@ async function runAgentWithMessages(
     const streamedAt = Date.now();
     let stepId: string | null = null;
     let streamedText = "";
+    let deltaCount = 0;
+    let firstDeltaAfterMs: number | null = null;
 
-    for await (const delta of result.textStream) {
-      streamedText += delta;
-      if (!stepId) {
-        stepId = crypto.randomUUID();
+    for await (const part of result.fullStream) {
+      if (part.type !== "text-delta") continue;
+      deltaCount += 1;
+      if (firstDeltaAfterMs == null) {
+        firstDeltaAfterMs = Date.now() - streamedAt;
       }
+      streamedText += part.text;
+      if (!stepId) stepId = crypto.randomUUID();
       onStep({
         id: stepId,
         kind: "text",
@@ -135,6 +141,10 @@ async function runAgentWithMessages(
     // Build full conversation history for future follow-ups
     const response = await result.response;
     const fullHistory = [...inputMessages, ...response.messages];
+    log(
+      "INFO",
+      `Agent stream ${agent.id}: deltas=${deltaCount}, firstDeltaMs=${firstDeltaAfterMs ?? -1}, totalMs=${Date.now() - streamedAt}`
+    );
     onComplete(finalText, fullHistory);
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {

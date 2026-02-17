@@ -18,7 +18,7 @@ import type {
 import { createTranscriptionModel, createAnalysisModel } from "./providers";
 import { log } from "./logger";
 import { pcmToWavBuffer, computeRms } from "./audio-utils";
-import { toReadableError } from "./text-utils";
+import { isLikelyDuplicateTodoText, normalizeTodoText, toReadableError } from "./text-utils";
 import { analysisSchema, buildAnalysisPrompt } from "./analysis";
 import type { AppDatabase } from "./db";
 import {
@@ -119,6 +119,7 @@ export class Session {
   private analysisRequested = false;
   private readonly analysisDebounceMs = 300;
   private readonly analysisRetryDelayMs = 2000;
+  private recentSuggestedTodoTexts: string[] = [];
   private lastSummary: Summary | null = null;
   private lastAnalysisBlockCount = 0;
   private db: AppDatabase | null;
@@ -142,7 +143,7 @@ export class Session {
     const exaApiKey = process.env.EXA_API_KEY;
     if (exaApiKey) {
       this.agentManager = createAgentManager({
-        model: this.transcriptionModel,
+        model: this.analysisModel,
         exaApiKey,
         events: this.events,
         getTranscriptContext: () => this.getTranscriptContextForAgent(),
@@ -280,6 +281,8 @@ export class Session {
       resetContextState(this.contextState);
       resetCost(this.costAccumulator);
       this.lastSummary = null;
+      this.lastAnalysisBlockCount = 0;
+      this.recentSuggestedTodoTexts = [];
       this.events.emit("blocks-cleared");
       this.events.emit("summary-updated", null);
     }
@@ -855,13 +858,26 @@ export class Session {
       }
 
       // Emit todo suggestions (not auto-added — user must accept)
+      const existingTodoTexts = existingTodos.map((t) => t.text);
+      const emittedTodoSuggestions: string[] = [];
       for (const text of result.suggestedTodos) {
+        const candidate = text.trim();
+        if (!candidate) continue;
+        if (this.isDuplicateTodoSuggestion(candidate, existingTodoTexts, emittedTodoSuggestions)) {
+          continue;
+        }
+
         const suggestion: TodoSuggestion = {
           id: crypto.randomUUID(),
-          text,
+          text: candidate,
           sessionId: this.sessionId,
           createdAt: Date.now(),
         };
+        emittedTodoSuggestions.push(candidate);
+        this.recentSuggestedTodoTexts.push(candidate);
+        if (this.recentSuggestedTodoTexts.length > 500) {
+          this.recentSuggestedTodoTexts = this.recentSuggestedTodoTexts.slice(-500);
+        }
         this.events.emit("todo-suggested", suggestion);
       }
     } catch (error) {
@@ -876,5 +892,26 @@ export class Session {
         this.scheduleAnalysis(analysisSucceeded ? 0 : this.analysisRetryDelayMs);
       }
     }
+  }
+
+  private isDuplicateTodoSuggestion(
+    candidate: string,
+    existingTodoTexts: readonly string[],
+    emittedInCurrentAnalysis: readonly string[]
+  ): boolean {
+    const normalizedCandidate = normalizeTodoText(candidate);
+    if (!normalizedCandidate) return true;
+
+    const exactMatch = (text: string) => normalizeTodoText(text) === normalizedCandidate;
+    if (existingTodoTexts.some(exactMatch)) return true;
+    if (emittedInCurrentAnalysis.some(exactMatch)) return true;
+    if (this.recentSuggestedTodoTexts.some(exactMatch)) return true;
+
+    const fuzzyMatch = (text: string) => isLikelyDuplicateTodoText(candidate, text);
+    if (existingTodoTexts.some(fuzzyMatch)) return true;
+    if (emittedInCurrentAnalysis.some(fuzzyMatch)) return true;
+    if (this.recentSuggestedTodoTexts.some(fuzzyMatch)) return true;
+
+    return false;
   }
 }
