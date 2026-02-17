@@ -13,22 +13,23 @@ export type Language = {
 
 export const SUPPORTED_LANGUAGES: Language[] = [
   { code: "en", name: "English", native: "English" },
-  { code: "es", name: "Spanish", native: "Espa\u00f1ol" },
-  { code: "fr", name: "French", native: "Fran\u00e7ais" },
+  { code: "es", name: "Spanish", native: "Español" },
+  { code: "fr", name: "French", native: "Français" },
   { code: "de", name: "German", native: "Deutsch" },
   { code: "it", name: "Italian", native: "Italiano" },
-  { code: "pt", name: "Portuguese", native: "Portugu\u00eas" },
-  { code: "zh", name: "Chinese", native: "\u4e2d\u6587" },
-  { code: "ja", name: "Japanese", native: "\u65e5\u672c\u8a9e" },
-  { code: "ko", name: "Korean", native: "\ud55c\uad6d\uc5b4" },
-  { code: "ar", name: "Arabic", native: "\u0627\u0644\u0639\u0631\u0628\u064a\u0629" },
-  { code: "hi", name: "Hindi", native: "\u0939\u093f\u0928\u094d\u0926\u0940" },
-  { code: "ru", name: "Russian", native: "\u0420\u0443\u0441\u0441\u043a\u0438\u0439" },
+  { code: "pt", name: "Portuguese", native: "Português" },
+  { code: "zh", name: "Chinese", native: "中文" },
+  { code: "ja", name: "Japanese", native: "日本語" },
+  { code: "ko", name: "Korean", native: "한국어" },
+  { code: "ar", name: "Arabic", native: "العربية" },
+  { code: "hi", name: "Hindi", native: "हिन्दी" },
+  { code: "ru", name: "Russian", native: "Русский" },
   { code: "tl", name: "Tagalog", native: "Tagalog" },
 ];
 
 export type Direction = "auto" | "source-target";
 export type Device = { index: number; name: string };
+export type AudioSource = "system" | "microphone";
 
 export type TranscriptBlock = {
   id: number;
@@ -39,12 +40,41 @@ export type TranscriptBlock = {
   partial?: boolean;
   newTopic?: boolean;
   createdAt: number;
+  audioSource: AudioSource;
+  sessionId?: string;
 };
 
 export type Summary = {
   keyPoints: string[];
   updatedAt: number;
 };
+
+export type TodoItem = Readonly<{
+  id: string;
+  text: string;
+  completed: boolean;
+  source: "ai" | "manual";
+  createdAt: number;
+  completedAt?: number;
+}>;
+
+export type InsightKind = "action-item" | "decision" | "question" | "key-point";
+
+export type Insight = Readonly<{
+  id: string;
+  kind: InsightKind;
+  text: string;
+  createdAt: number;
+  sessionId?: string;
+}>;
+
+export type SessionMeta = Readonly<{
+  id: string;
+  startedAt: number;
+  endedAt?: number;
+  title?: string;
+  blockCount: number;
+}>;
 
 export type UIState = {
   deviceName: string;
@@ -53,6 +83,8 @@ export type UIState = {
   status: "idle" | "connecting" | "recording" | "paused";
   contextLoaded: boolean;
   cost?: number;
+  translationEnabled: boolean;
+  micEnabled: boolean;
 };
 
 export type IntroSelection = {
@@ -74,6 +106,8 @@ export type SessionConfig = {
   compact: boolean;
   debug: boolean;
   legacyAudio: boolean;
+  translationEnabled: boolean;
+  micDevice?: string;
 };
 
 export type CliConfig = SessionConfig & {
@@ -98,4 +132,8 @@ export type SessionEvents = {
   "cost-updated": [cost: number];
   "status": [text: string];
   "error": [error: string];
+  "todo-added": [todo: TodoItem];
+  "todo-updated": [todo: TodoItem];
+  "insight-added": [insight: Insight];
+  "insights-updated": [insights: Insight[]];
 };

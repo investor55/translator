@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/playfair-display";
 @import "@fontsource-variable/jetbrains-mono";
 
 @custom-variant dark (&:is(.dark *));
@@ -53,6 +55,10 @@
   --speaker-3: oklch(0.58 0.16 45);
   --speaker-4: oklch(0.55 0.2 310);
   --speaker-5: oklch(0.55 0.15 25);
+
+  /* Audio source indicators */
+  --mic-source: oklch(0.6 0.19 25);
+  --system-source: oklch(0.6 0.15 250);
 }
 
 .dark {
@@ -90,7 +96,8 @@
 }
 
 @theme inline {
-  --font-sans: "Inter", system-ui, sans-serif;
+  --font-sans: "Inter Variable", "Inter", system-ui, sans-serif;
+  --font-serif: "Playfair Display Variable", "Playfair Display", Georgia, serif;
   --font-mono: "JetBrains Mono Variable", "SF Mono", "Menlo", monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -141,6 +148,8 @@
   --color-speaker-3: var(--speaker-3);
   --color-speaker-4: var(--speaker-4);
   --color-speaker-5: var(--speaker-5);
+  --color-mic-source: var(--mic-source);
+  --color-system-source: var(--system-source);
 }
 
 @layer base {
@@ -184,4 +193,13 @@
 .titlebar-safe {
   padding-top: env(titlebar-area-height, 38px);
   padding-left: env(titlebar-area-x, 78px);
+}
+
+/* Mic recording pulse ring */
+@keyframes mic-pulse-ring {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+.mic-pulse-ring {
+  animation: mic-pulse-ring 1.5s ease-out infinite;
 }

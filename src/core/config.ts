@@ -25,6 +25,7 @@ export function parseArgs(argv: string[]): CliConfig {
     debug: false,
     skipIntro: false,
     legacyAudio: false,
+    translationEnabled: true,
   };
 
   for (let i = 0; i < argv.length; i++) {

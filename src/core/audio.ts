@@ -8,5 +8,7 @@ export {
   selectAudioDevice,
   formatDevices,
   spawnFfmpeg,
+  spawnMicFfmpeg,
+  listMicDevices,
   type AudioRecorder,
 } from "../audio";

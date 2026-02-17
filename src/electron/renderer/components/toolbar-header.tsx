@@ -1,10 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  ArrowDataTransferVerticalIcon,
   PlayIcon,
   PauseIcon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
+import { LanguagesIcon, MicIcon, MicOffIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -23,13 +23,14 @@ type ToolbarHeaderProps = {
   targetLang: LanguageCode;
   onSourceLangChange: (lang: LanguageCode) => void;
   onTargetLangChange: (lang: LanguageCode) => void;
-  onSwapLangs: () => void;
   sessionActive: boolean;
   onStart: () => void;
   onStop: () => void;
   onTogglePause: () => void;
   uiState: UIState | null;
   langError: string;
+  onToggleTranslation?: () => void;
+  onToggleMic?: () => void;
 };
 
 function StatusBadge({ status }: { status: UIState["status"] }) {
@@ -63,74 +64,47 @@ export function ToolbarHeader({
   targetLang,
   onSourceLangChange,
   onTargetLangChange,
-  onSwapLangs,
   sessionActive,
   onStart,
   onStop,
   onTogglePause,
   uiState,
   langError,
+  onToggleTranslation,
+  onToggleMic,
 }: ToolbarHeaderProps) {
   const isPaused = uiState?.status === "paused";
   const loading = languages.length === 0;
+  const translationEnabled = uiState?.translationEnabled ?? true;
+  const micEnabled = uiState?.micEnabled ?? false;
 
   return (
     <div className="shrink-0">
       <div className="titlebar-drag border-b border-border pl-20 pr-4 flex items-center gap-3 h-11 text-sm">
         {/* Logo */}
-        <span className="font-mono font-bold text-foreground titlebar-no-drag">
-          Rosetta
+        <span className="font-serif text-[15px] font-medium text-foreground titlebar-no-drag">
+          Ambient
         </span>
 
         <Separator orientation="vertical" className="h-4" />
 
-        {/* Language selectors */}
+        {/* Language selector */}
         <div className="flex items-center gap-1.5 titlebar-no-drag">
+          <span className="text-xs text-muted-foreground">Language</span>
           <Select
             value={sourceLang}
-            onValueChange={(v) => onSourceLangChange(v as LanguageCode)}
+            onValueChange={(v) => {
+              onSourceLangChange(v as LanguageCode);
+              if (v === targetLang) {
+                const alt = v === "en" ? "ko" : "en";
+                onTargetLangChange(alt as LanguageCode);
+              }
+            }}
             disabled={loading || sessionActive}
           >
-            <SelectTrigger size="sm" className="w-28">
+            <SelectTrigger size="sm" className="w-32">
               <SelectValue>
                 {loading ? "..." : renderLabel(languages, sourceLang)}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {languages.map((lang) => (
-                <SelectItem key={lang.code} value={lang.code}>
-                  <span className="font-mono text-[10px] opacity-60 mr-1.5">
-                    {lang.code.toUpperCase()}
-                  </span>
-                  {lang.name}
-                  <span className="text-muted-foreground ml-1.5">({lang.native})</span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onSwapLangs}
-            disabled={loading || sessionActive}
-            aria-label="Swap languages"
-          >
-            <HugeiconsIcon
-              icon={ArrowDataTransferVerticalIcon}
-              strokeWidth={2}
-              className="size-3.5"
-            />
-          </Button>
-
-          <Select
-            value={targetLang}
-            onValueChange={(v) => onTargetLangChange(v as LanguageCode)}
-            disabled={loading || sessionActive}
-          >
-            <SelectTrigger size="sm" className="w-28">
-              <SelectValue>
-                {loading ? "..." : renderLabel(languages, targetLang)}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -178,6 +152,46 @@ export function ToolbarHeader({
           )}
         </div>
 
+        {/* Mode toggles */}
+        {sessionActive && (
+          <>
+            <Separator orientation="vertical" className="h-4" />
+            <div className="flex items-center gap-1.5 titlebar-no-drag">
+              <Button
+                variant={translationEnabled ? "secondary" : "ghost"}
+                size="icon-sm"
+                onClick={onToggleTranslation}
+                aria-label={translationEnabled ? "Disable translation" : "Enable translation"}
+              >
+                <LanguagesIcon className="size-3.5" />
+              </Button>
+              <Button
+                variant={micEnabled ? "default" : "ghost"}
+                size="sm"
+                onClick={onToggleMic}
+                className={micEnabled ? "bg-red-600 hover:bg-red-700 text-white gap-1.5" : "gap-1.5"}
+                aria-label={micEnabled ? "Disable microphone" : "Enable microphone"}
+              >
+                {micEnabled ? (
+                  <>
+                    <span className="relative flex size-2">
+                      <span className="absolute inset-0 rounded-full bg-white/40 mic-pulse-ring" />
+                      <span className="relative inline-flex size-2 rounded-full bg-white" />
+                    </span>
+                    <MicIcon className="size-3.5" />
+                    <span className="text-xs">Mic On</span>
+                  </>
+                ) : (
+                  <>
+                    <MicOffIcon className="size-3.5" />
+                    <span className="text-xs">Mic</span>
+                  </>
+                )}
+              </Button>
+            </div>
+          </>
+        )}
+
         {/* Status info (right-aligned) */}
         {uiState && (
           <div className="ml-auto flex items-center gap-2 titlebar-no-drag">
@@ -205,6 +219,23 @@ export function ToolbarHeader({
       {langError && (
         <div className="px-4 py-1.5 text-destructive text-xs border-b border-destructive/20 bg-destructive/5">
           {langError}
+        </div>
+      )}
+
+      {sessionActive && micEnabled && (
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-red-50 dark:bg-red-950/30 border-b border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-400">
+          <span className="relative flex size-2.5 shrink-0">
+            <span className="absolute inset-0 rounded-full bg-red-500/40 mic-pulse-ring" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-red-500" />
+          </span>
+          <span className="text-xs font-medium">Microphone is recording</span>
+          <button
+            type="button"
+            onClick={onToggleMic}
+            className="ml-auto text-[11px] text-red-500 hover:text-red-700 dark:hover:text-red-300 font-medium titlebar-no-drag transition-colors"
+          >
+            Turn off
+          </button>
         </div>
       )}
     </div>

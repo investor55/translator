@@ -1,0 +1,253 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import { createDatabase, type AppDatabase } from "./db";
+import type { TranscriptBlock, TodoItem, Insight } from "./types";
+
+let db: AppDatabase;
+
+beforeEach(() => {
+  db = createDatabase(":memory:");
+});
+
+describe("sessions", () => {
+  it("creates and retrieves a session", () => {
+    db.createSession("s1", "Test Session");
+    const sessions = db.getSessions();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].id).toBe("s1");
+    expect(sessions[0].title).toBe("Test Session");
+    expect(sessions[0].endedAt).toBeUndefined();
+    expect(sessions[0].blockCount).toBe(0);
+  });
+
+  it("ends a session with timestamp and block count", () => {
+    db.createSession("s1");
+
+    const block: TranscriptBlock = {
+      id: 1,
+      sourceLabel: "Korean",
+      sourceText: "안녕하세요",
+      targetLabel: "English",
+      translation: "Hello",
+      audioSource: "system",
+      partial: false,
+      newTopic: false,
+      createdAt: Date.now(),
+    };
+    db.insertBlock("s1", block);
+
+    db.endSession("s1");
+    const sessions = db.getSessions();
+    expect(sessions[0].endedAt).toBeDefined();
+    expect(sessions[0].blockCount).toBe(1);
+  });
+
+  it("returns sessions ordered by most recent first", () => {
+    // Insert with explicit timestamps via raw DB to guarantee ordering
+    db.raw.prepare("INSERT INTO sessions (id, started_at, title) VALUES (?, ?, ?)").run("s1", 1000, "First");
+    db.raw.prepare("INSERT INTO sessions (id, started_at, title) VALUES (?, ?, ?)").run("s2", 2000, "Second");
+    const sessions = db.getSessions();
+    expect(sessions[0].id).toBe("s2");
+    expect(sessions[1].id).toBe("s1");
+  });
+
+  it("respects limit parameter", () => {
+    db.createSession("s1");
+    db.createSession("s2");
+    db.createSession("s3");
+    expect(db.getSessions(2)).toHaveLength(2);
+  });
+});
+
+describe("blocks", () => {
+  beforeEach(() => {
+    db.createSession("s1");
+  });
+
+  it("inserts and retrieves blocks for a session", () => {
+    const block: TranscriptBlock = {
+      id: 1,
+      sourceLabel: "Korean",
+      sourceText: "테스트",
+      targetLabel: "English",
+      translation: "Test",
+      audioSource: "microphone",
+      partial: false,
+      newTopic: true,
+      createdAt: Date.now(),
+    };
+    db.insertBlock("s1", block);
+
+    const blocks = db.getBlocksForSession("s1");
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].sourceText).toBe("테스트");
+    expect(blocks[0].translation).toBe("Test");
+    expect(blocks[0].audioSource).toBe("microphone");
+    expect(blocks[0].newTopic).toBe(true);
+  });
+
+  it("handles blocks without translation", () => {
+    const block: TranscriptBlock = {
+      id: 2,
+      sourceLabel: "Korean",
+      sourceText: "테스트",
+      targetLabel: "English",
+      audioSource: "system",
+      partial: true,
+      newTopic: false,
+      createdAt: Date.now(),
+    };
+    db.insertBlock("s1", block);
+
+    const blocks = db.getBlocksForSession("s1");
+    expect(blocks[0].translation).toBeUndefined();
+    expect(blocks[0].partial).toBe(true);
+  });
+
+  it("returns blocks ordered by created_at ascending", () => {
+    const now = Date.now();
+    db.insertBlock("s1", {
+      id: 1, sourceLabel: "K", sourceText: "second", targetLabel: "E",
+      audioSource: "system", partial: false, newTopic: false, createdAt: now + 100,
+    });
+    db.insertBlock("s1", {
+      id: 2, sourceLabel: "K", sourceText: "first", targetLabel: "E",
+      audioSource: "system", partial: false, newTopic: false, createdAt: now,
+    });
+
+    const blocks = db.getBlocksForSession("s1");
+    expect(blocks[0].sourceText).toBe("first");
+    expect(blocks[1].sourceText).toBe("second");
+  });
+});
+
+describe("todos", () => {
+  it("inserts and retrieves todos", () => {
+    const todo: TodoItem = {
+      id: "t1",
+      text: "Buy groceries",
+      completed: false,
+      source: "manual",
+      createdAt: Date.now(),
+    };
+    db.insertTodo(todo);
+
+    const todos = db.getTodos();
+    expect(todos).toHaveLength(1);
+    expect(todos[0].text).toBe("Buy groceries");
+    expect(todos[0].completed).toBe(false);
+    expect(todos[0].source).toBe("manual");
+  });
+
+  it("toggles todo completion", () => {
+    db.insertTodo({
+      id: "t1", text: "Task", completed: false, source: "ai", createdAt: Date.now(),
+    });
+
+    db.updateTodo("t1", true);
+    let todos = db.getTodos();
+    expect(todos[0].completed).toBe(true);
+    expect(todos[0].completedAt).toBeDefined();
+
+    db.updateTodo("t1", false);
+    todos = db.getTodos();
+    expect(todos[0].completed).toBe(false);
+    expect(todos[0].completedAt).toBeUndefined();
+  });
+
+  it("returns todos ordered by most recent first", () => {
+    const now = Date.now();
+    db.insertTodo({ id: "t1", text: "First", completed: false, source: "manual", createdAt: now });
+    db.insertTodo({ id: "t2", text: "Second", completed: false, source: "manual", createdAt: now + 100 });
+
+    const todos = db.getTodos();
+    expect(todos[0].text).toBe("Second");
+    expect(todos[1].text).toBe("First");
+  });
+});
+
+describe("insights", () => {
+  it("inserts and retrieves insights", () => {
+    const insight: Insight = {
+      id: "i1",
+      kind: "key-point",
+      text: "Important finding",
+      createdAt: Date.now(),
+    };
+    db.insertInsight(insight);
+
+    const insights = db.getRecentInsights();
+    expect(insights).toHaveLength(1);
+    expect(insights[0].kind).toBe("key-point");
+    expect(insights[0].text).toBe("Important finding");
+    expect(insights[0].sessionId).toBeUndefined();
+  });
+
+  it("associates insights with sessions", () => {
+    db.createSession("s1");
+    db.insertInsight({
+      id: "i1", kind: "action-item", text: "Follow up", sessionId: "s1", createdAt: Date.now(),
+    });
+
+    const insights = db.getRecentInsights();
+    expect(insights[0].sessionId).toBe("s1");
+  });
+
+  it("respects limit parameter", () => {
+    for (let i = 0; i < 5; i++) {
+      db.insertInsight({
+        id: `i${i}`, kind: "decision", text: `Decision ${i}`, createdAt: Date.now() + i,
+      });
+    }
+    expect(db.getRecentInsights(3)).toHaveLength(3);
+  });
+
+  it("retrieves recent key points as strings", () => {
+    db.insertInsight({ id: "i1", kind: "key-point", text: "Point A", createdAt: Date.now() });
+    db.insertInsight({ id: "i2", kind: "action-item", text: "Action B", createdAt: Date.now() + 1 });
+    db.insertInsight({ id: "i3", kind: "key-point", text: "Point C", createdAt: Date.now() + 2 });
+
+    const points = db.getRecentKeyPoints();
+    expect(points).toEqual(["Point C", "Point A"]);
+  });
+});
+
+describe("full-text search", () => {
+  beforeEach(() => {
+    db.createSession("s1");
+  });
+
+  it("searches blocks by source text", () => {
+    db.insertBlock("s1", {
+      id: 1, sourceLabel: "Korean", sourceText: "오늘 날씨가 좋습니다", targetLabel: "English",
+      translation: "The weather is nice today", audioSource: "system", partial: false, newTopic: false, createdAt: Date.now(),
+    });
+    db.insertBlock("s1", {
+      id: 2, sourceLabel: "Korean", sourceText: "회의를 시작합니다", targetLabel: "English",
+      translation: "Let's start the meeting", audioSource: "system", partial: false, newTopic: false, createdAt: Date.now() + 1,
+    });
+
+    const results = db.searchBlocks("weather");
+    expect(results).toHaveLength(1);
+    expect(results[0].sourceText).toBe("오늘 날씨가 좋습니다");
+  });
+
+  it("searches blocks by translation", () => {
+    db.insertBlock("s1", {
+      id: 1, sourceLabel: "Korean", sourceText: "테스트", targetLabel: "English",
+      translation: "meeting discussion", audioSource: "system", partial: false, newTopic: false, createdAt: Date.now(),
+    });
+
+    const results = db.searchBlocks("meeting");
+    expect(results).toHaveLength(1);
+    expect(results[0].translation).toBe("meeting discussion");
+  });
+
+  it("returns empty for no matches", () => {
+    db.insertBlock("s1", {
+      id: 1, sourceLabel: "K", sourceText: "hello", targetLabel: "E",
+      audioSource: "system", partial: false, newTopic: false, createdAt: Date.now(),
+    });
+
+    expect(db.searchBlocks("nonexistent")).toHaveLength(0);
+  });
+});

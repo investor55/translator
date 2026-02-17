@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useRef, useMemo } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { TranscriptBlock } from "../../../core/types";
+import { MicIcon, Volume2Icon } from "lucide-react";
 
 type TranscriptAreaProps = {
   blocks: TranscriptBlock[];
@@ -91,7 +92,12 @@ function Paragraph({ blocks, isLast }: { blocks: TranscriptBlock[]; isLast: bool
 
   return (
     <div className={`pb-3 ${isLast ? "" : "mb-3 border-b border-border/50"}`}>
-      <div className="font-mono text-muted-foreground text-[11px] mb-1">
+      <div className="font-mono text-muted-foreground text-[11px] mb-1 flex items-center gap-1.5">
+        {first.audioSource === "microphone" ? (
+          <MicIcon className="size-3 text-mic-source" />
+        ) : (
+          <Volume2Icon className="size-3 text-system-source" />
+        )}
         {formatTimestamp(first.createdAt)}
       </div>
       <div className="text-sm font-mono">

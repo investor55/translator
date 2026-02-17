@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { TranscriptBlock } from "./types";
+import type { AudioSource, TranscriptBlock } from "./types";
 import { normalizeText } from "./text-utils";
 
 export type ContextState = {
@@ -62,7 +62,8 @@ export function createBlock(
   sourceLabel: string,
   sourceText: string,
   targetLabel: string,
-  translation?: string
+  translation?: string,
+  audioSource: AudioSource = "system"
 ): TranscriptBlock {
   const block: TranscriptBlock = {
     id: state.nextBlockId,
@@ -71,6 +72,7 @@ export function createBlock(
     targetLabel,
     translation,
     createdAt: Date.now(),
+    audioSource,
   };
   state.transcriptBlocks.set(state.nextBlockId, block);
   state.nextBlockId += 1;

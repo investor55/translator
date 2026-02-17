@@ -3,7 +3,9 @@ import { Session } from "../core/session";
 import { validateEnv } from "../core/config";
 import { log } from "../core/logger";
 import { toReadableError } from "../core/text-utils";
-import type { SessionConfig, LanguageCode, UIState, TranscriptBlock, Summary } from "../core/types";
+import { listMicDevices } from "../audio";
+import type { AppDatabase } from "../core/db";
+import type { SessionConfig, LanguageCode, UIState, TranscriptBlock, Summary, TodoItem, Insight } from "../core/types";
 import { SUPPORTED_LANGUAGES, DEFAULT_VERTEX_MODEL_ID, DEFAULT_VERTEX_LOCATION, DEFAULT_INTERVAL_MS } from "../core/types";
 
 let session: Session | null = null;
@@ -15,13 +17,14 @@ function send(getWindow: () => BrowserWindow | null, channel: string, ...args: u
   }
 }
 
-export function registerIpcHandlers(getWindow: () => BrowserWindow | null) {
+export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: AppDatabase) {
   ipcMain.handle("get-languages", () => {
     return SUPPORTED_LANGUAGES;
   });
 
   ipcMain.handle("start-session", async (_event, sourceLang: LanguageCode, targetLang: LanguageCode) => {
     if (session) {
+      db.endSession(session.sessionId);
       session.shutdown();
       session = null;
     }
@@ -39,6 +42,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null) {
       compact: false,
       debug: !!process.env.DEBUG,
       legacyAudio: false,
+      translationEnabled: true,
     };
 
     try {
@@ -47,12 +51,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null) {
       return { ok: false, error: toReadableError(error) };
     }
 
-    session = new Session(config);
+    session = new Session(config, db);
+    db.createSession(session.sessionId);
 
     session.events.on("state-change", (state: UIState) => {
       send(getWindow, "session:state-change", state);
     });
     session.events.on("block-added", (block: TranscriptBlock) => {
+      db.insertBlock(session!.sessionId, block);
       send(getWindow, "session:block-added", block);
     });
     session.events.on("block-updated", (block: TranscriptBlock) => {
@@ -72,6 +78,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null) {
     });
     session.events.on("error", (text: string) => {
       send(getWindow, "session:error", text);
+    });
+    session.events.on("todo-added", (todo: TodoItem) => {
+      send(getWindow, "session:todo-added", todo);
+    });
+    session.events.on("insight-added", (insight) => {
+      send(getWindow, "session:insight-added", insight);
     });
 
     try {
@@ -105,8 +117,65 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null) {
     return { ok: true, recording: session.recording };
   });
 
+  ipcMain.handle("toggle-mic", () => {
+    if (!session) return { ok: false, error: "No active session" };
+    if (session.micEnabled) {
+      session.stopMic();
+    } else {
+      session.startMic();
+    }
+    return { ok: true, micEnabled: session.micEnabled };
+  });
+
+  ipcMain.handle("toggle-translation", () => {
+    if (!session) return { ok: false, error: "No active session" };
+    const enabled = session.toggleTranslation();
+    return { ok: true, enabled };
+  });
+
+  ipcMain.handle("list-mic-devices", async () => {
+    try {
+      return await listMicDevices();
+    } catch {
+      return [];
+    }
+  });
+
+  // Persistence: Todos
+  ipcMain.handle("get-todos", () => {
+    return db.getTodos();
+  });
+
+  ipcMain.handle("add-todo", (_event, todo: TodoItem) => {
+    db.insertTodo(todo);
+    return { ok: true };
+  });
+
+  ipcMain.handle("toggle-todo", (_event, id: string) => {
+    const todos = db.getTodos();
+    const todo = todos.find((t) => t.id === id);
+    if (!todo) return { ok: false, error: "Todo not found" };
+    db.updateTodo(id, !todo.completed);
+    return { ok: true };
+  });
+
+  // Persistence: Sessions
+  ipcMain.handle("get-sessions", (_event, limit?: number) => {
+    return db.getSessions(limit);
+  });
+
+  ipcMain.handle("get-session-blocks", (_event, sessionId: string) => {
+    return db.getBlocksForSession(sessionId);
+  });
+
+  // Persistence: Insights
+  ipcMain.handle("get-insights", (_event, limit?: number) => {
+    return db.getRecentInsights(limit);
+  });
+
   ipcMain.handle("shutdown-session", () => {
     if (session) {
+      db.endSession(session.sessionId);
       session.shutdown();
       session = null;
     }

@@ -56,6 +56,45 @@ export function createAudioRecorder(sampleRate = 16000): AudioRecorder {
 // Kept for --legacy-audio fallback mode
 // ============================================================================
 
+// ============================================================================
+// Microphone Capture via ffmpeg (AVFoundation input devices)
+// ============================================================================
+
+export async function listMicDevices(): Promise<Device[]> {
+  const allDevices = await listAvfoundationDevices();
+  // AVFoundation audio input devices are microphones
+  // Filter out known loopback/virtual devices
+  const virtualPatterns = ["blackhole", "loopback", "soundflower", "vb-cable", "ishowu"];
+  return allDevices.filter(
+    (d) => !virtualPatterns.some((p) => d.name.toLowerCase().includes(p))
+  );
+}
+
+export function spawnMicFfmpeg(deviceIdentifier: string | number): ChildProcess {
+  const deviceArg = typeof deviceIdentifier === "number"
+    ? `:${deviceIdentifier}`
+    : `:${deviceIdentifier}`;
+
+  const args = [
+    "-f", "avfoundation",
+    "-i", deviceArg,
+    "-ac", "1",
+    "-ar", "16000",
+    "-f", "s16le",
+    "-loglevel", "error",
+    "-nostdin",
+    "-",
+  ];
+  return spawn("ffmpeg", args, {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+// ============================================================================
+// Legacy AVFoundation/ffmpeg Audio Capture (deprecated)
+// Kept for --legacy-audio fallback mode
+// ============================================================================
+
 /** @deprecated Use createAudioRecorder() with ScreenCaptureKit instead */
 export async function listAvfoundationDevices(): Promise<Device[]> {
   return new Promise((resolve, reject) => {

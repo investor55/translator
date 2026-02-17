@@ -111,6 +111,8 @@ export function createBlessedUI(): BlessedUI {
     intervalMs: 3000,
     status: "idle",
     contextLoaded: false,
+    translationEnabled: true,
+    micEnabled: false,
   };
 
   const labelColors: Record<string, string> = {};

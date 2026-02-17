@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron/renderer";
-import type { Language, UIState, TranscriptBlock, Summary, LanguageCode } from "../core/types";
+import type { Language, UIState, TranscriptBlock, Summary, LanguageCode, Device, TodoItem, Insight, SessionMeta } from "../core/types";
 
 export type ElectronAPI = {
   getLanguages: () => Promise<Language[]>;
@@ -7,7 +7,17 @@ export type ElectronAPI = {
   startRecording: () => Promise<{ ok: boolean; error?: string }>;
   stopRecording: () => Promise<{ ok: boolean; error?: string }>;
   toggleRecording: () => Promise<{ ok: boolean; recording?: boolean; error?: string }>;
+  toggleMic: () => Promise<{ ok: boolean; micEnabled?: boolean; error?: string }>;
+  toggleTranslation: () => Promise<{ ok: boolean; enabled?: boolean; error?: string }>;
+  listMicDevices: () => Promise<Device[]>;
   shutdownSession: () => Promise<{ ok: boolean }>;
+
+  getTodos: () => Promise<TodoItem[]>;
+  addTodo: (todo: TodoItem) => Promise<{ ok: boolean }>;
+  toggleTodo: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  getSessions: (limit?: number) => Promise<SessionMeta[]>;
+  getSessionBlocks: (sessionId: string) => Promise<TranscriptBlock[]>;
+  getInsights: (limit?: number) => Promise<Insight[]>;
 
   onStateChange: (callback: (state: UIState) => void) => () => void;
   onBlockAdded: (callback: (block: TranscriptBlock) => void) => () => void;
@@ -17,6 +27,8 @@ export type ElectronAPI = {
   onCostUpdated: (callback: (cost: number) => void) => () => void;
   onStatus: (callback: (text: string) => void) => () => void;
   onError: (callback: (text: string) => void) => () => void;
+  onTodoAdded: (callback: (todo: TodoItem) => void) => () => void;
+  onInsightAdded: (callback: (insight: Insight) => void) => () => void;
 };
 
 function createListener<T>(channel: string) {
@@ -33,7 +45,17 @@ const api: ElectronAPI = {
   startRecording: () => ipcRenderer.invoke("start-recording"),
   stopRecording: () => ipcRenderer.invoke("stop-recording"),
   toggleRecording: () => ipcRenderer.invoke("toggle-recording"),
+  toggleMic: () => ipcRenderer.invoke("toggle-mic"),
+  toggleTranslation: () => ipcRenderer.invoke("toggle-translation"),
+  listMicDevices: () => ipcRenderer.invoke("list-mic-devices"),
   shutdownSession: () => ipcRenderer.invoke("shutdown-session"),
+
+  getTodos: () => ipcRenderer.invoke("get-todos"),
+  addTodo: (todo) => ipcRenderer.invoke("add-todo", todo),
+  toggleTodo: (id) => ipcRenderer.invoke("toggle-todo", id),
+  getSessions: (limit) => ipcRenderer.invoke("get-sessions", limit),
+  getSessionBlocks: (sessionId) => ipcRenderer.invoke("get-session-blocks", sessionId),
+  getInsights: (limit) => ipcRenderer.invoke("get-insights", limit),
 
   onStateChange: createListener<UIState>("session:state-change"),
   onBlockAdded: createListener<TranscriptBlock>("session:block-added"),
@@ -43,6 +65,8 @@ const api: ElectronAPI = {
   onCostUpdated: createListener<number>("session:cost-updated"),
   onStatus: createListener<string>("session:status"),
   onError: createListener<string>("session:error"),
+  onTodoAdded: createListener<TodoItem>("session:todo-added"),
+  onInsightAdded: createListener<Insight>("session:insight-added"),
 };
 
 contextBridge.exposeInMainWorld("electronAPI", api);
