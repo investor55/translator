@@ -1,4 +1,4 @@
-import type { AnalysisProvider, SessionConfig, TranscriptionProvider } from "./types";
+import type { SessionConfig } from "./types";
 
 export function validateEnv(config: Pick<SessionConfig, "transcriptionProvider" | "analysisProvider" | "vertexProject" | "vertexLocation">) {
   const missing: string[] = [];
@@ -6,6 +6,7 @@ export function validateEnv(config: Pick<SessionConfig, "transcriptionProvider" 
   const needsVertex = config.transcriptionProvider === "vertex" || config.analysisProvider === "vertex";
   const needsGoogle = config.transcriptionProvider === "google" || config.analysisProvider === "google";
   const needsOpenRouter = config.analysisProvider === "openrouter";
+  const needsElevenLabs = config.transcriptionProvider === "elevenlabs";
 
   if (needsVertex) {
     if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
@@ -25,6 +26,12 @@ export function validateEnv(config: Pick<SessionConfig, "transcriptionProvider" 
   if (needsOpenRouter) {
     if (!process.env.OPENROUTER_API_KEY) {
       missing.push("OPENROUTER_API_KEY");
+    }
+  }
+
+  if (needsElevenLabs) {
+    if (!process.env.ELEVENLABS_API_KEY) {
+      missing.push("ELEVENLABS_API_KEY");
     }
   }
 

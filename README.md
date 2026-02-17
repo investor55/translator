@@ -1,11 +1,12 @@
 # Realtime Translator
 
-A terminal-based real-time audio translation tool that captures system audio, transcribes and translates it using Google Vertex AI (Gemini).
+A real-time audio translation tool that captures system audio, transcribes with ElevenLabs Scribe v2 by default, and translates with LLM providers.
 
 ## Features
 
 - **Real-time audio capture** via ScreenCaptureKit (no loopback device required)
-- **Transcription + translation** via Google Vertex AI multimodal model in a single pass
+- **Transcription** via ElevenLabs Scribe v2 (default) with optional Gemini/Vertex fallback providers
+- **Translation + analysis** via configurable LLM providers
 - **Multi-language support**: 13 languages with auto-detection
 - **Context-aware translation** using sliding window of previous sentences
 - **Full-screen terminal UI** with blessed library, live transcript blocks, and color-coded output
@@ -26,9 +27,11 @@ A terminal-based real-time audio translation tool that captures system audio, tr
 
 ### Required API Keys
 
-- `GOOGLE_APPLICATION_CREDENTIALS` - path to service account JSON
-- `GOOGLE_VERTEX_PROJECT_ID` - GCP project ID
-- `GOOGLE_VERTEX_PROJECT_LOCATION` - region (default: `global`)
+- `ELEVENLABS_API_KEY` - required for default transcription provider (`scribe_v2`)
+- `OPENROUTER_API_KEY` - required for default analysis/translation provider
+- Optional Gemini/Vertex fallback:
+  - `GOOGLE_GENERATIVE_AI_API_KEY` (or `GEMINI_API_KEY`) for provider=`google`
+  - `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_VERTEX_PROJECT_ID`, and `GOOGLE_VERTEX_PROJECT_LOCATION` for provider=`vertex`
 
 ## Installation
 
@@ -86,7 +89,7 @@ If you're on an older macOS version, use the `--legacy-audio` flag with a loopba
 ### Basic Usage
 
 ```bash
-# Start with default settings (Vertex AI)
+# Start with default settings (ElevenLabs Scribe v2 + OpenRouter analysis)
 bun run dev
 
 # Or
@@ -124,7 +127,7 @@ Options:
 ### Examples
 
 ```bash
-# Start with default settings (Vertex AI, ScreenCaptureKit audio)
+# Start with default settings (ElevenLabs Scribe v2, ScreenCaptureKit audio)
 bun run dev
 
 # Skip intro screen with preset languages
@@ -166,9 +169,9 @@ The content is injected into the system prompt for every translation, helping ma
 
 1. Captures system audio via ScreenCaptureKit → 16kHz mono PCM
 2. Voice activity detection segments audio into speech chunks
-3. Sends audio + prompt to Vertex AI multimodal model (Gemini)
-4. Receives structured JSON response with transcript + translation
-5. Displays source and translated text in terminal UI
+3. Sends audio chunks to ElevenLabs Speech-to-Text (`scribe_v2`)
+4. Optionally post-processes transcript for translation metadata
+5. Displays source and translated text in UI
 
 ### Translation Pipeline
 
@@ -202,13 +205,21 @@ translator/
 ## Environment Variables
 
 ```bash
-# Google Vertex AI (required)
+# Default transcription provider
+ELEVENLABS_API_KEY=your-elevenlabs-api-key
+TRANSCRIPTION_MODEL_ID=scribe_v2
+
+# Default analysis/translation provider
+OPENROUTER_API_KEY=your-openrouter-api-key
+ANALYSIS_MODEL_ID=moonshotai/kimi-k2-thinking
+# OpenRouter provider routing preference (optional): price | throughput | latency
+OPENROUTER_PROVIDER_SORT=throughput
+
+# Optional fallback providers
+GOOGLE_GENERATIVE_AI_API_KEY=your-google-api-key
 GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 GOOGLE_VERTEX_PROJECT_ID=your-project-id
 GOOGLE_VERTEX_PROJECT_LOCATION=global
-
-# Optional overrides
-VERTEX_MODEL_ID=gemini-3-flash-preview
 ```
 
 ## Troubleshooting

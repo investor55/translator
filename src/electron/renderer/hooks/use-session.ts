@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useCallback, useRef } from "react";
-import type { UIState, TranscriptBlock, Summary, LanguageCode, TodoItem, Insight, Agent } from "../../../core/types";
+import type { UIState, TranscriptBlock, Summary, LanguageCode, TodoItem, Insight, Agent, AppConfig } from "../../../core/types";
 
 type SessionState = {
   sessionId: string | null;
@@ -35,18 +35,25 @@ type SessionAction =
   | { kind: "session-ended" }
   | { kind: "session-viewed"; sessionId: string; blocks: TranscriptBlock[]; keyPoints: string[] };
 
+function sortBlocks(blocks: TranscriptBlock[]): TranscriptBlock[] {
+  return [...blocks].sort((a, b) => {
+    if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+    return a.id - b.id;
+  });
+}
+
 function sessionReducer(state: SessionState, action: SessionAction): SessionState {
   switch (action.kind) {
     case "state-change":
       return { ...state, uiState: action.state };
     case "block-added":
-      return { ...state, blocks: [...state.blocks, action.block] };
+      return { ...state, blocks: sortBlocks([...state.blocks, action.block]) };
     case "block-updated":
       return {
         ...state,
-        blocks: state.blocks.map((b) =>
+        blocks: sortBlocks(state.blocks.map((b) =>
           b.id === action.block.id ? action.block : b
-        ),
+        )),
       };
     case "blocks-cleared":
       return { ...state, blocks: [], summary: null, rollingKeyPoints: [], cost: 0, statusText: "" };
@@ -74,7 +81,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         ...state,
         sessionActive: true,
         sessionId: action.data.sessionId,
-        blocks: action.data.blocks,
+        blocks: sortBlocks(action.data.blocks),
         rollingKeyPoints: keyPoints,
       };
     }
@@ -84,7 +91,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
       return {
         ...state,
         sessionId: action.sessionId,
-        blocks: action.blocks,
+        blocks: sortBlocks(action.blocks),
         rollingKeyPoints: action.keyPoints,
         sessionActive: false,
         uiState: null,
@@ -118,12 +125,15 @@ export function useSession(
   sourceLang: LanguageCode,
   targetLang: LanguageCode,
   active: boolean,
+  appConfig: AppConfig,
   resumeSessionId: string | null = null,
   options: SessionOptions = {},
 ) {
   const [state, dispatch] = useReducer(sessionReducer, initialState);
   const onResumedRef = useRef(options.onResumed);
+  const appConfigRef = useRef(appConfig);
   onResumedRef.current = options.onResumed;
+  appConfigRef.current = appConfig;
 
   useEffect(() => {
     if (!active) return;
@@ -141,7 +151,7 @@ export function useSession(
     cleanups.push(api.onError((t) => dispatch({ kind: "error", text: t })));
 
     if (resumeSessionId) {
-      api.resumeSession(resumeSessionId).then((result) => {
+      api.resumeSession(resumeSessionId, appConfigRef.current).then((result) => {
         if (result.ok && result.sessionId) {
           const data: ResumeData = {
             sessionId: result.sessionId,
@@ -157,7 +167,7 @@ export function useSession(
         }
       });
     } else {
-      api.startSession(sourceLang, targetLang).then(async (result) => {
+      api.startSession(sourceLang, targetLang, appConfigRef.current).then(async (result) => {
         if (result.ok && result.sessionId) {
           dispatch({ kind: "session-started", sessionId: result.sessionId });
           await api.startRecording();

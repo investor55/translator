@@ -5,10 +5,23 @@ import { log } from "../core/logger";
 import { toReadableError } from "../core/text-utils";
 import { listMicDevices } from "../audio";
 import type { AppDatabase } from "../core/db";
-import type { SessionConfig, LanguageCode, UIState, TranscriptBlock, Summary, TodoItem, TodoSuggestion, Insight, Agent, AgentStep } from "../core/types";
-import { SUPPORTED_LANGUAGES, DEFAULT_TRANSCRIPTION_MODEL_ID, DEFAULT_ANALYSIS_MODEL_ID, DEFAULT_VERTEX_LOCATION, DEFAULT_INTERVAL_MS } from "../core/types";
+import type {
+  SessionConfig,
+  LanguageCode,
+  UIState,
+  TranscriptBlock,
+  Summary,
+  TodoItem,
+  TodoSuggestion,
+  Insight,
+  Agent,
+  AgentStep,
+  AppConfigOverrides,
+} from "../core/types";
+import { SUPPORTED_LANGUAGES, normalizeAppConfig } from "../core/types";
 
 let session: Session | null = null;
+let registeredDb: AppDatabase | null = null;
 
 function send(getWindow: () => BrowserWindow | null, channel: string, ...args: unknown[]) {
   const win = getWindow();
@@ -66,24 +79,30 @@ function wireSessionEvents(s: Session, getWindow: () => BrowserWindow | null, db
   });
 }
 
-function buildConfig(sourceLang: LanguageCode, targetLang: LanguageCode): SessionConfig {
+function buildConfig(
+  sourceLang: LanguageCode,
+  targetLang: LanguageCode,
+  appConfig?: AppConfigOverrides,
+): SessionConfig {
+  const config = normalizeAppConfig(appConfig);
   return {
-    direction: "auto",
+    direction: config.direction,
     sourceLang,
     targetLang,
-    intervalMs: DEFAULT_INTERVAL_MS,
-    transcriptionProvider: "vertex",
-    transcriptionModelId: DEFAULT_TRANSCRIPTION_MODEL_ID,
-    analysisProvider: "openrouter",
-    analysisModelId: DEFAULT_ANALYSIS_MODEL_ID,
-    vertexProject: process.env.GOOGLE_VERTEX_PROJECT_ID,
-    vertexLocation: DEFAULT_VERTEX_LOCATION,
-    contextFile: "context.md",
-    useContext: false,
-    compact: false,
-    debug: !!process.env.DEBUG,
-    legacyAudio: false,
-    translationEnabled: true,
+    intervalMs: config.intervalMs,
+    transcriptionProvider: config.transcriptionProvider,
+    transcriptionModelId: config.transcriptionModelId,
+    analysisProvider: config.analysisProvider,
+    analysisModelId: config.analysisModelId,
+    todoModelId: config.todoModelId,
+    vertexProject: config.vertexProject ?? process.env.GOOGLE_VERTEX_PROJECT_ID,
+    vertexLocation: config.vertexLocation,
+    contextFile: config.contextFile,
+    useContext: config.useContext,
+    compact: config.compact,
+    debug: config.debug,
+    legacyAudio: config.legacyAudio,
+    translationEnabled: config.translationEnabled,
   };
 }
 
@@ -95,8 +114,18 @@ function shutdownCurrentSession(db: AppDatabase) {
   }
 }
 
+export function shutdownSessionOnAppQuit() {
+  if (!registeredDb) return;
+  shutdownCurrentSession(registeredDb);
+}
+
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: AppDatabase) {
-  async function ensureSession(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  registeredDb = db;
+
+  async function ensureSession(
+    sessionId: string,
+    appConfig?: AppConfigOverrides,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
     if (session && session.sessionId === sessionId) {
       return { ok: true };
     }
@@ -110,7 +139,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
 
     const sourceLang = (meta.sourceLang as LanguageCode) ?? "ko";
     const targetLang = (meta.targetLang as LanguageCode) ?? "en";
-    const config = buildConfig(sourceLang, targetLang);
+    const config = buildConfig(sourceLang, targetLang, appConfig);
 
     try {
       validateEnv(config);
@@ -134,10 +163,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     return SUPPORTED_LANGUAGES;
   });
 
-  ipcMain.handle("start-session", async (_event, sourceLang: LanguageCode, targetLang: LanguageCode) => {
+  ipcMain.handle("start-session", async (_event, sourceLang: LanguageCode, targetLang: LanguageCode, appConfig?: AppConfigOverrides) => {
     shutdownCurrentSession(db);
 
-    const config = buildConfig(sourceLang, targetLang);
+    const config = buildConfig(sourceLang, targetLang, appConfig);
 
     try {
       validateEnv(config);
@@ -170,7 +199,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     }
   });
 
-  ipcMain.handle("resume-session", async (_event, sessionId: string) => {
+  ipcMain.handle("resume-session", async (_event, sessionId: string, appConfig?: AppConfigOverrides) => {
     shutdownCurrentSession(db);
 
     const meta = db.getSession(sessionId);
@@ -180,7 +209,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
 
     const sourceLang = meta.sourceLang ?? "ko";
     const targetLang = meta.targetLang ?? "en";
-    const config = buildConfig(sourceLang as LanguageCode, targetLang as LanguageCode);
+    const config = buildConfig(sourceLang as LanguageCode, targetLang as LanguageCode, appConfig);
 
     try {
       validateEnv(config);
@@ -332,8 +361,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     return { ok: true };
   });
 
-  ipcMain.handle("follow-up-agent-in-session", async (_event, sessionId: string, agentId: string, question: string) => {
-    const ensured = await ensureSession(sessionId);
+  ipcMain.handle("follow-up-agent-in-session", async (_event, sessionId: string, agentId: string, question: string, appConfig?: AppConfigOverrides) => {
+    const ensured = await ensureSession(sessionId, appConfig);
     if (!ensured.ok) return ensured;
     if (!session) return { ok: false, error: "Could not load session" };
     const started = session.followUpAgent(agentId, question);

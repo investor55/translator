@@ -326,6 +326,20 @@ export function createDatabase(dbPath: string) {
       }));
     },
 
+    failStaleRunningAgents(reason: string): number {
+      const completedAt = Date.now();
+      const result = sqlite
+        .prepare(`
+          UPDATE agents
+          SET status = 'failed',
+              result = COALESCE(result, @reason),
+              completed_at = COALESCE(completed_at, @completedAt)
+          WHERE status = 'running'
+        `)
+        .run({ reason, completedAt });
+      return result.changes;
+    },
+
     close() {
       sqlite.close();
     },

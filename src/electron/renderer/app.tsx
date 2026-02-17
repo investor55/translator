@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocalStorage } from "usehooks-ts";
-import type { Agent, Language, LanguageCode, TodoItem, TodoSuggestion, Insight, SessionMeta } from "../../core/types";
+import type { Agent, AppConfig, Language, LanguageCode, TodoItem, TodoSuggestion, Insight, SessionMeta } from "../../core/types";
+import { DEFAULT_APP_CONFIG, normalizeAppConfig } from "../../core/types";
 import { useSession } from "./hooks/use-session";
 import type { ResumeData } from "./hooks/use-session";
 import { useMicCapture } from "./hooks/use-mic-capture";
@@ -12,6 +13,7 @@ import { LeftSidebar } from "./components/left-sidebar";
 import { RightSidebar } from "./components/right-sidebar";
 import { AgentDetailPanel } from "./components/agent-detail-panel";
 import { Footer } from "./components/footer";
+import { SettingsPage } from "./components/settings-page";
 
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
   const [visible, setVisible] = useState(true);
@@ -39,10 +41,13 @@ export function App() {
   const [languages, setLanguages] = useState<Language[]>([]);
   const [sourceLang, setSourceLang] = useLocalStorage<LanguageCode>("rosetta-source-lang", "ko");
   const [targetLang, setTargetLang] = useLocalStorage<LanguageCode>("rosetta-target-lang", "en");
+  const [storedAppConfig, setStoredAppConfig] = useLocalStorage<AppConfig>("rosetta-app-config", DEFAULT_APP_CONFIG);
   const [sessionActive, setSessionActive] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [langError, setLangError] = useState("");
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const appConfig = useMemo(() => normalizeAppConfig(storedAppConfig), [storedAppConfig]);
 
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [suggestions, setSuggestions] = useState<TodoSuggestion[]>([]);
@@ -68,11 +73,36 @@ export function App() {
     seedAgents(data.agents);
   }, [seedAgents]);
 
-  const session = useSession(sourceLang, targetLang, sessionActive, resumeSessionId, { onResumed: handleResumed });
+  const session = useSession(sourceLang, targetLang, sessionActive, appConfig, resumeSessionId, { onResumed: handleResumed });
 
   useEffect(() => {
     window.electronAPI.getLanguages().then(setLanguages);
   }, []);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") {
+      document.documentElement.classList.remove("dark");
+      document.body.classList.remove("dark");
+      return;
+    }
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      const shouldUseDark =
+        appConfig.themeMode === "dark" ||
+        (appConfig.themeMode === "system" && media.matches);
+      document.documentElement.classList.toggle("dark", shouldUseDark);
+      document.body.classList.toggle("dark", shouldUseDark);
+    };
+
+    applyTheme();
+    if (appConfig.themeMode !== "system") return;
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", applyTheme);
+      return () => media.removeEventListener("change", applyTheme);
+    }
+    media.addListener(applyTheme);
+    return () => media.removeListener(applyTheme);
+  }, [appConfig.themeMode]);
 
   // Listen for AI-generated suggestions and insights during active session
   useEffect(() => {
@@ -100,6 +130,7 @@ export function App() {
   const handleStart = useCallback(() => {
     setLangError("");
     setSplashDone(true);
+    setSettingsOpen(false);
     setResumeSessionId(null);
     setTodos([]);
     setSuggestions([]);
@@ -122,6 +153,7 @@ export function App() {
   const handleNewSession = useCallback(() => {
     micCapture.stop();
     setSessionActive(false);
+    setSettingsOpen(false);
     setTimeout(() => {
       setResumeSessionId(null);
       setTodos([]);
@@ -196,6 +228,7 @@ export function App() {
 
   const handleSelectSession = useCallback(async (sessionId: string) => {
     micCapture.stop();
+    setSettingsOpen(false);
     setSessionActive(false);
     setResumeSessionId(null);
     setSuggestions([]);
@@ -228,8 +261,8 @@ export function App() {
     if (!targetSessionId) {
       return { ok: false, error: "Missing session id for this agent" };
     }
-    return window.electronAPI.followUpAgentInSession(targetSessionId, agent.id, question);
-  }, [session.sessionId]);
+    return window.electronAPI.followUpAgentInSession(targetSessionId, agent.id, question, appConfig);
+  }, [session.sessionId, appConfig]);
 
   const handleCancelAgent = useCallback(async (agentId: string) => {
     await window.electronAPI.cancelAgent(agentId);
@@ -238,6 +271,10 @@ export function App() {
   const handleToggleTranslation = useCallback(async () => {
     await window.electronAPI.toggleTranslation();
   }, []);
+
+  const handleAppConfigChange = useCallback((next: AppConfig) => {
+    setStoredAppConfig(normalizeAppConfig(next));
+  }, [setStoredAppConfig]);
 
   useKeyboard({
     onToggleRecording: sessionActive ? session.toggleRecording : handleStart,
@@ -273,42 +310,60 @@ export function App() {
         langError={langError}
         onToggleTranslation={handleToggleTranslation}
         onToggleMic={handleToggleMic}
+        settingsOpen={settingsOpen}
+        onToggleSettings={() => setSettingsOpen((prev) => !prev)}
       />
 
       <div className="flex flex-1 min-h-0">
-        <LeftSidebar
-          rollingKeyPoints={session.rollingKeyPoints}
-          insights={educationalInsights}
-          sessions={sessions}
-          activeSessionId={session.sessionId}
-          onSelectSession={handleSelectSession}
-          onDeleteSession={handleDeleteSession}
-        />
-        <main className="flex-1 flex flex-col min-h-0 min-w-0 relative">
-          <TranscriptArea ref={transcriptRef} blocks={session.blocks} />
-        </main>
-        {selectedAgent && (
-          <AgentDetailPanel
-            agent={selectedAgent}
-            agents={agents}
-            onSelectAgent={selectAgent}
-            onClose={() => selectAgent(null)}
-            onFollowUp={handleFollowUp}
-            onCancel={handleCancelAgent}
+        {settingsOpen ? (
+          <SettingsPage
+            config={appConfig}
+            languages={languages}
+            sourceLang={sourceLang}
+            targetLang={targetLang}
+            onSourceLangChange={(lang) => { setSourceLang(lang); setLangError(""); }}
+            onTargetLangChange={(lang) => { setTargetLang(lang); setLangError(""); }}
+            sessionActive={sessionActive}
+            onConfigChange={handleAppConfigChange}
+            onReset={() => setStoredAppConfig(DEFAULT_APP_CONFIG)}
           />
+        ) : (
+          <>
+            <LeftSidebar
+              rollingKeyPoints={session.rollingKeyPoints}
+              insights={educationalInsights}
+              sessions={sessions}
+              activeSessionId={session.sessionId}
+              onSelectSession={handleSelectSession}
+              onDeleteSession={handleDeleteSession}
+            />
+            <main className="flex-1 flex flex-col min-h-0 min-w-0 relative">
+              <TranscriptArea ref={transcriptRef} blocks={session.blocks} />
+            </main>
+            {selectedAgent && (
+              <AgentDetailPanel
+                agent={selectedAgent}
+                agents={agents}
+                onSelectAgent={selectAgent}
+                onClose={() => selectAgent(null)}
+                onFollowUp={handleFollowUp}
+                onCancel={handleCancelAgent}
+              />
+            )}
+            <RightSidebar
+              todos={todos}
+              suggestions={suggestions}
+              agents={agents}
+              selectedAgentId={selectedAgentId}
+              onSelectAgent={selectAgent}
+              onLaunchAgent={handleLaunchAgent}
+              onAddTodo={handleAddTodo}
+              onToggleTodo={handleToggleTodo}
+              onAcceptSuggestion={handleAcceptSuggestion}
+              onDismissSuggestion={handleDismissSuggestion}
+            />
+          </>
         )}
-        <RightSidebar
-          todos={todos}
-          suggestions={suggestions}
-          agents={agents}
-          selectedAgentId={selectedAgentId}
-          onSelectAgent={selectAgent}
-          onLaunchAgent={handleLaunchAgent}
-          onAddTodo={handleAddTodo}
-          onToggleTodo={handleToggleTodo}
-          onAcceptSuggestion={handleAcceptSuggestion}
-          onDismissSuggestion={handleDismissSuggestion}
-        />
       </div>
 
       {session.errorText && (

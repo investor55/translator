@@ -1,10 +1,24 @@
 import { contextBridge, ipcRenderer } from "electron/renderer";
-import type { Language, UIState, TranscriptBlock, Summary, LanguageCode, Device, TodoItem, TodoSuggestion, Insight, SessionMeta, Agent, AgentStep } from "../core/types";
+import type {
+  Language,
+  UIState,
+  TranscriptBlock,
+  Summary,
+  LanguageCode,
+  Device,
+  TodoItem,
+  TodoSuggestion,
+  Insight,
+  SessionMeta,
+  Agent,
+  AgentStep,
+  AppConfigOverrides,
+} from "../core/types";
 
 export type ElectronAPI = {
   getLanguages: () => Promise<Language[]>;
-  startSession: (sourceLang: LanguageCode, targetLang: LanguageCode) => Promise<{ ok: boolean; sessionId?: string; error?: string }>;
-  resumeSession: (sessionId: string) => Promise<{ ok: boolean; sessionId?: string; blocks?: TranscriptBlock[]; todos?: TodoItem[]; insights?: Insight[]; agents?: Agent[]; error?: string }>;
+  startSession: (sourceLang: LanguageCode, targetLang: LanguageCode, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; sessionId?: string; error?: string }>;
+  resumeSession: (sessionId: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; sessionId?: string; blocks?: TranscriptBlock[]; todos?: TodoItem[]; insights?: Insight[]; agents?: Agent[]; error?: string }>;
   startRecording: () => Promise<{ ok: boolean; error?: string }>;
   stopRecording: () => Promise<{ ok: boolean; error?: string }>;
   toggleRecording: () => Promise<{ ok: boolean; recording?: boolean; error?: string }>;
@@ -26,7 +40,7 @@ export type ElectronAPI = {
 
   launchAgent: (todoId: string, task: string) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
   followUpAgent: (agentId: string, question: string) => Promise<{ ok: boolean; error?: string }>;
-  followUpAgentInSession: (sessionId: string, agentId: string, question: string) => Promise<{ ok: boolean; error?: string }>;
+  followUpAgentInSession: (sessionId: string, agentId: string, question: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; error?: string }>;
   cancelAgent: (agentId: string) => Promise<{ ok: boolean; error?: string }>;
   getAgents: () => Promise<Agent[]>;
   getSessionAgents: (sessionId: string) => Promise<Agent[]>;
@@ -58,8 +72,8 @@ function createListener<T>(channel: string) {
 
 const api: ElectronAPI = {
   getLanguages: () => ipcRenderer.invoke("get-languages"),
-  startSession: (sourceLang, targetLang) => ipcRenderer.invoke("start-session", sourceLang, targetLang),
-  resumeSession: (sessionId) => ipcRenderer.invoke("resume-session", sessionId),
+  startSession: (sourceLang, targetLang, appConfig) => ipcRenderer.invoke("start-session", sourceLang, targetLang, appConfig),
+  resumeSession: (sessionId, appConfig) => ipcRenderer.invoke("resume-session", sessionId, appConfig),
   startRecording: () => ipcRenderer.invoke("start-recording"),
   stopRecording: () => ipcRenderer.invoke("stop-recording"),
   toggleRecording: () => ipcRenderer.invoke("toggle-recording"),
@@ -81,7 +95,7 @@ const api: ElectronAPI = {
 
   launchAgent: (todoId, task) => ipcRenderer.invoke("launch-agent", todoId, task),
   followUpAgent: (agentId, question) => ipcRenderer.invoke("follow-up-agent", agentId, question),
-  followUpAgentInSession: (sessionId, agentId, question) => ipcRenderer.invoke("follow-up-agent-in-session", sessionId, agentId, question),
+  followUpAgentInSession: (sessionId, agentId, question, appConfig) => ipcRenderer.invoke("follow-up-agent-in-session", sessionId, agentId, question, appConfig),
   cancelAgent: (agentId) => ipcRenderer.invoke("cancel-agent", agentId),
   getAgents: () => ipcRenderer.invoke("get-agents"),
   getSessionAgents: (sessionId) => ipcRenderer.invoke("get-session-agents", sessionId),

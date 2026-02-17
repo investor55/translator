@@ -15,16 +15,19 @@ export const analysisSchema = z.object({
       })
     )
     .describe("1-3 educational notes that help the listener understand topics mentioned in the conversation. Think of these as helpful footnotes."),
+});
+
+export const todoAnalysisSchema = z.object({
   suggestedTodos: z
     .array(z.string())
     .describe("Action items or tasks mentioned in the conversation. Include anything that sounds like something someone wants to do, needs to do, or should follow up on. Be liberal — it's better to suggest a todo that gets dismissed than to miss one."),
 });
 
 export type AnalysisResult = z.infer<typeof analysisSchema>;
+export type TodoAnalysisResult = z.infer<typeof todoAnalysisSchema>;
 
 export function buildAnalysisPrompt(
   recentBlocks: TranscriptBlock[],
-  existingTodos: ReadonlyArray<Pick<TodoItem, "text" | "completed">>,
   previousKeyPoints: readonly string[]
 ): string {
   const transcript = recentBlocks
@@ -35,11 +38,6 @@ export function buildAnalysisPrompt(
     })
     .join("\n");
 
-  const todosSection =
-    existingTodos.length > 0
-      ? `\n\nExisting todos:\n${existingTodos.map((t) => `- [${t.completed ? "x" : " "}] ${t.text}`).join("\n")}`
-      : "";
-
   const keyPointsSection =
     previousKeyPoints.length > 0
       ? `\n\nPrevious key points from this session:\n${previousKeyPoints.map((p) => `- ${p}`).join("\n")}`
@@ -48,7 +46,7 @@ export function buildAnalysisPrompt(
   return `You are a knowledgeable assistant listening to a conversation. Your job is to provide helpful background knowledge about topics being discussed — like an intelligent footnote system.
 
 Recent transcript:
-${transcript}${todosSection}${keyPointsSection}
+${transcript}${keyPointsSection}
 
 Tasks:
 
@@ -68,15 +66,37 @@ Bad examples (do NOT do these):
 - "They seemed interested in the subject" (this is commentary)
 
 Each insight should be something the listener could look up on Wikipedia — a definition, a fact, a piece of context that enriches understanding.
+`;
+}
 
-3. SUGGESTED TODOS: Extract any tasks, action items, or things to follow up on. Be aggressive — catch anything that sounds like a todo.
-- Triggers: "add a todo", "I need to", "we should", "let's", "remind me to", "don't forget", "I want to", "we have to", "gotta", "should check", "look into", "find out", any question implying research ("where is the best...?", "what's a good...?")
-- CRITICAL: Preserve ALL specific details — names, places, times, conditions, constraints. Read the ENTIRE transcript to gather the full context before writing the todo.
-  - BAD: "Find information for Victoria Drive" (too vague, lost the time constraint)
-  - GOOD: "Find places on Victoria Drive still open at 8 PM" (preserves location + time)
-  - BAD: "Look into restaurants" (missing specifics)
-  - GOOD: "Find a pho restaurant in Vancouver open past 9 PM" (preserves cuisine + city + time)
-- Combine related fragments: if someone says "add a todo" in one sentence and specifies details across the next few sentences, merge them into ONE complete todo
-- Do NOT duplicate existing todos
-- Empty array ONLY if truly nothing actionable was discussed`;
+export function buildTodoPrompt(
+  recentBlocks: TranscriptBlock[],
+  existingTodos: ReadonlyArray<Pick<TodoItem, "text" | "completed">>
+): string {
+  const transcript = recentBlocks
+    .map((b) => {
+      const source = `[${b.audioSource}] ${b.sourceText}`;
+      const translation = b.translation ? ` → ${b.translation}` : "";
+      return source + translation;
+    })
+    .join("\n");
+
+  const todosSection =
+    existingTodos.length > 0
+      ? `\n\nExisting todos:\n${existingTodos.map((t) => `- [${t.completed ? "x" : " "}] ${t.text}`).join("\n")}`
+      : "";
+
+  return `You extract TODOs from live conversation transcripts.
+
+Recent transcript:
+${transcript}${todosSection}
+
+Task:
+- Extract any tasks, action items, or follow-ups.
+- Be aggressive: it's better to suggest a todo the user can dismiss than to miss one.
+- Triggers include: "add a todo", "I need to", "we should", "let's", "remind me to", "don't forget", "I want to", "we have to", "gotta", "should check", "look into", "find out", or question-driven research tasks.
+- Preserve details exactly: names, places, dates, times, constraints.
+- Merge fragments across neighboring lines into one complete todo.
+- Do NOT duplicate existing todos.
+- Return an empty list only if nothing actionable was discussed.`;
 }

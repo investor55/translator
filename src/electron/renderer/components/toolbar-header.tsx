@@ -4,7 +4,7 @@ import {
   PauseIcon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
-import { LanguagesIcon, MicIcon, MicOffIcon, PlusIcon } from "lucide-react";
+import { LanguagesIcon, MicIcon, MicOffIcon, PlusIcon, Settings2Icon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -32,6 +32,8 @@ type ToolbarHeaderProps = {
   langError: string;
   onToggleTranslation?: () => void;
   onToggleMic?: () => void;
+  settingsOpen?: boolean;
+  onToggleSettings?: () => void;
 };
 
 function StatusBadge({ status }: { status: UIState["status"] }) {
@@ -74,6 +76,8 @@ export function ToolbarHeader({
   langError,
   onToggleTranslation,
   onToggleMic,
+  settingsOpen,
+  onToggleSettings,
 }: ToolbarHeaderProps) {
   const isPaused = uiState?.status === "paused";
   const loading = languages.length === 0;
@@ -199,19 +203,30 @@ export function ToolbarHeader({
         )}
 
         {/* Status info (right-aligned) */}
-        {uiState && (
-          <div className="ml-auto flex items-center gap-2 titlebar-no-drag">
-            <StatusBadge status={uiState.status} />
-            {uiState.cost != null && uiState.cost > 0 && (
-              <>
-                <Separator orientation="vertical" className="h-4" />
-                <span className="font-mono text-muted-foreground text-xs">
-                  ${uiState.cost.toFixed(4)}
-                </span>
-              </>
-            )}
-          </div>
-        )}
+        <div className="ml-auto flex items-center gap-2 titlebar-no-drag">
+          {uiState && (
+            <>
+              <StatusBadge status={uiState.status} />
+              {uiState.cost != null && uiState.cost > 0 && (
+                <>
+                  <Separator orientation="vertical" className="h-4" />
+                  <span className="font-mono text-muted-foreground text-xs">
+                    ${uiState.cost.toFixed(4)}
+                  </span>
+                </>
+              )}
+            </>
+          )}
+          <Separator orientation="vertical" className="h-4" />
+          <Button
+            variant={settingsOpen ? "secondary" : "ghost"}
+            size="icon-sm"
+            onClick={onToggleSettings}
+            aria-label={settingsOpen ? "Close settings" : "Open settings"}
+          >
+            <Settings2Icon className="size-3.5" />
+          </Button>
+        </div>
       </div>
 
       {langError && (

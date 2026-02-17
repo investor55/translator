@@ -1,8 +1,9 @@
 import { app, BrowserWindow } from "electron";
 import path from "node:path";
 import "dotenv/config";
-import { registerIpcHandlers } from "./ipc-handlers";
+import { registerIpcHandlers, shutdownSessionOnAppQuit } from "./ipc-handlers";
 import { createDatabase, type AppDatabase } from "../core/db";
+import { log } from "../core/logger";
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -45,6 +46,10 @@ function createWindow() {
 app.whenReady().then(() => {
   const dbPath = path.join(app.getPath("userData"), "ambient.db");
   db = createDatabase(dbPath);
+  const staleAgentCount = db.failStaleRunningAgents("Interrupted because the app quit before completion.");
+  if (staleAgentCount > 0) {
+    log("WARN", `Recovered ${staleAgentCount} stale running agent(s) as failed on startup`);
+  }
 
   registerIpcHandlers(() => mainWindow, db);
   createWindow();
@@ -57,6 +62,7 @@ app.whenReady().then(() => {
 });
 
 app.on("will-quit", () => {
+  shutdownSessionOnAppQuit();
   db?.close();
   db = null;
 });

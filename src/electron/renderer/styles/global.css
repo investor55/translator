@@ -10,6 +10,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  color-scheme: light;
   --background: oklch(0.985 0.002 90);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -64,6 +65,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -182,6 +184,14 @@
   background: oklch(0.65 0.005 90);
 }
 
+.dark ::-webkit-scrollbar-thumb {
+  background: oklch(0.32 0 0);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.42 0 0);
+}
+
 /* Titlebar drag regions */
 .titlebar-drag {
   -webkit-app-region: drag;
@@ -204,4 +214,9 @@
 }
 .mic-pulse-ring {
   animation: mic-pulse-ring 1.5s ease-out infinite;
+}
+
+@keyframes ai-shimmer {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
 }

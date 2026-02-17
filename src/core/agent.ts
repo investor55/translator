@@ -63,6 +63,68 @@ function buildTools(exa: ExaClient, getTranscriptContext: () => string) {
   };
 }
 
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function getSearchQuery(input: unknown): string | null {
+  if (!input || typeof input !== "object") return null;
+  const query = (input as Record<string, unknown>).query;
+  return typeof query === "string" ? query.trim() || null : null;
+}
+
+function summarizeToolCall(toolName: string, input: unknown): {
+  content: string;
+  toolInput?: string;
+} {
+  if (toolName === "searchWeb") {
+    const query = getSearchQuery(input);
+    if (query) {
+      return { content: `Searched: ${query}` };
+    }
+    return { content: "Searching the web", toolInput: safeJson(input) };
+  }
+
+  if (toolName === "getTranscriptContext") {
+    return { content: "Reading transcript context" };
+  }
+
+  return {
+    content: `Using ${toolName}`,
+    toolInput: safeJson(input),
+  };
+}
+
+function summarizeToolResult(
+  toolName: string,
+  input: unknown,
+  output: unknown
+): {
+  content: string;
+  toolInput?: string;
+} {
+  if (toolName === "searchWeb") {
+    const query = getSearchQuery(input);
+    if (query) {
+      return { content: `Searched: ${query}` };
+    }
+    return { content: "Search complete" };
+  }
+
+  if (toolName === "getTranscriptContext") {
+    return { content: "Loaded transcript context" };
+  }
+
+  return {
+    content: `${toolName} complete`,
+    toolInput: safeJson(output),
+  };
+}
+
 /**
  * Run agent with an initial prompt (first turn).
  */
@@ -108,29 +170,102 @@ async function runAgentWithMessages(
     });
 
     const streamedAt = Date.now();
-    let stepId: string | null = null;
+    let textStepId: string | null = null;
     let streamedText = "";
     let deltaCount = 0;
     let firstDeltaAfterMs: number | null = null;
+    const reasoningById = new Map<string, string>();
 
     for await (const part of result.fullStream) {
-      if (part.type !== "text-delta") continue;
-      deltaCount += 1;
-      if (firstDeltaAfterMs == null) {
-        firstDeltaAfterMs = Date.now() - streamedAt;
+      switch (part.type) {
+        case "text-delta": {
+          deltaCount += 1;
+          if (firstDeltaAfterMs == null) {
+            firstDeltaAfterMs = Date.now() - streamedAt;
+          }
+          streamedText += part.text;
+          textStepId = `text:${part.id}`;
+          onStep({
+            id: textStepId,
+            kind: "text",
+            content: streamedText,
+            createdAt: streamedAt,
+          });
+          break;
+        }
+        case "reasoning-start": {
+          const reasoningStepId = `reasoning:${part.id}`;
+          onStep({
+            id: reasoningStepId,
+            kind: "thinking",
+            content: "Thinking...",
+            createdAt: Date.now(),
+          });
+          break;
+        }
+        case "reasoning-delta": {
+          const reasoningStepId = `reasoning:${part.id}`;
+          const next = `${reasoningById.get(reasoningStepId) ?? ""}${part.text}`;
+          reasoningById.set(reasoningStepId, next);
+          onStep({
+            id: reasoningStepId,
+            kind: "thinking",
+            content: next.trim() || "Thinking...",
+            createdAt: Date.now(),
+          });
+          break;
+        }
+        case "tool-call": {
+          const { content, toolInput } = summarizeToolCall(part.toolName, part.input);
+          const toolStepId = `tool:${part.toolCallId}`;
+          onStep({
+            id: toolStepId,
+            kind: "tool-call",
+            content,
+            toolName: part.toolName,
+            toolInput,
+            createdAt: Date.now(),
+          });
+          break;
+        }
+        case "tool-result": {
+          if (part.preliminary) break;
+          const { content, toolInput } = summarizeToolResult(
+            part.toolName,
+            part.input,
+            part.output
+          );
+          const toolStepId = `tool:${part.toolCallId}`;
+          onStep({
+            id: toolStepId,
+            kind: "tool-result",
+            content,
+            toolName: part.toolName,
+            toolInput,
+            createdAt: Date.now(),
+          });
+          break;
+        }
+        case "tool-error": {
+          const toolStepId = `tool:${part.toolCallId}`;
+          onStep({
+            id: toolStepId,
+            kind: "tool-result",
+            content: `${part.toolName} failed`,
+            toolName: part.toolName,
+            toolInput: safeJson(part.error),
+            createdAt: Date.now(),
+          });
+          break;
+        }
+        default: {
+          break;
+        }
       }
-      streamedText += part.text;
-      if (!stepId) stepId = crypto.randomUUID();
-      onStep({
-        id: stepId,
-        kind: "text",
-        content: streamedText,
-        createdAt: streamedAt,
-      });
     }
 
     const finalText = (await result.text).trim() || streamedText || "No results found.";
-    const finalStepId = stepId ?? crypto.randomUUID();
+    const finalStepId = textStepId ?? crypto.randomUUID();
     onStep({
       id: finalStepId,
       kind: "text",

@@ -15,17 +15,18 @@ import type {
   TodoSuggestion,
   Insight,
 } from "./types";
-import { createTranscriptionModel, createAnalysisModel } from "./providers";
+import { createTranscriptionModel, createAnalysisModel, createTodoModel } from "./providers";
 import { log } from "./logger";
 import { pcmToWavBuffer, computeRms } from "./audio-utils";
 import { isLikelyDuplicateTodoText, normalizeTodoText, toReadableError } from "./text-utils";
-import { analysisSchema, buildAnalysisPrompt } from "./analysis";
+import { analysisSchema, todoAnalysisSchema, buildAnalysisPrompt, buildTodoPrompt } from "./analysis";
 import type { AppDatabase } from "./db";
 import {
   LANG_NAMES,
   getLanguageLabel,
   hasTranslatableContent,
   buildAudioPromptForStructured,
+  detectSourceLanguage,
 } from "./language";
 import {
   createCostAccumulator,
@@ -60,6 +61,7 @@ import {
   type AudioRecorder,
 } from "./audio";
 import { createAgentManager, type AgentManager } from "./agent-manager";
+import { transcribeWithElevenLabs } from "./elevenlabs";
 
 type TypedEmitter = EventEmitter & {
   emit<K extends keyof SessionEvents>(event: K, ...args: SessionEvents[K]): boolean;
@@ -72,15 +74,22 @@ type AudioPipeline = {
   overlap: Buffer;
 };
 
+type PendingFastTodo = {
+  text: string;
+  createdAt: number;
+};
+
 export class Session {
   readonly events: TypedEmitter = new EventEmitter() as TypedEmitter;
   readonly config: SessionConfig;
   readonly sessionId: string;
 
-  private transcriptionModel: LanguageModel;
+  private transcriptionModel: LanguageModel | null;
   private analysisModel: LanguageModel;
+  private todoModel: LanguageModel;
   private audioTranscriptionSchema: z.ZodObject<z.ZodRawShape>;
   private transcriptionOnlySchema: z.ZodObject<z.ZodRawShape>;
+  private textPostProcessSchema: z.ZodObject<z.ZodRawShape>;
 
   private isRecording = false;
   private audioRecorder: AudioRecorder | null = null;
@@ -91,10 +100,14 @@ export class Session {
   private micProcess: ChildProcess | null = null;
   private _micEnabled = false;
 
-  // Shared Vertex queue for both pipelines
-  private chunkQueue: Array<{ chunk: Buffer; audioSource: AudioSource }> = [];
+  // Shared transcription queue for both pipelines. Keep sequential to preserve speech order.
+  private chunkQueue: Array<{
+    chunk: Buffer;
+    audioSource: AudioSource;
+    capturedAt: number;
+  }> = [];
   private inFlight = 0;
-  private maxConcurrency = 5;
+  private maxConcurrency = 1;
   private readonly maxQueueSize = 20;
 
   // Per-pipeline state
@@ -115,11 +128,15 @@ export class Session {
   private _translationEnabled: boolean;
 
   private analysisTimer: NodeJS.Timeout | null = null;
+  private analysisHeartbeatTimer: NodeJS.Timeout | null = null;
   private analysisInFlight = false;
   private analysisRequested = false;
   private readonly analysisDebounceMs = 300;
+  private readonly analysisHeartbeatMs = 5000;
   private readonly analysisRetryDelayMs = 2000;
   private recentSuggestedTodoTexts: string[] = [];
+  private pendingFastTodo: PendingFastTodo | null = null;
+  private readonly fastTodoContinuationWindowMs = 8000;
   private lastSummary: Summary | null = null;
   private lastAnalysisBlockCount = 0;
   private db: AppDatabase | null;
@@ -137,8 +154,11 @@ export class Session {
     this._translationEnabled = config.translationEnabled;
     this.userContext = loadUserContext(config.contextFile, config.useContext);
 
-    this.transcriptionModel = createTranscriptionModel(config);
+    this.transcriptionModel = config.transcriptionProvider === "elevenlabs"
+      ? null
+      : createTranscriptionModel(config);
     this.analysisModel = createAnalysisModel(config);
+    this.todoModel = createTodoModel(config);
 
     const exaApiKey = process.env.EXA_API_KEY;
     if (exaApiKey) {
@@ -168,10 +188,12 @@ export class Session {
       ? [config.sourceLang, config.targetLang]
       : [config.sourceLang, config.targetLang, "en"];
 
+    const sourceLanguageDescription = `The detected language: ${langEnumValues.map((c) => `"${c}" for ${LANG_NAMES[c as LanguageCode] ?? c}`).join(", ")}`;
+
     this.audioTranscriptionSchema = z.object({
       sourceLanguage: z
         .enum(langEnumValues)
-        .describe(`The detected language: ${langEnumValues.map((c) => `"${c}" for ${LANG_NAMES[c as LanguageCode] ?? c}`).join(", ")}`),
+        .describe(sourceLanguageDescription),
       transcript: z
         .string()
         .describe("The transcription of the audio in the original language"),
@@ -190,7 +212,7 @@ export class Session {
     this.transcriptionOnlySchema = z.object({
       sourceLanguage: z
         .enum(langEnumValues)
-        .describe(`The detected language: ${langEnumValues.map((c) => `"${c}" for ${LANG_NAMES[c as LanguageCode] ?? c}`).join(", ")}`),
+        .describe(sourceLanguageDescription),
       transcript: z
         .string()
         .describe("The transcription of the audio in the original language"),
@@ -200,6 +222,22 @@ export class Session {
       isNewTopic: z
         .boolean()
         .describe("True if the speaker shifted to a new topic. False if continuing the same topic."),
+    });
+
+    this.textPostProcessSchema = z.object({
+      sourceLanguage: z
+        .enum(langEnumValues)
+        .describe(sourceLanguageDescription),
+      translation: z
+        .string()
+        .optional()
+        .describe("Translated text based on configured language direction. Empty when translation is disabled or not needed."),
+      isPartial: z
+        .boolean()
+        .describe("True if the transcript appears cut off mid-sentence. False if it appears complete."),
+      isNewTopic: z
+        .boolean()
+        .describe("True if the transcript shifts to a new topic compared with provided context."),
     });
 
   }
@@ -283,6 +321,7 @@ export class Session {
       this.lastSummary = null;
       this.lastAnalysisBlockCount = 0;
       this.recentSuggestedTodoTexts = [];
+      this.pendingFastTodo = null;
       this.events.emit("blocks-cleared");
       this.events.emit("summary-updated", null);
     }
@@ -405,8 +444,8 @@ export class Session {
       resetVadState(this.micPipeline.vadState);
       this.micPipeline.overlap = Buffer.alloc(0);
 
-      // Raise concurrency when both pipelines active
-      this.maxConcurrency = 8;
+      // Keep sequential processing so transcript order matches speech order.
+      this.maxConcurrency = 1;
 
       let micDataReceived = false;
       let micTotalBytes = 0;
@@ -456,7 +495,7 @@ export class Session {
       this.micProcess.on("close", (code) => {
         if (this._micEnabled) {
           this._micEnabled = false;
-          this.maxConcurrency = 5;
+          this.maxConcurrency = 1;
           if (code !== 0 && code !== null) {
             const detail = micStderrBuffer.trim().slice(-200) || `exit code ${code}`;
             log("ERROR", `Mic ffmpeg exited: code=${code}, stderr: ${micStderrBuffer.trim()}`);
@@ -483,7 +522,7 @@ export class Session {
     this._micEnabled = true;
     resetVadState(this.micPipeline.vadState);
     this.micPipeline.overlap = Buffer.alloc(0);
-    this.maxConcurrency = 8;
+    this.maxConcurrency = 1;
     this.micDebugWindowCount = 0;
 
     log("INFO", "Mic started via renderer capture (Web Audio API)");
@@ -512,7 +551,7 @@ export class Session {
     }
 
     this._micEnabled = false;
-    this.maxConcurrency = 5;
+    this.maxConcurrency = 1;
     resetVadState(this.micPipeline.vadState);
     this.micPipeline.overlap = Buffer.alloc(0);
 
@@ -606,7 +645,11 @@ export class Session {
       log("WARN", `Dropped oldest chunk, queue was at ${this.maxQueueSize}`);
     }
 
-    this.chunkQueue.push({ chunk: combined, audioSource: pipeline.source });
+    this.chunkQueue.push({
+      chunk: combined,
+      audioSource: pipeline.source,
+      capturedAt: Date.now(),
+    });
     pipeline.overlap = Buffer.from(
       chunk.subarray(Math.max(0, chunk.length - overlapBytes))
     );
@@ -624,7 +667,7 @@ export class Session {
     if (this.inFlight >= this.maxConcurrency || this.chunkQueue.length === 0) return;
     const item = this.chunkQueue.shift();
     if (!item) return;
-    const { chunk, audioSource } = item;
+    const { chunk, audioSource, capturedAt } = item;
     this.inFlight++;
 
     const startTime = Date.now();
@@ -635,57 +678,99 @@ export class Session {
     const schema = useTranslation ? this.audioTranscriptionSchema : this.transcriptionOnlySchema;
 
     try {
-      const prompt = buildAudioPromptForStructured(
-        this.config.direction,
-        this.config.sourceLang,
-        this.config.targetLang,
-        getContextWindow(this.contextState),
-        this.contextState.allKeyPoints.slice(-8)
-      );
       const wavBuffer = pcmToWavBuffer(chunk, 16000);
+      let transcript = "";
+      let translation = "";
+      let detectedLang: LanguageCode = this.config.sourceLang;
+      let isPartial = false;
+      let isNewTopic = false;
 
       if (this.config.debug) {
         log("INFO", `Transcription request [${this.config.transcriptionProvider}]: src=${audioSource} chunk=${chunkDurationMs.toFixed(0)}ms (${(wavBuffer.byteLength / 1024).toFixed(0)}KB), queue=${this.chunkQueue.length}, inflight=${this.inFlight}`);
       }
 
-      const { object: result, usage: finalUsage } = await generateObject({
-        model: this.transcriptionModel,
-        schema,
-        system: this.userContext || undefined,
-        temperature: 0,
-        maxRetries: 2,
-        abortSignal: AbortSignal.timeout(30000),
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: prompt },
-              {
-                type: "file",
-                mediaType: "audio/wav",
-                data: wavBuffer,
-              },
-            ],
-          },
-        ],
-      });
+      if (this.config.transcriptionProvider === "elevenlabs") {
+        const sttResult = await transcribeWithElevenLabs(
+          wavBuffer,
+          this.config.transcriptionModelId
+        );
+        transcript = sttResult.transcript;
+        detectedLang = sttResult.sourceLanguage
+          ?? detectSourceLanguage(
+            transcript,
+            this.config.sourceLang,
+            this.config.targetLang
+          );
+        isPartial = this.isTranscriptLikelyPartial(transcript);
 
-      const elapsed = Date.now() - startTime;
-      const inTok = finalUsage?.inputTokens ?? 0;
-      const outTok = finalUsage?.outputTokens ?? 0;
-      const totalCost = addCostToAcc(this.costAccumulator, inTok, outTok, "audio", this.config.transcriptionProvider);
-      this.events.emit("cost-updated", totalCost);
+        if (useTranslation && transcript) {
+          const post = await this.postProcessTranscriptText(
+            transcript,
+            detectedLang,
+            true
+          );
+          translation = post.translation;
+          detectedLang = post.sourceLanguage;
+          isPartial = post.isPartial;
+          isNewTopic = post.isNewTopic;
+        }
+      } else {
+        const prompt = buildAudioPromptForStructured(
+          this.config.direction,
+          this.config.sourceLang,
+          this.config.targetLang,
+          getContextWindow(this.contextState),
+          this.contextState.allKeyPoints.slice(-8)
+        );
+        if (!this.transcriptionModel) {
+          throw new Error("Transcription model is not initialized.");
+        }
 
-      if (this.config.debug) {
-        log("INFO", `Transcription response [${this.config.transcriptionProvider}]: ${elapsed}ms, tokens: ${inTok}→${outTok}, queue: ${this.chunkQueue.length}`);
-        this.events.emit("status", `Response: ${elapsed}ms | T: ${inTok}→${outTok}`);
+        const { object: result, usage: finalUsage } = await generateObject({
+          model: this.transcriptionModel,
+          schema,
+          system: this.userContext || undefined,
+          temperature: 0,
+          maxRetries: 2,
+          abortSignal: AbortSignal.timeout(30000),
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: prompt },
+                {
+                  type: "file",
+                  mediaType: "audio/wav",
+                  data: wavBuffer,
+                },
+              ],
+            },
+          ],
+        });
+
+        const inTok = finalUsage?.inputTokens ?? 0;
+        const outTok = finalUsage?.outputTokens ?? 0;
+        const totalCost = addCostToAcc(this.costAccumulator, inTok, outTok, "audio", this.config.transcriptionProvider);
+        this.events.emit("cost-updated", totalCost);
+
+        if (this.config.debug) {
+          log("INFO", `Transcription response [${this.config.transcriptionProvider}]: ${Date.now() - startTime}ms, tokens: ${inTok}→${outTok}, queue: ${this.chunkQueue.length}`);
+          this.events.emit("status", `Response: ${Date.now() - startTime}ms | T: ${inTok}→${outTok}`);
+        }
+
+        transcript = (result as { transcript?: string }).transcript?.trim() ?? "";
+        translation = useTranslation
+          ? ((result as { translation?: string }).translation?.trim() ?? "")
+          : "";
+        detectedLang = (result as { sourceLanguage: string }).sourceLanguage as LanguageCode;
+        isPartial = (result as { isPartial: boolean }).isPartial;
+        isNewTopic = (result as { isNewTopic: boolean }).isNewTopic;
       }
 
-      const transcript = (result as { transcript?: string }).transcript?.trim() ?? "";
-      const translation = useTranslation
-        ? ((result as { translation?: string }).translation?.trim() ?? "")
-        : "";
-      const detectedLang = (result as { sourceLanguage: string }).sourceLanguage as LanguageCode;
+      if (this.config.debug && this.config.transcriptionProvider === "elevenlabs") {
+        log("INFO", `Transcription response [${this.config.transcriptionProvider}]: ${Date.now() - startTime}ms, queue: ${this.chunkQueue.length}`);
+        this.events.emit("status", `Response: ${Date.now() - startTime}ms`);
+      }
 
       if (!translation && !transcript) {
         log("WARN", "Transcription returned empty transcript and translation");
@@ -705,11 +790,12 @@ export class Session {
         translation || undefined,
         audioSource
       );
+      block.createdAt = capturedAt;
       block.sessionId = this.sessionId;
       this.events.emit("block-added", block);
 
-      block.partial = (result as { isPartial: boolean }).isPartial;
-      block.newTopic = (result as { isNewTopic: boolean }).isNewTopic;
+      block.partial = isPartial;
+      block.newTopic = isNewTopic;
       this.events.emit("block-updated", block);
 
       if (sourceText && hasTranslatableContent(sourceText)) {
@@ -718,6 +804,7 @@ export class Session {
         recordContext(this.contextState, translation);
       }
 
+      this.maybeEmitFastTodoSuggestion(block);
       this.scheduleAnalysis();
     } catch (error) {
       const elapsed = Date.now() - startTime;
@@ -742,11 +829,113 @@ export class Session {
     }
   }
 
+  private isTranscriptLikelyPartial(transcript: string): boolean {
+    const trimmed = transcript.trim();
+    if (!trimmed) return false;
+    return !/[.!?\u3002\uFF01\uFF1F…]["')\]]?$/.test(trimmed);
+  }
+
+  private async postProcessTranscriptText(
+    transcript: string,
+    detectedLangHint: LanguageCode,
+    useTranslation: boolean
+  ): Promise<{
+    sourceLanguage: LanguageCode;
+    translation: string;
+    isPartial: boolean;
+    isNewTopic: boolean;
+  }> {
+    const fallback = {
+      sourceLanguage: detectedLangHint,
+      translation: "",
+      isPartial: this.isTranscriptLikelyPartial(transcript),
+      isNewTopic: false,
+    };
+    if (!transcript.trim()) return fallback;
+
+    const contextWindow = getContextWindow(this.contextState);
+    const summaryPoints = this.contextState.allKeyPoints.slice(-8);
+    const summaryBlock = summaryPoints.length
+      ? `Conversation summary:\n${summaryPoints.map((p) => `- ${p}`).join("\n")}\n\n`
+      : "";
+    const contextBlock = contextWindow.length
+      ? `Recent transcript context:\n${contextWindow.join("\n")}\n\n`
+      : "";
+
+    const translationRule = !useTranslation
+      ? "Translation must be an empty string."
+      : this.config.direction === "source-target"
+        ? `Translation rule:
+- Treat sourceLanguage as "${this.config.sourceLang}" unless the transcript clearly contradicts it.
+- Translate into "${this.config.targetLang}" (${this.targetLangName}).
+- Translation must never be in the same language as transcript.`
+        : `Translation rule:
+- If sourceLanguage is "${this.config.sourceLang}", translate to "${this.config.targetLang}" (${this.targetLangName}).
+- If sourceLanguage is "${this.config.targetLang}", translate to "${this.config.sourceLang}" (${this.sourceLangName}).
+- If sourceLanguage is "en" and neither configured language is English, translation may be empty.
+- Translation must never be in the same language as transcript.`;
+
+    const prompt = `${summaryBlock}${contextBlock}You are post-processing a speech transcript from a dedicated STT model.
+Do not rewrite the transcript text.
+
+Transcript:
+"""${transcript}"""
+
+Detected language hint: "${detectedLangHint}"
+${translationRule}
+
+Return:
+1) sourceLanguage
+2) translation
+3) isPartial
+4) isNewTopic`;
+
+    try {
+      const { object, usage } = await generateObject({
+        model: this.analysisModel,
+        schema: this.textPostProcessSchema,
+        prompt,
+        abortSignal: AbortSignal.timeout(20000),
+        temperature: 0,
+      });
+
+      const totalCost = addCostToAcc(
+        this.costAccumulator,
+        usage?.inputTokens ?? 0,
+        usage?.outputTokens ?? 0,
+        "text",
+        this.config.analysisProvider
+      );
+      this.events.emit("cost-updated", totalCost);
+
+      return {
+        sourceLanguage: (object as { sourceLanguage: LanguageCode }).sourceLanguage,
+        translation: ((object as { translation?: string }).translation ?? "").trim(),
+        isPartial: (object as { isPartial: boolean }).isPartial,
+        isNewTopic: (object as { isNewTopic: boolean }).isNewTopic,
+      };
+    } catch (error) {
+      if (this.config.debug) {
+        log("WARN", `Transcript post-processing failed: ${toReadableError(error)}`);
+      }
+      return fallback;
+    }
+  }
+
   private startAnalysisTimer() {
     if (this.analysisTimer) {
       clearTimeout(this.analysisTimer);
       this.analysisTimer = null;
     }
+    if (this.analysisHeartbeatTimer) {
+      clearInterval(this.analysisHeartbeatTimer);
+      this.analysisHeartbeatTimer = null;
+    }
+    this.analysisHeartbeatTimer = setInterval(() => {
+      if (!this.isRecording) return;
+      this.flushPendingFastTodoIfStale();
+      this.scheduleAnalysis(0);
+    }, this.analysisHeartbeatMs);
     this.analysisRequested = false;
   }
 
@@ -769,6 +958,11 @@ export class Session {
       clearTimeout(this.analysisTimer);
       this.analysisTimer = null;
     }
+    if (this.analysisHeartbeatTimer) {
+      clearInterval(this.analysisHeartbeatTimer);
+      this.analysisHeartbeatTimer = null;
+    }
+    this.flushPendingFastTodo(true);
     this.analysisRequested = false;
   }
 
@@ -797,17 +991,17 @@ export class Session {
       const existingTodos = this.db ? this.db.getTodos() : [];
       const previousKeyPoints = this.contextState.allKeyPoints.slice(-20);
 
-      const prompt = buildAnalysisPrompt(recentBlocks, existingTodos, previousKeyPoints);
+      const analysisPrompt = buildAnalysisPrompt(recentBlocks, previousKeyPoints);
 
       const analysisProvider = this.config.analysisProvider;
       const providerOptions = analysisProvider === "google" || analysisProvider === "vertex"
         ? { google: { thinkingConfig: { includeThoughts: false, thinkingBudget: 2048 } } }
         : undefined;
 
-      const { object: result, usage } = await generateObject({
+      const { object: analysisResult, usage } = await generateObject({
         model: this.analysisModel,
         schema: analysisSchema,
-        prompt,
+        prompt: analysisPrompt,
         abortSignal: AbortSignal.timeout(30000),
         temperature: 0,
         providerOptions,
@@ -825,13 +1019,9 @@ export class Session {
       this.lastAnalysisBlockCount = analysisTargetBlockCount;
       analysisSucceeded = true;
 
-      if (this.config.debug) {
-        log("INFO", `Analysis response: ${elapsed}ms, keyPoints=${result.keyPoints.length}, insights=${result.educationalInsights.length}, todos=${result.suggestedTodos.length}`);
-      }
-
       // Update key points / summary — persist each as an insight so history survives
-      this.contextState.allKeyPoints.push(...result.keyPoints);
-      for (const text of result.keyPoints) {
+      this.contextState.allKeyPoints.push(...analysisResult.keyPoints);
+      for (const text of analysisResult.keyPoints) {
         const kpInsight: Insight = {
           id: crypto.randomUUID(),
           kind: "key-point",
@@ -841,11 +1031,11 @@ export class Session {
         };
         this.db?.insertInsight(kpInsight);
       }
-      this.lastSummary = { keyPoints: result.keyPoints, updatedAt: Date.now() };
+      this.lastSummary = { keyPoints: analysisResult.keyPoints, updatedAt: Date.now() };
       this.events.emit("summary-updated", this.lastSummary);
 
       // Emit educational insights
-      for (const item of result.educationalInsights) {
+      for (const item of analysisResult.educationalInsights) {
         const insight: Insight = {
           id: crypto.randomUUID(),
           kind: item.kind,
@@ -857,28 +1047,46 @@ export class Session {
         this.events.emit("insight-added", insight);
       }
 
+      let todoSuggestions: string[] = [];
+      try {
+        const todoPrompt = buildTodoPrompt(recentBlocks, existingTodos);
+        const { object: todoResult, usage: todoUsage } = await generateObject({
+          model: this.todoModel,
+          schema: todoAnalysisSchema,
+          prompt: todoPrompt,
+          abortSignal: AbortSignal.timeout(15000),
+          temperature: 0,
+        });
+
+        const totalWithTodo = addCostToAcc(
+          this.costAccumulator,
+          todoUsage?.inputTokens ?? 0,
+          todoUsage?.outputTokens ?? 0,
+          "text",
+          "openrouter"
+        );
+        this.events.emit("cost-updated", totalWithTodo);
+        todoSuggestions = todoResult.suggestedTodos;
+      } catch (todoError) {
+        if (this.config.debug) {
+          log("WARN", `Todo extraction failed: ${toReadableError(todoError)}`);
+        }
+      }
+
+      if (this.config.debug) {
+        log("INFO", `Analysis response: ${elapsed}ms, keyPoints=${analysisResult.keyPoints.length}, insights=${analysisResult.educationalInsights.length}, todos=${todoSuggestions.length}`);
+      }
+
       // Emit todo suggestions (not auto-added — user must accept)
       const existingTodoTexts = existingTodos.map((t) => t.text);
       const emittedTodoSuggestions: string[] = [];
-      for (const text of result.suggestedTodos) {
+      for (const text of todoSuggestions) {
         const candidate = text.trim();
         if (!candidate) continue;
-        if (this.isDuplicateTodoSuggestion(candidate, existingTodoTexts, emittedTodoSuggestions)) {
+        if (!this.tryEmitTodoSuggestion(candidate, existingTodoTexts, emittedTodoSuggestions)) {
           continue;
         }
-
-        const suggestion: TodoSuggestion = {
-          id: crypto.randomUUID(),
-          text: candidate,
-          sessionId: this.sessionId,
-          createdAt: Date.now(),
-        };
         emittedTodoSuggestions.push(candidate);
-        this.recentSuggestedTodoTexts.push(candidate);
-        if (this.recentSuggestedTodoTexts.length > 500) {
-          this.recentSuggestedTodoTexts = this.recentSuggestedTodoTexts.slice(-500);
-        }
-        this.events.emit("todo-suggested", suggestion);
       }
     } catch (error) {
       if (this.config.debug) {
@@ -913,5 +1121,141 @@ export class Session {
     if (this.recentSuggestedTodoTexts.some(fuzzyMatch)) return true;
 
     return false;
+  }
+
+  private tryEmitTodoSuggestion(
+    candidate: string,
+    existingTodoTexts?: readonly string[],
+    emittedInCurrentAnalysis: readonly string[] = []
+  ): boolean {
+    const normalized = candidate.trim();
+    if (!normalized) return false;
+
+    const knownTodoTexts = existingTodoTexts ?? (this.db ? this.db.getTodos().map((t) => t.text) : []);
+    if (this.isDuplicateTodoSuggestion(normalized, knownTodoTexts, emittedInCurrentAnalysis)) {
+      return false;
+    }
+
+    const suggestion: TodoSuggestion = {
+      id: crypto.randomUUID(),
+      text: normalized,
+      sessionId: this.sessionId,
+      createdAt: Date.now(),
+    };
+    this.recentSuggestedTodoTexts.push(normalized);
+    if (this.recentSuggestedTodoTexts.length > 500) {
+      this.recentSuggestedTodoTexts = this.recentSuggestedTodoTexts.slice(-500);
+    }
+    this.events.emit("todo-suggested", suggestion);
+    return true;
+  }
+
+  private maybeEmitFastTodoSuggestion(block: {
+    sourceText: string;
+    translation?: string;
+    partial?: boolean;
+    createdAt: number;
+  }) {
+    this.flushPendingFastTodoIfStale(block.createdAt);
+
+    const candidates = [block.sourceText, block.translation].filter((value): value is string => !!value && value.trim().length > 0);
+    if (candidates.length === 0) return;
+
+    if (this.pendingFastTodo && block.createdAt - this.pendingFastTodo.createdAt <= this.fastTodoContinuationWindowMs) {
+      const preferredContinuation = candidates.find((value) => /[a-z]/i.test(value)) ?? candidates[0];
+      const continuation = this.cleanFastTodoText(preferredContinuation);
+      if (this.isLikelyTodoContinuation(continuation)) {
+        const merged = this.mergeTodoParts(this.pendingFastTodo.text, continuation);
+        if (this.shouldWaitForTodoContinuation(merged, !!block.partial)) {
+          this.pendingFastTodo = { text: merged, createdAt: block.createdAt };
+        } else {
+          this.tryEmitTodoSuggestion(merged);
+          this.pendingFastTodo = null;
+        }
+        return;
+      }
+    }
+
+    for (const candidateText of candidates) {
+      const extracted = this.extractFastTodoCandidate(candidateText, !!block.partial);
+      if (!extracted) continue;
+
+      if (extracted.needsContinuation) {
+        this.pendingFastTodo = { text: extracted.text, createdAt: block.createdAt };
+      } else {
+        this.tryEmitTodoSuggestion(extracted.text);
+        this.pendingFastTodo = null;
+      }
+      return;
+    }
+  }
+
+  private extractFastTodoCandidate(
+    text: string,
+    isPartial: boolean
+  ): { text: string; needsContinuation: boolean } | null {
+    const cleaned = this.cleanFastTodoText(text);
+    if (!cleaned) return null;
+
+    const trigger = /\b(add(?:\s+\w+){0,3}\s+(?:to-?do(?:s)?|to do(?:s)?)|to-?do(?:s)?|to do(?:s)?|todo(?:s)?|remind me to|don't forget to|do not forget to|i need to|we need to|i want to|i wanna|we should|let's|look into|find out|should check)\b/i;
+    const match = cleaned.match(trigger);
+    if (!match || match.index == null) return null;
+
+    let candidate = cleaned.slice(match.index);
+    candidate = candidate.replace(
+      /^(?:add(?:\s+\w+){0,3}\s+(?:to-?do(?:s)?|to do(?:s)?)|to-?do(?:s)?|to do(?:s)?|todo(?:s)?|remind me to|don't forget to|do not forget to)[:\s,-]*/i,
+      ""
+    );
+    candidate = candidate.replace(/^(?:so|um|uh|okay|ok|well|like|please|just)\b[\s,.-]*/i, "");
+    candidate = candidate.replace(/\s+/g, " ").trim();
+
+    if (!candidate || candidate.length < 8) return null;
+    return {
+      text: candidate,
+      needsContinuation: this.shouldWaitForTodoContinuation(candidate, isPartial),
+    };
+  }
+
+  private cleanFastTodoText(text: string): string {
+    return text
+      .replace(/\[[^\]]+\]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private isLikelyTodoContinuation(text: string): boolean {
+    const cleaned = text.trim();
+    if (!cleaned) return false;
+    if (!/[a-z0-9]/i.test(cleaned)) return false;
+    if (/^(?:ok|okay|yes|no|sure|hmm|uh|um)\b/i.test(cleaned)) return false;
+    return cleaned.split(/\s+/).length >= 2;
+  }
+
+  private mergeTodoParts(base: string, continuation: string): string {
+    const left = base.trim().replace(/[,\s-]+$/, "");
+    const right = continuation.trim().replace(/^[,\s-]+/, "");
+    if (!left) return right;
+    if (!right) return left;
+    return `${left} ${right}`.replace(/\s+/g, " ").trim();
+  }
+
+  private shouldWaitForTodoContinuation(text: string, isPartial: boolean): boolean {
+    if (isPartial) return true;
+    const t = text.trim().toLowerCase();
+    return /(?:-|:|,|;|\/)$/.test(t) || /\b(and|to|for|with|about|at|look at|look into)$/.test(t);
+  }
+
+  private flushPendingFastTodo(force = false) {
+    if (!this.pendingFastTodo) return;
+    if (!force) return;
+    this.tryEmitTodoSuggestion(this.pendingFastTodo.text);
+    this.pendingFastTodo = null;
+  }
+
+  private flushPendingFastTodoIfStale(now = Date.now()) {
+    if (!this.pendingFastTodo) return;
+    if (now - this.pendingFastTodo.createdAt < this.fastTodoContinuationWindowMs) return;
+    this.tryEmitTodoSuggestion(this.pendingFastTodo.text);
+    this.pendingFastTodo = null;
   }
 }

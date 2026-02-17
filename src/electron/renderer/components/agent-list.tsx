@@ -30,7 +30,13 @@ function StatusIcon({ status }: { status: Agent["status"] }) {
 function lastStepSummary(agent: Agent): string {
   const lastVisible = [...agent.steps]
     .reverse()
-    .find((step) => step.kind === "user" || step.kind === "text");
+    .find(
+      (step) =>
+        step.kind === "user" ||
+        step.kind === "text" ||
+        step.kind === "tool-call" ||
+        step.kind === "thinking"
+    );
 
   if (!lastVisible) {
     return agent.status === "running" ? "Researching..." : "No messages yet";
@@ -38,6 +44,9 @@ function lastStepSummary(agent: Agent): string {
 
   if (lastVisible.kind === "user") {
     return `You: ${lastVisible.content.slice(0, 52)}`;
+  }
+  if (lastVisible.kind === "thinking") {
+    return "Thinking...";
   }
 
   return lastVisible.content.slice(0, 60);

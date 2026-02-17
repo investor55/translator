@@ -21,6 +21,19 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@/components/ai-elements/reasoning";
+import { Shimmer } from "@/components/ai-elements/shimmer";
+import {
+  Tool,
+  ToolContent,
+  ToolHeader,
+  ToolInput,
+  type ToolState,
+} from "@/components/ai-elements/tool";
 import type { Agent, AgentStep } from "../../../core/types";
 
 type FollowUpResult = { ok: boolean; error?: string };
@@ -60,7 +73,15 @@ function StatusBadge({ status }: { status: Agent["status"] }) {
   }
 }
 
-function StepItem({ step }: { step: AgentStep }) {
+function StepItem({
+  step,
+  isRunning,
+  isReasoningStreaming,
+}: {
+  step: AgentStep;
+  isRunning: boolean;
+  isReasoningStreaming: boolean;
+}) {
   switch (step.kind) {
     case "text":
       return (
@@ -77,9 +98,68 @@ function StepItem({ step }: { step: AgentStep }) {
           <p className="text-xs text-foreground leading-relaxed">{step.content}</p>
         </div>
       );
+    case "thinking":
+      return (
+        <div className="py-1 border-t border-border mt-1">
+          <Reasoning className="w-full" defaultOpen={false} isStreaming={isReasoningStreaming}>
+            <ReasoningTrigger />
+            <ReasoningContent>{step.content}</ReasoningContent>
+          </Reasoning>
+        </div>
+      );
+    case "tool-call":
+    case "tool-result": {
+      const state: ToolState =
+        step.kind === "tool-call"
+          ? isRunning
+            ? "input-streaming"
+            : "output-available"
+          : step.content.toLowerCase().includes("failed")
+            ? "output-error"
+            : "output-available";
+      return (
+        <div className="py-0.5 border-t border-border mt-1">
+          <Tool defaultOpen={false} isStreaming={state === "input-streaming"}>
+            <ToolHeader
+              state={state}
+              title={step.content}
+              type={`tool-${step.toolName ?? "tool"}`}
+            />
+            {step.toolInput && (
+              <ToolContent>
+                <ToolInput input={step.toolInput} />
+              </ToolContent>
+            )}
+          </Tool>
+        </div>
+      );
+    }
     default:
       return null;
   }
+}
+
+function ToolSummaryItem({ title, steps }: { title: string; steps: AgentStep[] }) {
+  return (
+    <div className="py-0.5 border-t border-border mt-1">
+      <Tool defaultOpen={false} isStreaming={false}>
+        <ToolHeader state="output-available" title={title} type="tool-summary" />
+        <ToolContent>
+          <div className="space-y-1">
+            {steps.map((step) => (
+              <p
+                className="text-[10px] text-muted-foreground/90 leading-snug truncate"
+                key={step.id}
+                title={step.content}
+              >
+                {step.content}
+              </p>
+            ))}
+          </div>
+        </ToolContent>
+      </Tool>
+    </div>
+  );
 }
 
 export function AgentDetailPanel({
@@ -92,7 +172,15 @@ export function AgentDetailPanel({
 }: AgentDetailPanelProps) {
   const [followUpError, setFollowUpError] = useState("");
   const visibleSteps = useMemo(
-    () => agent.steps.filter((step) => step.kind === "user" || step.kind === "text"),
+    () =>
+      agent.steps.filter(
+        (step) =>
+          step.kind === "user" ||
+          step.kind === "text" ||
+          step.kind === "thinking" ||
+          step.kind === "tool-call" ||
+          step.kind === "tool-result"
+      ),
     [agent.steps]
   );
 
@@ -101,6 +189,81 @@ export function AgentDetailPanel({
   const hasNext = currentIndex > 0;
   const isRunning = agent.status === "running";
   const canFollowUp = !isRunning && !!onFollowUp;
+  const activeTurnStartAt = useMemo(() => {
+    const lastUserStep = [...agent.steps]
+      .reverse()
+      .find((step) => step.kind === "user");
+    return lastUserStep?.createdAt ?? agent.createdAt;
+  }, [agent.createdAt, agent.steps]);
+  const hasCurrentTurnText = useMemo(
+    () =>
+      agent.steps.some(
+        (step) => step.kind === "text" && step.createdAt >= activeTurnStartAt
+      ),
+    [activeTurnStartAt, agent.steps]
+  );
+  const hasCurrentTurnActivity = useMemo(
+    () =>
+      agent.steps.some(
+        (step) => step.kind !== "user" && step.createdAt >= activeTurnStartAt
+      ),
+    [activeTurnStartAt, agent.steps]
+  );
+  const showPlanning = isRunning && !hasCurrentTurnActivity;
+  const latestThinkingStepId = useMemo(
+    () =>
+      [...visibleSteps].reverse().find((step) => step.kind === "thinking")?.id ??
+      null,
+    [visibleSteps]
+  );
+  const currentTurnToolSteps = useMemo(
+    () =>
+      visibleSteps.filter(
+        (step) =>
+          (step.kind === "tool-call" || step.kind === "tool-result") &&
+          step.createdAt >= activeTurnStartAt
+      ),
+    [activeTurnStartAt, visibleSteps]
+  );
+  const collapseCurrentTurnTools = hasCurrentTurnText && currentTurnToolSteps.length > 0;
+  const collapsedToolStepIds = useMemo(
+    () => new Set(currentTurnToolSteps.map((step) => step.id)),
+    [currentTurnToolSteps]
+  );
+  const toolSummaryTitle = useMemo(() => {
+    const searchCount = currentTurnToolSteps.filter(
+      (step) => step.toolName === "searchWeb"
+    ).length;
+    if (searchCount > 0) {
+      return `Did ${searchCount} search${searchCount === 1 ? "" : "es"}`;
+    }
+    const total = currentTurnToolSteps.length;
+    return `Used ${total} tool${total === 1 ? "" : "s"}`;
+  }, [currentTurnToolSteps]);
+  const timelineItems = useMemo(() => {
+    if (!collapseCurrentTurnTools) {
+      return visibleSteps.map((step) => ({ kind: "step" as const, step }));
+    }
+
+    const items: Array<
+      | { kind: "step"; step: AgentStep }
+      | { kind: "tool-summary" }
+    > = [];
+    let insertedSummary = false;
+
+    for (const step of visibleSteps) {
+      if (collapsedToolStepIds.has(step.id)) {
+        if (!insertedSummary) {
+          items.push({ kind: "tool-summary" });
+          insertedSummary = true;
+        }
+        continue;
+      }
+      items.push({ kind: "step", step });
+    }
+
+    return items;
+  }, [collapseCurrentTurnTools, collapsedToolStepIds, visibleSteps]);
 
   const handleFollowUpSubmit = useCallback(
     async (message: PromptInputMessage) => {
@@ -182,24 +345,37 @@ export function AgentDetailPanel({
       {/* Step timeline */}
       <Conversation className="flex-1 min-h-0">
         <ConversationContent className="px-3 py-2.5">
-          {visibleSteps.length === 0 && isRunning && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <LoaderCircleIcon className="size-3.5 animate-spin" />
-              Starting agent...
-            </div>
-          )}
           {visibleSteps.length === 0 && !isRunning && (
             <p className="text-xs italic text-muted-foreground">
               No messages yet.
             </p>
           )}
-          {visibleSteps.map((step) => (
-            <StepItem key={step.id} step={step} />
-          ))}
-          {isRunning && visibleSteps.length > 0 && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
-              <LoaderCircleIcon className="size-3.5 animate-spin" />
-              Streaming...
+          {timelineItems.map((item, index) =>
+            item.kind === "tool-summary" ? (
+              <ToolSummaryItem
+                key={`tool-summary-${agent.id}-${activeTurnStartAt}-${index}`}
+                steps={currentTurnToolSteps}
+                title={toolSummaryTitle}
+              />
+            ) : (
+              <StepItem
+                isReasoningStreaming={
+                  isRunning &&
+                  !hasCurrentTurnText &&
+                  item.step.kind === "thinking" &&
+                  item.step.id === latestThinkingStepId
+                }
+                isRunning={isRunning}
+                key={item.step.id}
+                step={item.step}
+              />
+            )
+          )}
+          {showPlanning && (
+            <div className="py-1">
+              <Shimmer as="p" className="text-xs text-muted-foreground">
+                Planning
+              </Shimmer>
             </div>
           )}
         </ConversationContent>

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createDatabase, type AppDatabase } from "./db";
-import type { TranscriptBlock, TodoItem, Insight } from "./types";
+import type { TranscriptBlock, TodoItem, Insight, Agent } from "./types";
 
 let db: AppDatabase;
 
@@ -258,6 +258,51 @@ describe("insights", () => {
 
     const points = db.getRecentKeyPoints();
     expect(points).toEqual(["Point C", "Point A"]);
+  });
+});
+
+describe("agents", () => {
+  beforeEach(() => {
+    db.createSession("s1");
+  });
+
+  it("marks stale running agents as failed", () => {
+    const baseCreatedAt = Date.now();
+    const running: Agent = {
+      id: "a1",
+      todoId: "t1",
+      task: "Running task",
+      status: "running",
+      steps: [],
+      createdAt: baseCreatedAt,
+      sessionId: "s1",
+    };
+    const completed: Agent = {
+      id: "a2",
+      todoId: "t2",
+      task: "Done task",
+      status: "completed",
+      steps: [],
+      result: "done",
+      createdAt: baseCreatedAt + 1,
+      completedAt: baseCreatedAt + 2,
+      sessionId: "s1",
+    };
+    db.insertAgent(running);
+    db.insertAgent(completed);
+
+    const changes = db.failStaleRunningAgents("Interrupted by app shutdown");
+    expect(changes).toBe(1);
+
+    const agents = db.getAgentsForSession("s1");
+    const runningAfter = agents.find((a) => a.id === "a1");
+    const completedAfter = agents.find((a) => a.id === "a2");
+
+    expect(runningAfter?.status).toBe("failed");
+    expect(runningAfter?.result).toBe("Interrupted by app shutdown");
+    expect(runningAfter?.completedAt).toBeDefined();
+    expect(completedAfter?.status).toBe("completed");
+    expect(completedAfter?.result).toBe("done");
   });
 });
 

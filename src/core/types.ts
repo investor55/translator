@@ -29,8 +29,9 @@ export const SUPPORTED_LANGUAGES: Language[] = [
 export type Direction = "auto" | "source-target";
 export type Device = { index: number; name: string };
 export type AudioSource = "system" | "microphone";
+export type ThemeMode = "system" | "light" | "dark";
 
-export type TranscriptionProvider = "google" | "vertex";
+export type TranscriptionProvider = "google" | "vertex" | "elevenlabs";
 export type AnalysisProvider = "openrouter" | "google" | "vertex";
 
 export type TranscriptBlock = {
@@ -109,6 +110,7 @@ export type SessionConfig = {
   transcriptionModelId: string;
   analysisProvider: AnalysisProvider;
   analysisModelId: string;
+  todoModelId: string;
   vertexProject?: string;
   vertexLocation: string;
   contextFile: string;
@@ -120,15 +122,112 @@ export type SessionConfig = {
   micDevice?: string;
 };
 
+export type AppConfig = {
+  themeMode: ThemeMode;
+  direction: Direction;
+  intervalMs: number;
+  transcriptionProvider: TranscriptionProvider;
+  transcriptionModelId: string;
+  analysisProvider: AnalysisProvider;
+  analysisModelId: string;
+  todoModelId: string;
+  vertexProject?: string;
+  vertexLocation: string;
+  contextFile: string;
+  useContext: boolean;
+  compact: boolean;
+  debug: boolean;
+  legacyAudio: boolean;
+  translationEnabled: boolean;
+};
+
+export type AppConfigOverrides = Partial<AppConfig>;
+
+const ENV = typeof process !== "undefined" ? process.env : undefined;
+
 export const DEFAULT_VERTEX_MODEL_ID =
-  process.env.VERTEX_MODEL_ID ?? "gemini-3-flash-preview";
+  ENV?.VERTEX_MODEL_ID ?? "gemini-3-flash-preview";
 export const DEFAULT_VERTEX_LOCATION =
-  process.env.GOOGLE_VERTEX_PROJECT_LOCATION ?? "global";
+  ENV?.GOOGLE_VERTEX_PROJECT_LOCATION ?? "global";
 export const DEFAULT_TRANSCRIPTION_MODEL_ID =
-  process.env.TRANSCRIPTION_MODEL_ID ?? "gemini-3-flash-preview";
+  ENV?.TRANSCRIPTION_MODEL_ID ?? "scribe_v2";
 export const DEFAULT_ANALYSIS_MODEL_ID =
-  process.env.ANALYSIS_MODEL_ID ?? "moonshotai/kimi-k2-thinking";
+  ENV?.ANALYSIS_MODEL_ID ?? "moonshotai/kimi-k2-thinking";
+export const DEFAULT_TODO_MODEL_ID =
+  ENV?.TODO_MODEL_ID ?? "z-ai/glm-4.7-flash";
 export const DEFAULT_INTERVAL_MS = 2000;
+export const DEFAULT_THEME_MODE: ThemeMode = "system";
+
+export const DEFAULT_APP_CONFIG: AppConfig = {
+  themeMode: DEFAULT_THEME_MODE,
+  direction: "auto",
+  intervalMs: DEFAULT_INTERVAL_MS,
+  transcriptionProvider: "elevenlabs",
+  transcriptionModelId: DEFAULT_TRANSCRIPTION_MODEL_ID,
+  analysisProvider: "openrouter",
+  analysisModelId: DEFAULT_ANALYSIS_MODEL_ID,
+  todoModelId: DEFAULT_TODO_MODEL_ID,
+  vertexProject: ENV?.GOOGLE_VERTEX_PROJECT_ID,
+  vertexLocation: DEFAULT_VERTEX_LOCATION,
+  contextFile: "context.md",
+  useContext: false,
+  compact: false,
+  debug: !!ENV?.DEBUG,
+  legacyAudio: false,
+  translationEnabled: true,
+};
+
+export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig {
+  const merged: AppConfig = {
+    ...DEFAULT_APP_CONFIG,
+    ...(input ?? {}),
+  };
+
+  const themeMode: ThemeMode =
+    merged.themeMode === "dark" || merged.themeMode === "light" || merged.themeMode === "system"
+      ? merged.themeMode
+      : DEFAULT_APP_CONFIG.themeMode;
+  const direction: Direction =
+    merged.direction === "source-target" || merged.direction === "auto"
+      ? merged.direction
+      : DEFAULT_APP_CONFIG.direction;
+  const transcriptionProvider: TranscriptionProvider =
+    merged.transcriptionProvider === "google" ||
+    merged.transcriptionProvider === "vertex" ||
+    merged.transcriptionProvider === "elevenlabs"
+      ? merged.transcriptionProvider
+      : DEFAULT_APP_CONFIG.transcriptionProvider;
+  const analysisProvider: AnalysisProvider =
+    merged.analysisProvider === "openrouter" ||
+    merged.analysisProvider === "google" ||
+    merged.analysisProvider === "vertex"
+      ? merged.analysisProvider
+      : DEFAULT_APP_CONFIG.analysisProvider;
+  const intervalMs =
+    Number.isFinite(merged.intervalMs) && merged.intervalMs > 0
+      ? Math.round(merged.intervalMs)
+      : DEFAULT_APP_CONFIG.intervalMs;
+
+  return {
+    ...merged,
+    themeMode,
+    direction,
+    transcriptionProvider,
+    analysisProvider,
+    intervalMs,
+    transcriptionModelId: merged.transcriptionModelId?.trim() || DEFAULT_APP_CONFIG.transcriptionModelId,
+    analysisModelId: merged.analysisModelId?.trim() || DEFAULT_APP_CONFIG.analysisModelId,
+    todoModelId: merged.todoModelId?.trim() || DEFAULT_APP_CONFIG.todoModelId,
+    contextFile: merged.contextFile?.trim() || DEFAULT_APP_CONFIG.contextFile,
+    vertexLocation: merged.vertexLocation?.trim() || DEFAULT_APP_CONFIG.vertexLocation,
+    vertexProject: merged.vertexProject?.trim() || undefined,
+    useContext: !!merged.useContext,
+    compact: !!merged.compact,
+    debug: !!merged.debug,
+    legacyAudio: !!merged.legacyAudio,
+    translationEnabled: !!merged.translationEnabled,
+  };
+}
 
 // Agent types
 export type AgentStatus = "running" | "completed" | "failed";
