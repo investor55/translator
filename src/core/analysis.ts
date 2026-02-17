@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { TranscriptBlock, TodoItem } from "./types";
+import { getInsightsSystemPrompt, getSummarySystemPrompt } from "./prompt-loader";
 
 export const analysisSchema = z.object({
   keyPoints: z
@@ -30,6 +31,9 @@ export function buildAnalysisPrompt(
   recentBlocks: TranscriptBlock[],
   previousKeyPoints: readonly string[]
 ): string {
+  const summarySystemPrompt = getSummarySystemPrompt();
+  const insightsSystemPrompt = getInsightsSystemPrompt();
+
   const transcript = recentBlocks
     .map((b) => {
       const source = `[${b.audioSource}] ${b.sourceText}`;
@@ -43,29 +47,17 @@ export function buildAnalysisPrompt(
       ? `\n\nPrevious key points from this session:\n${previousKeyPoints.map((p) => `- ${p}`).join("\n")}`
       : "";
 
-  return `You are a knowledgeable assistant listening to a conversation. Your job is to provide helpful background knowledge about topics being discussed — like an intelligent footnote system.
+  return `${summarySystemPrompt}
+
+${insightsSystemPrompt}
 
 Recent transcript:
 ${transcript}${keyPointsSection}
 
-Tasks:
-
-1. KEY POINTS (2-4): Extract the main facts from the conversation. Be specific — names, numbers, dates.
-
-2. EDUCATIONAL INSIGHTS (1-3): Provide supplementary knowledge that helps the listener understand what's being discussed. These should NOT summarize the conversation — they should TEACH the listener something new.
-
-Examples of good educational insights:
-- If they mention "Kubernetes": "Kubernetes (K8s) is an open-source container orchestration platform originally developed by Google, now maintained by the CNCF."
-- If they discuss a Korean cultural practice: "설날 (Seollal) is the Korean Lunar New Year, one of the most important traditional holidays, typically celebrated with 떡국 (rice cake soup)."
-- If they reference a business metric: "Customer Acquisition Cost (CAC) is calculated by dividing total sales and marketing spend by the number of new customers acquired in that period."
-- If they mention a place: "Gangnam district in Seoul became internationally known after PSY's 2012 hit, but is primarily Korea's financial and tech hub, home to COEX and the Korea World Trade Center."
-
-Bad examples (do NOT do these):
-- "The speakers discussed Kubernetes" (this is a summary, not educational)
-- "The conversation covered several topics" (this is filler)
-- "They seemed interested in the subject" (this is commentary)
-
-Each insight should be something the listener could look up on Wikipedia — a definition, a fact, a piece of context that enriches understanding.
+Grounding requirements:
+- Use only information from the transcript and previous key points from THIS session.
+- Do not use memory from prior sessions.
+- If transcript details are sparse, return fewer items rather than inventing details.
 `;
 }
 

@@ -283,12 +283,17 @@ export class Session {
   }
 
   async initialize(): Promise<void> {
-    // Seed context with recent key points from previous sessions
+    // Seed context with existing key points for this session only.
+    // This keeps analysis anchored to the active conversation.
     if (this.db) {
-      const previousKeyPoints = this.db.getRecentKeyPoints(20);
-      if (previousKeyPoints.length > 0) {
-        this.contextState.allKeyPoints.push(...previousKeyPoints);
-        log("INFO", `Loaded ${previousKeyPoints.length} key points from previous sessions`);
+      const existingSessionKeyPoints = this.db
+        .getInsightsForSession(this.sessionId)
+        .filter((insight) => insight.kind === "key-point")
+        .map((insight) => insight.text);
+
+      if (existingSessionKeyPoints.length > 0) {
+        this.contextState.allKeyPoints.push(...existingSessionKeyPoints);
+        log("INFO", `Loaded ${existingSessionKeyPoints.length} key points for session ${this.sessionId}`);
       }
     }
 
@@ -997,7 +1002,9 @@ Return:
     const startTime = Date.now();
 
     try {
-      const existingTodos = this.db ? this.db.getTodos() : [];
+      const existingTodos = this.db
+        ? this.db.getTodosForSession(this.sessionId)
+        : [];
       const previousKeyPoints = this.contextState.allKeyPoints.slice(-20);
 
       const analysisPrompt = buildAnalysisPrompt(recentBlocks, previousKeyPoints);

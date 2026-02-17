@@ -165,6 +165,15 @@ Glossary:
 
 The content is injected into the system prompt for every translation, helping maintain consistency with speaker identities, terminology, and style preferences.
 
+## Prompt Tuning
+
+Summary and insight generation prompts are editable on disk:
+
+- `prompts/summary/system.md`
+- `prompts/insights/system.md`
+
+These files are loaded at runtime. If a file is missing or empty, the app falls back to built-in defaults.
+
 ## How It Works
 
 1. Captures system audio via ScreenCaptureKit → 16kHz mono PCM
