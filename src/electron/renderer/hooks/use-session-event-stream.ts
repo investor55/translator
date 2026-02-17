@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { Insight, TodoSuggestion } from "../../../core/types";
 
 type UseSessionEventStreamParams = {
@@ -16,6 +16,14 @@ export function useSessionEventStream({
   onTodoSuggested,
   onInsightAdded,
 }: UseSessionEventStreamParams) {
+  const onTodoSuggestedRef = useRef(onTodoSuggested);
+  const onInsightAddedRef = useRef(onInsightAdded);
+
+  useEffect(() => {
+    onTodoSuggestedRef.current = onTodoSuggested;
+    onInsightAddedRef.current = onInsightAdded;
+  }, [onInsightAdded, onTodoSuggested]);
+
   useEffect(() => {
     const normalizedStatus = statusText?.trim();
     if (!normalizedStatus) return;
@@ -34,12 +42,12 @@ export function useSessionEventStream({
   useEffect(() => {
     const cleanups = [
       window.electronAPI.onTodoSuggested((suggestion) => {
-        onTodoSuggested(suggestion);
+        onTodoSuggestedRef.current(suggestion);
       }),
       window.electronAPI.onInsightAdded((insight) => {
-        onInsightAdded(insight);
+        onInsightAddedRef.current(insight);
       }),
     ];
     return () => cleanups.forEach((cleanup) => cleanup());
-  }, [onInsightAdded, onTodoSuggested]);
+  }, []);
 }

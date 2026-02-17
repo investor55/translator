@@ -19,13 +19,13 @@ export function Footer({ sessionActive, statusText }: FooterProps) {
       {sessionActive ? (
         <>
           <Kbd>Space</Kbd>
-          <span>pause</span>
+          <span>record</span>
           <Separator orientation="vertical" className="h-3 mx-0.5" />
           <Kbd>{"\u2191\u2193"}</Kbd>
           <span>scroll</span>
           <Separator orientation="vertical" className="h-3 mx-0.5" />
           <Kbd>Q</Kbd>
-          <span>stop</span>
+          <span>end session</span>
           {statusText && (
             <>
               <Separator orientation="vertical" className="h-3 mx-0.5" />

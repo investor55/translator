@@ -129,6 +129,8 @@ export class Session {
   private readonly analysisHeartbeatMs = 5000;
   private readonly analysisRetryDelayMs = 2000;
   private readonly todoAnalysisIntervalMs = 10_000;
+  private readonly todoAnalysisMaxBlocks = 60;
+  private readonly manualTodoAnalysisMaxBlocks = 40;
   private recentSuggestedTodoTexts: string[] = [];
   private todoScanRequested = false;
   private lastTodoAnalysisAt = 0;
@@ -431,7 +433,7 @@ export class Session {
     resetVadState(this.systemPipeline.vadState);
 
     this.events.emit("state-change", this.getUIState("paused"));
-    this.events.emit("status", "Paused. SPACE to resume, Q to quit.");
+    this.events.emit("status", "Recording paused. Press SPACE to record.");
   }
 
   startMic(deviceIdentifier?: string): void {
@@ -509,7 +511,7 @@ export class Session {
 
       log("INFO", `Mic started: device=${device}, cmd: ffmpeg -loglevel info -f avfoundation -thread_queue_size 1024 -i none:${device} -ac 1 -ar 16000 -f s16le -acodec pcm_s16le -nostdin -`);
       this.events.emit("status", "Starting microphone...");
-      this.events.emit("state-change", this.getUIState(this.isRecording ? "recording" : "idle"));
+      this.events.emit("state-change", this.getUIState(this.isRecording ? "recording" : "paused"));
     } catch (error) {
       this._micEnabled = false;
       log("ERROR", `Failed to start mic: ${toReadableError(error)}`);
@@ -529,7 +531,7 @@ export class Session {
 
     log("INFO", "Mic started via renderer capture (Web Audio API)");
     this.events.emit("status", "Mic active — listening...");
-    this.events.emit("state-change", this.getUIState(this.isRecording ? "recording" : "idle"));
+    this.events.emit("state-change", this.getUIState(this.isRecording ? "recording" : "paused"));
   }
 
   /** Receive PCM audio from renderer IPC */
@@ -563,20 +565,18 @@ export class Session {
 
   toggleTranslation(): boolean {
     this._translationEnabled = !this._translationEnabled;
-    this.events.emit("state-change", this.getUIState(
-      this.isRecording ? "recording" : this.isRecording ? "connecting" : "idle"
-    ));
+    this.events.emit("state-change", this.getUIState(this.isRecording ? "recording" : "paused"));
     log("INFO", `Translation ${this._translationEnabled ? "enabled" : "disabled"}`);
     return this._translationEnabled;
   }
 
-  requestTodoScan(): {
+  async requestTodoScan(): Promise<{
     ok: boolean;
     queued: boolean;
     todoAnalysisRan: boolean;
     todoSuggestionsEmitted: number;
     error?: string;
-  } {
+  }> {
     if (this.contextState.transcriptBlocks.size === 0) {
       this.hydrateTranscriptContextFromDb();
     }
@@ -603,17 +603,23 @@ export class Session {
       };
     }
 
-    this.events.emit("status", "Todo scan queued...");
     if (this.isRecording) {
+      this.events.emit("status", "Todo scan queued...");
       this.scheduleAnalysis(0);
-    } else {
-      void this.generateAnalysis();
+      return {
+        ok: true,
+        queued: true,
+        todoAnalysisRan: false,
+        todoSuggestionsEmitted: 0,
+      };
     }
+
+    const analysisResult = await this.generateAnalysis();
     return {
       ok: true,
-      queued: true,
-      todoAnalysisRan: false,
-      todoSuggestionsEmitted: 0,
+      queued: false,
+      todoAnalysisRan: analysisResult.todoAnalysisRan,
+      todoSuggestionsEmitted: analysisResult.todoSuggestionsEmitted,
     };
   }
 
@@ -1072,13 +1078,16 @@ Return:
     const forceTodoAnalysis = this.todoScanRequested;
     this.todoScanRequested = false;
     const hasNewAnalysisBlocks = allBlocks.length > this.lastAnalysisBlockCount;
+    const shouldRunSummaryAnalysis =
+      hasNewAnalysisBlocks
+      && !(forceTodoAnalysis && !this.isRecording);
     const shouldRunTodoAnalysis =
       (forceTodoAnalysis && allBlocks.length > 0)
       || (
         allBlocks.length > this.lastTodoAnalysisBlockCount
         && now - this.lastTodoAnalysisAt >= this.todoAnalysisIntervalMs
       );
-    if (!hasNewAnalysisBlocks && !shouldRunTodoAnalysis) {
+    if (!shouldRunSummaryAnalysis && !shouldRunTodoAnalysis) {
       return {
         todoAnalysisRan: false,
         todoSuggestionsEmitted: 0,
@@ -1088,7 +1097,7 @@ Return:
     // Send all blocks since last analysis, plus up to 10 earlier blocks for context continuity
     const analysisTargetBlockCount = allBlocks.length;
     const contextStart = Math.max(0, this.lastAnalysisBlockCount - 10);
-    const recentBlocks = hasNewAnalysisBlocks ? allBlocks.slice(contextStart) : [];
+    const recentBlocks = shouldRunSummaryAnalysis ? allBlocks.slice(contextStart) : [];
 
     this.analysisInFlight = true;
     this.analysisRequested = false;
@@ -1106,7 +1115,7 @@ Return:
         : [];
       const previousKeyPoints = this.contextState.allKeyPoints.slice(-20);
 
-      if (hasNewAnalysisBlocks) {
+      if (shouldRunSummaryAnalysis) {
         const analysisPrompt = buildAnalysisPrompt(recentBlocks, previousKeyPoints);
 
         const analysisProvider = this.config.analysisProvider;
@@ -1167,11 +1176,19 @@ Return:
       }
 
       let todoSuggestions: string[] = [];
+      let todoBlocks: typeof allBlocks = [];
 
       if (shouldRunTodoAnalysis) {
         todoAnalysisRan = true;
-        const todoContextStart = Math.max(0, this.lastTodoAnalysisBlockCount - 10);
-        const todoBlocks = allBlocks.slice(todoContextStart, analysisTargetBlockCount);
+        const maxTodoBlocks = forceTodoAnalysis
+          ? this.manualTodoAnalysisMaxBlocks
+          : this.todoAnalysisMaxBlocks;
+        const todoContextStart = Math.max(
+          0,
+          this.lastTodoAnalysisBlockCount - 10,
+          analysisTargetBlockCount - maxTodoBlocks,
+        );
+        todoBlocks = allBlocks.slice(todoContextStart, analysisTargetBlockCount);
         this.lastTodoAnalysisAt = now;
 
         try {
@@ -1180,7 +1197,7 @@ Return:
             model: this.todoModel,
             schema: todoAnalysisSchema,
             prompt: todoPrompt,
-            abortSignal: AbortSignal.timeout(15000),
+            abortSignal: AbortSignal.timeout(10000),
             temperature: 0,
           });
 
@@ -1199,6 +1216,10 @@ Return:
             log("WARN", `Todo extraction failed: ${toReadableError(todoError)}`);
           }
         }
+      }
+
+      if (todoSuggestions.length === 0 && forceTodoAnalysis && todoBlocks.length > 0) {
+        todoSuggestions = this.extractHeuristicTodoSuggestions(todoBlocks);
       }
 
       if (this.config.debug) {
@@ -1270,6 +1291,45 @@ Return:
     if (this.recentSuggestedTodoTexts.some(fuzzyMatch)) return true;
 
     return false;
+  }
+
+  private extractHeuristicTodoSuggestions(
+    blocks: ReadonlyArray<{ sourceText: string; translation?: string }>
+  ): string[] {
+    const triggerPattern =
+      /\b(?:i(?:'m| am)?\s+planning to|i(?:'m| am)?\s+going to|i\s+plan to|i(?:'m| am)?\s+looking to|i\s+need to|i\s+have to|i\s+should|we\s+should|let(?:'s| us)|remind me to|don't forget to)\b/i;
+    const leadingPhrasePattern =
+      /^.*?\b(?:i(?:'m| am)?\s+planning to|i(?:'m| am)?\s+going to|i\s+plan to|i(?:'m| am)?\s+looking to|i\s+need to|i\s+have to|i\s+should|we\s+should|let(?:'s| us)|remind me to|don't forget to)\s+/i;
+
+    const suggestions: string[] = [];
+    for (const block of blocks) {
+      const combined = `${block.sourceText} ${block.translation ?? ""}`
+        .replace(/\[[^\]]+\]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!combined) continue;
+
+      const clauses = combined
+        .split(/[.!?\n]+/)
+        .map((part) => part.trim())
+        .filter(Boolean);
+
+      for (const clause of clauses) {
+        if (!triggerPattern.test(clause)) continue;
+
+        const candidate = clause
+          .replace(leadingPhrasePattern, "")
+          .replace(/\b(?:uh|um|like)\b/gi, " ")
+          .replace(/\s+/g, " ")
+          .replace(/[?.!,;:\-]+$/g, "")
+          .trim();
+
+        if (candidate.length < 6) continue;
+        suggestions.push(candidate[0].toUpperCase() + candidate.slice(1));
+        if (suggestions.length >= 5) return suggestions;
+      }
+    }
+    return suggestions;
   }
 
   private tryEmitTodoSuggestion(

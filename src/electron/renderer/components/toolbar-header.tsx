@@ -2,7 +2,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   PlayIcon,
   PauseIcon,
-  StopIcon,
 } from "@hugeicons/core-free-icons";
 import { LanguagesIcon, MicIcon, MicOffIcon, PlusIcon, Settings2Icon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +24,6 @@ type ToolbarHeaderProps = {
   onTargetLangChange: (lang: LanguageCode) => void;
   sessionActive: boolean;
   onStart: () => void;
-  onStop: () => void;
   onNewSession: () => void;
   onTogglePause: () => void;
   uiState: UIState | null;
@@ -69,7 +67,6 @@ export function ToolbarHeader({
   onTargetLangChange,
   sessionActive,
   onStart,
-  onStop,
   onNewSession,
   onTogglePause,
   uiState,
@@ -150,10 +147,6 @@ export function ToolbarHeader({
                   strokeWidth={2}
                   className="size-3.5"
                 />
-              </Button>
-              <Button variant="destructive" size="sm" onClick={onStop}>
-                <HugeiconsIcon icon={StopIcon} strokeWidth={2} data-icon="inline-start" className="size-3.5" />
-                Stop
               </Button>
               <Button variant="outline" size="sm" onClick={onNewSession}>
                 <PlusIcon className="size-3.5" data-icon="inline-start" />

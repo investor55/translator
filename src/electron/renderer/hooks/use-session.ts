@@ -154,6 +154,7 @@ export function useSession(
   appConfig: AppConfig,
   resumeSessionId: string | null = null,
   options: SessionOptions = {},
+  restartKey = 0,
 ) {
   const [state, dispatch] = useReducer(sessionStateReducer, initialState);
   const onResumedRef = useRef(options.onResumed);
@@ -193,10 +194,9 @@ export function useSession(
         }
       });
     } else {
-      api.startSession(sourceLang, targetLang, appConfigRef.current).then(async (result) => {
+      api.startSession(sourceLang, targetLang, appConfigRef.current).then((result) => {
         if (result.ok && result.sessionId) {
           dispatch({ kind: "session-started", sessionId: result.sessionId });
-          await api.startRecording();
         } else {
           dispatch({ kind: "error", text: result.error ?? "Failed to start session" });
         }
@@ -208,7 +208,7 @@ export function useSession(
       api.shutdownSession();
       dispatch({ kind: "session-ended" });
     };
-  }, [sourceLang, targetLang, active, resumeSessionId]);
+  }, [sourceLang, targetLang, active, resumeSessionId, restartKey]);
 
   const toggleRecording = useCallback(async () => {
     const result = await window.electronAPI.toggleRecording();

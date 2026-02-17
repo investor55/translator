@@ -3,6 +3,40 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (() => {
+        const STORAGE_KEY = "rosetta-app-config";
+        const DARK_BG = "oklch(0.145 0 0)";
+        const LIGHT_BG = "oklch(0.985 0.002 90)";
+        let themeMode = "system";
+
+        try {
+          const raw = window.localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (
+              parsed?.themeMode === "dark" ||
+              parsed?.themeMode === "light" ||
+              parsed?.themeMode === "system"
+            ) {
+              themeMode = parsed.themeMode;
+            }
+          }
+        } catch {
+          // Ignore malformed local storage and fall back to system preference.
+        }
+
+        const prefersDark =
+          typeof window.matchMedia === "function" &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const shouldUseDark =
+          themeMode === "dark" || (themeMode !== "light" && prefersDark);
+        const root = document.documentElement;
+        root.classList.toggle("dark", shouldUseDark);
+        root.style.colorScheme = shouldUseDark ? "dark" : "light";
+        root.style.backgroundColor = shouldUseDark ? DARK_BG : LIGHT_BG;
+      })();
+    </script>
     <title>Rosetta</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

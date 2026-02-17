@@ -26,6 +26,7 @@ export function App() {
   const [targetLang, setTargetLang] = useLocalStorage<LanguageCode>("rosetta-target-lang", "en");
   const [storedAppConfig, setStoredAppConfig] = useLocalStorage<AppConfig>("rosetta-app-config", DEFAULT_APP_CONFIG);
   const [sessionActive, setSessionActive] = useState(false);
+  const [sessionRestartKey, setSessionRestartKey] = useState(0);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [splashDone, setSplashDone] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -59,7 +60,15 @@ export function App() {
     void refreshSessions();
   }, [refreshSessions, seedAgents]);
 
-  const session = useSession(sourceLang, targetLang, sessionActive, appConfig, resumeSessionId, { onResumed: handleResumed });
+  const session = useSession(
+    sourceLang,
+    targetLang,
+    sessionActive,
+    appConfig,
+    resumeSessionId,
+    { onResumed: handleResumed },
+    sessionRestartKey,
+  );
 
   const applyRoutePath = useCallback((routeInput: string, availableSessions: SessionMeta[]) => {
     const parsed = parseSessionRoute(routeInput);
@@ -154,17 +163,26 @@ export function App() {
 
   useThemeMode(appConfig.themeMode);
 
+  const handleTodoSuggested = useCallback((suggestion: TodoSuggestion) => {
+    setSuggestions((prev) => {
+      if (prev.some((existing) => existing.id === suggestion.id)) {
+        return prev;
+      }
+      return [suggestion, ...prev];
+    });
+  }, []);
+
+  const handleInsightAdded = useCallback((insight: Insight) => {
+    setInsights((prev) => [...prev, insight]);
+  }, []);
+
   // Keep these listeners active so manual scans in selected sessions surface results.
   useSessionEventStream({
     statusText: session.statusText,
     setScanFeedback,
     setScanningTodos,
-    onTodoSuggested: (suggestion) => {
-      setSuggestions((prev) => [suggestion, ...prev]);
-    },
-    onInsightAdded: (insight) => {
-      setInsights((prev) => [...prev, insight]);
-    },
+    onTodoSuggested: handleTodoSuggested,
+    onInsightAdded: handleInsightAdded,
   });
 
   const handleToggleMic = useCallback(async () => {
@@ -213,22 +231,20 @@ export function App() {
 
   const handleNewSession = useCallback(() => {
     micCapture.stop();
-    setSessionActive(false);
     setSettingsOpen(false);
     setRouteNotice("");
     pendingNewSessionRouteRef.current = true;
-    replaceSessionPath(null);
     setSelectedSessionId(null);
     setResumeSessionId(null);
     setTodos([]);
     setSuggestions([]);
     setInsights([]);
     seedAgents([]);
+    setScanFeedback("");
+    setScanningTodos(false);
     session.clearSession();
-
-    setTimeout(() => {
-      setSessionActive(true);
-    }, 100);
+    setSessionRestartKey((prev) => prev + 1);
+    setSessionActive(true);
     void refreshSessions();
   }, [micCapture, refreshSessions, seedAgents, session.clearSession]);
 
@@ -321,13 +337,21 @@ export function App() {
       if (!result.ok) {
         setScanFeedback(`Scan failed: ${result.error ?? "Unknown error"}`);
         setRouteNotice(`Todo scan failed: ${result.error ?? "Unknown error"}`);
+        setScanningTodos(false);
       } else if (result.queued) {
         setScanFeedback("Scan queued...");
-      }
-    } finally {
-      setTimeout(() => {
+      } else if (result.todoAnalysisRan) {
+        const suffix = result.todoSuggestionsEmitted === 1 ? "" : "s";
+        setScanFeedback(`Todo scan complete: ${result.todoSuggestionsEmitted} suggestion${suffix}.`);
         setScanningTodos(false);
-      }, 500);
+      } else {
+        setScanFeedback("Todo scan skipped.");
+        setScanningTodos(false);
+      }
+    } catch (error) {
+      setScanFeedback(`Scan failed: ${String(error)}`);
+      setRouteNotice(`Todo scan failed: ${String(error)}`);
+      setScanningTodos(false);
     }
   }, [appConfig, selectedSessionId, session.sessionId]);
 
@@ -431,7 +455,6 @@ export function App() {
         onTargetLangChange={(lang) => { setTargetLang(lang); setLangError(""); }}
         sessionActive={sessionActive}
         onStart={handleStart}
-        onStop={handleStop}
         onNewSession={handleNewSession}
         onTogglePause={session.toggleRecording}
         uiState={session.uiState}

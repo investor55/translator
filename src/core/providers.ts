@@ -84,7 +84,7 @@ export function createTodoModel(config: SessionConfig): LanguageModel {
     apiKey: process.env.OPENROUTER_API_KEY,
   });
   const providerSort = getOpenRouterTodoProviderSort();
-  const todoModelId = config.todoModelId ?? process.env.TODO_MODEL_ID ?? "z-ai/glm-4.7-flash";
+  const todoModelId = config.todoModelId ?? process.env.TODO_MODEL_ID ?? "openai/gpt-oss-120b";
   return openrouter(todoModelId, {
     reasoning: { max_tokens: 0, exclude: true },
     provider: providerSort ? { sort: providerSort } : undefined,

@@ -154,7 +154,7 @@ export const DEFAULT_TRANSCRIPTION_MODEL_ID =
 export const DEFAULT_ANALYSIS_MODEL_ID =
   ENV?.ANALYSIS_MODEL_ID ?? "moonshotai/kimi-k2-thinking";
 export const DEFAULT_TODO_MODEL_ID =
-  ENV?.TODO_MODEL_ID ?? "z-ai/glm-4.7-flash";
+  ENV?.TODO_MODEL_ID ?? "openai/gpt-oss-120b";
 export const DEFAULT_INTERVAL_MS = 2000;
 export const DEFAULT_THEME_MODE: ThemeMode = "system";
 
