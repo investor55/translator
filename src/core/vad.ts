@@ -1,4 +1,4 @@
-import { isAudioSilent, computeRms } from "./audio-utils";
+import { computeRms } from "./audio-utils";
 
 const VAD_WINDOW_MS = 100;
 const VAD_WINDOW_BYTES = Math.floor(16000 * 2 * (VAD_WINDOW_MS / 1000)); // 3200 bytes

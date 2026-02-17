@@ -10,6 +10,9 @@ type ElevenLabsSpeechToTextResponse = {
   language_probability?: unknown;
 };
 
+type ElevenLabsModelId = "scribe_v1" | "scribe_v2";
+const DEFAULT_MODEL_ID: ElevenLabsModelId = "scribe_v2";
+
 const ELEVENLABS_LANGUAGE_MAP: Record<string, LanguageCode> = {
   eng: "en",
   spa: "es",
@@ -44,6 +47,14 @@ export type ElevenLabsTranscriptionOptions = {
   languageCode?: LanguageCode;
   tagAudioEvents?: boolean;
 };
+
+function normalizeModelId(modelId: string): ElevenLabsModelId {
+  const normalized = modelId.trim().toLowerCase();
+  if (normalized === "scribe_v1" || normalized === "scribe_v2") {
+    return normalized;
+  }
+  return DEFAULT_MODEL_ID;
+}
 
 let cachedClient: ElevenLabsClient | null = null;
 let cachedApiKey: string | null = null;
@@ -85,7 +96,7 @@ export async function transcribeWithElevenLabs(
   const payload = await withTimeout(
     getElevenLabsClient(apiKey).speechToText.convert({
       file,
-      modelId,
+      modelId: normalizeModelId(modelId),
       languageCode: options.languageCode,
       tagAudioEvents: options.tagAudioEvents ?? false,
     }),

@@ -269,7 +269,7 @@ describe("insights", () => {
   it("associates insights with sessions", () => {
     db.createSession("s1");
     db.insertInsight({
-      id: "i1", kind: "action-item", text: "Follow up", sessionId: "s1", createdAt: Date.now(),
+      id: "i1", kind: "tip", text: "Follow up", sessionId: "s1", createdAt: Date.now(),
     });
 
     const insights = db.getRecentInsights();
@@ -279,7 +279,7 @@ describe("insights", () => {
   it("respects limit parameter", () => {
     for (let i = 0; i < 5; i++) {
       db.insertInsight({
-        id: `i${i}`, kind: "decision", text: `Decision ${i}`, createdAt: Date.now() + i,
+        id: `i${i}`, kind: "fact", text: `Decision ${i}`, createdAt: Date.now() + i,
       });
     }
     expect(db.getRecentInsights(3)).toHaveLength(3);
@@ -287,7 +287,7 @@ describe("insights", () => {
 
   it("retrieves recent key points as strings", () => {
     db.insertInsight({ id: "i1", kind: "key-point", text: "Point A", createdAt: Date.now() });
-    db.insertInsight({ id: "i2", kind: "action-item", text: "Action B", createdAt: Date.now() + 1 });
+    db.insertInsight({ id: "i2", kind: "tip", text: "Action B", createdAt: Date.now() + 1 });
     db.insertInsight({ id: "i3", kind: "key-point", text: "Point C", createdAt: Date.now() + 2 });
 
     const points = db.getRecentKeyPoints();

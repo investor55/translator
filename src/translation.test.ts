@@ -3,7 +3,7 @@ import {
   buildAudioPromptForStructured,
   hasTranslatableContent,
   extractSentences,
-} from "./translation";
+} from "./core/language";
 
 describe("buildAudioPromptForStructured", () => {
   it("builds auto-detect prompt for structured output", () => {

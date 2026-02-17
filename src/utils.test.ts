@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
+import { pcmToWavBuffer } from "./core/audio-utils";
 import {
-  pcmToWavBuffer,
   normalizeText,
   cleanTranslationOutput,
   toReadableError,
-} from "./utils";
+} from "./core/text-utils";
 
 describe("pcmToWavBuffer", () => {
   it("creates valid WAV header", () => {

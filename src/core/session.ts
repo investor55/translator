@@ -11,7 +11,6 @@ import type {
   Summary,
   UIState,
   LanguageCode,
-  TodoItem,
   TodoSuggestion,
   Insight,
 } from "./types";

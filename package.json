@@ -9,6 +9,10 @@
     "start": "electron-forge start",
     "test": "vitest run",
     "test:watch": "vitest",
+    "check:type": "pnpm exec tsc --noEmit",
+    "check:unused": "pnpm exec tsc --noEmit -p tsconfig.unused.json",
+    "check:reachability": "node scripts/check-runtime-reachability.mjs",
+    "check:deadcode": "pnpm run check:type && pnpm run check:unused && pnpm run check:reachability",
     "electron:dev": "electron-forge start",
     "electron:package": "electron-forge package",
     "electron:make": "electron-forge make"
@@ -16,7 +20,6 @@
   "dependencies": {
     "@ai-sdk/google": "^3.0.29",
     "@ai-sdk/google-vertex": "4.0.17",
-    "@base-ui/react": "^1.2.0",
     "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
     "@elevenlabs/elevenlabs-js": "^2.36.0",
     "@fontsource-variable/inter": "^5.2.8",

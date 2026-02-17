@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
-import { eq, desc, sql, count } from "drizzle-orm";
+import { eq, desc, count } from "drizzle-orm";
 import { sessions, blocks, todos, insights, agents } from "./schema";
 import type {
   TodoItem,

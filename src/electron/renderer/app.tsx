@@ -7,6 +7,9 @@ import type { ResumeData } from "./hooks/use-session";
 import { useMicCapture } from "./hooks/use-mic-capture";
 import { useAgents } from "./hooks/use-agents";
 import { useKeyboard } from "./hooks/use-keyboard";
+import { useThemeMode } from "./hooks/use-theme-mode";
+import { useAppBootstrap } from "./hooks/use-app-bootstrap";
+import { useSessionEventStream } from "./hooks/use-session-event-stream";
 import { buildSessionPath, parseSessionRoute, pushSessionPath, replaceSessionPath } from "./lib/session-route";
 import { ToolbarHeader } from "./components/toolbar-header";
 import { TranscriptArea } from "./components/transcript-area";
@@ -15,28 +18,7 @@ import { RightSidebar } from "./components/right-sidebar";
 import { AgentDetailPanel } from "./components/agent-detail-panel";
 import { Footer } from "./components/footer";
 import { SettingsPage } from "./components/settings-page";
-
-function SplashScreen({ onComplete }: { onComplete: () => void }) {
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setVisible(false);
-      setTimeout(onComplete, 600);
-    }, 1400);
-    return () => clearTimeout(timer);
-  }, [onComplete]);
-
-  return (
-    <div
-      className={`flex-1 flex items-center justify-center bg-[#0a0a0a] transition-opacity duration-500 ${visible ? "opacity-100" : "opacity-0"}`}
-    >
-      <h1 className="font-serif text-[clamp(4rem,12vw,8rem)] font-normal text-[#e8e4dc] leading-[0.9] tracking-[-0.02em]">
-        Ambient
-      </h1>
-    </div>
-  );
-}
+import { SplashScreen } from "./components/splash-screen";
 
 export function App() {
   const [languages, setLanguages] = useState<Language[]>([]);
@@ -59,24 +41,12 @@ export function App() {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
-  const languageSeededRef = useRef(false);
   const pendingNewSessionRouteRef = useRef(false);
-  const sessionsRef = useRef<SessionMeta[]>([]);
-
-  const refreshSessions = useCallback(async (): Promise<SessionMeta[]> => {
-    const loaded = await window.electronAPI.getSessions();
-    sessionsRef.current = loaded;
-    setSessions(loaded);
-
-    if (!languageSeededRef.current) {
-      const last = loaded[0];
-      if (last?.sourceLang) setSourceLang(last.sourceLang);
-      if (last?.targetLang) setTargetLang(last.targetLang);
-      languageSeededRef.current = true;
-    }
-
-    return loaded;
-  }, [setSourceLang, setTargetLang]);
+  const { refreshSessions, sessionsRef } = useAppBootstrap({
+    setSessions,
+    setSourceLang,
+    setTargetLang,
+  });
 
   const micCapture = useMicCapture();
   const { agents, selectedAgentId, selectedAgent, selectAgent, seedAgents } = useAgents();
@@ -182,58 +152,20 @@ export function App() {
     void refreshSessions();
   }, [refreshSessions, session.sessionId]);
 
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") {
-      document.documentElement.classList.remove("dark");
-      document.body.classList.remove("dark");
-      return;
-    }
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const applyTheme = () => {
-      const shouldUseDark =
-        appConfig.themeMode === "dark" ||
-        (appConfig.themeMode === "system" && media.matches);
-      document.documentElement.classList.toggle("dark", shouldUseDark);
-      document.body.classList.toggle("dark", shouldUseDark);
-    };
-
-    applyTheme();
-    if (appConfig.themeMode !== "system") return;
-    if (typeof media.addEventListener === "function") {
-      media.addEventListener("change", applyTheme);
-      return () => media.removeEventListener("change", applyTheme);
-    }
-    media.addListener(applyTheme);
-    return () => media.removeListener(applyTheme);
-  }, [appConfig.themeMode]);
-
-  useEffect(() => {
-    const status = session.statusText?.trim();
-    if (!status) return;
-    if (status.toLowerCase().startsWith("todo scan")) {
-      setScanFeedback(status);
-      if (
-        status.toLowerCase().includes("complete")
-        || status.toLowerCase().includes("failed")
-        || status.toLowerCase().includes("skipped")
-      ) {
-        setScanningTodos(false);
-      }
-    }
-  }, [session.statusText]);
+  useThemeMode(appConfig.themeMode);
 
   // Keep these listeners active so manual scans in selected sessions surface results.
-  useEffect(() => {
-    const cleanups = [
-      window.electronAPI.onTodoSuggested((suggestion) => {
-        setSuggestions((prev) => [suggestion, ...prev]);
-      }),
-      window.electronAPI.onInsightAdded((insight) => {
-        setInsights((prev) => [...prev, insight]);
-      }),
-    ];
-    return () => cleanups.forEach((fn) => fn());
-  }, []);
+  useSessionEventStream({
+    statusText: session.statusText,
+    setScanFeedback,
+    setScanningTodos,
+    onTodoSuggested: (suggestion) => {
+      setSuggestions((prev) => [suggestion, ...prev]);
+    },
+    onInsightAdded: (insight) => {
+      setInsights((prev) => [...prev, insight]);
+    },
+  });
 
   const handleToggleMic = useCallback(async () => {
     const result = await window.electronAPI.toggleMic();
