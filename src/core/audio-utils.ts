@@ -23,9 +23,9 @@ export function pcmToWavBuffer(pcm: Buffer, sampleRate: number): Buffer {
   return buffer;
 }
 
-export function isAudioSilent(pcmBuffer: Buffer, threshold = 200): boolean {
+export function computeRms(pcmBuffer: Buffer): number {
   const samples = pcmBuffer.length / 2;
-  if (samples === 0) return true;
+  if (samples === 0) return 0;
 
   let sumSquares = 0;
   for (let i = 0; i < pcmBuffer.length; i += 2) {
@@ -33,6 +33,9 @@ export function isAudioSilent(pcmBuffer: Buffer, threshold = 200): boolean {
     sumSquares += sample * sample;
   }
 
-  const rms = Math.sqrt(sumSquares / samples);
-  return rms < threshold;
+  return Math.sqrt(sumSquares / samples);
+}
+
+export function isAudioSilent(pcmBuffer: Buffer, threshold = 200): boolean {
+  return computeRms(pcmBuffer) < threshold;
 }

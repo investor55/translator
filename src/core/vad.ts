@@ -1,24 +1,33 @@
-import { isAudioSilent } from "./audio-utils";
+import { isAudioSilent, computeRms } from "./audio-utils";
 
 const VAD_WINDOW_MS = 100;
 const VAD_WINDOW_BYTES = Math.floor(16000 * 2 * (VAD_WINDOW_MS / 1000)); // 3200 bytes
 const VAD_SILENCE_FLUSH_MS = 400;
 const VAD_MAX_CHUNK_MS = 4000;
 const VAD_MIN_CHUNK_MS = 500;
+const DEFAULT_SILENCE_THRESHOLD = 200;
 
 export type VadState = {
   analysisBuffer: Buffer;
   speechBuffer: Buffer;
   silenceMs: number;
   speechStarted: boolean;
+  silenceThreshold: number;
+  /** Peak RMS observed since last reset — useful for debugging mic levels */
+  peakRms: number;
+  /** Number of windows processed since last reset */
+  windowCount: number;
 };
 
-export function createVadState(): VadState {
+export function createVadState(silenceThreshold = DEFAULT_SILENCE_THRESHOLD): VadState {
   return {
     analysisBuffer: Buffer.alloc(0),
     speechBuffer: Buffer.alloc(0),
     silenceMs: 0,
     speechStarted: false,
+    silenceThreshold,
+    peakRms: 0,
+    windowCount: 0,
   };
 }
 
@@ -27,6 +36,8 @@ export function resetVadState(state: VadState) {
   state.speechBuffer = Buffer.alloc(0);
   state.silenceMs = 0;
   state.speechStarted = false;
+  state.peakRms = 0;
+  state.windowCount = 0;
 }
 
 // Returns an array of speech chunks ready to be sent for transcription
@@ -37,7 +48,10 @@ export function processAudioData(state: VadState, data: Buffer): Buffer[] {
   while (state.analysisBuffer.length >= VAD_WINDOW_BYTES) {
     const window = state.analysisBuffer.subarray(0, VAD_WINDOW_BYTES);
     state.analysisBuffer = state.analysisBuffer.subarray(VAD_WINDOW_BYTES);
-    const silent = isAudioSilent(window);
+    const rms = computeRms(window);
+    if (rms > state.peakRms) state.peakRms = rms;
+    state.windowCount++;
+    const silent = rms < state.silenceThreshold;
 
     if (silent) {
       if (state.speechStarted) {

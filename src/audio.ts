@@ -35,7 +35,7 @@ export type AudioRecorder = {
 export function createAudioRecorder(sampleRate = 16000): AudioRecorder {
   const audiotee = new AudioTee({
     sampleRate,
-    chunkDuration: 0.1, // 100ms chunks for low latency
+    chunkDurationMs: 100, // 100ms chunks for low latency
   });
 
   return {
@@ -71,17 +71,17 @@ export async function listMicDevices(): Promise<Device[]> {
 }
 
 export function spawnMicFfmpeg(deviceIdentifier: string | number): ChildProcess {
-  const deviceArg = typeof deviceIdentifier === "number"
-    ? `:${deviceIdentifier}`
-    : `:${deviceIdentifier}`;
+  const deviceArg = `none:${deviceIdentifier}`;
 
   const args = [
+    "-loglevel", "info",
     "-f", "avfoundation",
+    "-thread_queue_size", "1024",
     "-i", deviceArg,
     "-ac", "1",
     "-ar", "16000",
     "-f", "s16le",
-    "-loglevel", "error",
+    "-acodec", "pcm_s16le",
     "-nostdin",
     "-",
   ];

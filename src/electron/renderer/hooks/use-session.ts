@@ -81,10 +81,10 @@ export function useSession(sourceLang: LanguageCode, targetLang: LanguageCode, a
     cleanups.push(api.onStatus((t) => dispatch({ kind: "status", text: t })));
     cleanups.push(api.onError((t) => dispatch({ kind: "error", text: t })));
 
-    api.startSession(sourceLang, targetLang).then((result) => {
+    api.startSession(sourceLang, targetLang).then(async (result) => {
       if (result.ok) {
         dispatch({ kind: "session-started" });
-        api.startRecording();
+        await api.startRecording();
       } else {
         dispatch({ kind: "error", text: result.error ?? "Failed to start session" });
       }

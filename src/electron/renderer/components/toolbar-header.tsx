@@ -204,14 +204,6 @@ export function ToolbarHeader({
                 </span>
               </>
             )}
-            {uiState.contextLoaded && (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                CTX
-              </Badge>
-            )}
-            <span className="text-muted-foreground font-mono text-xs truncate max-w-36">
-              {uiState.modelId}
-            </span>
           </div>
         )}
       </div>

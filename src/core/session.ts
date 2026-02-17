@@ -101,7 +101,7 @@ export class Session {
   };
   private micPipeline: AudioPipeline = {
     source: "microphone",
-    vadState: createVadState(),
+    vadState: createVadState(50),
     overlap: Buffer.alloc(0),
   };
 
@@ -368,6 +368,8 @@ export class Session {
     if (this._micEnabled) return;
 
     const device = deviceIdentifier ?? this.config.micDevice ?? "0";
+    let micStderrBuffer = "";
+
     try {
       this.micProcess = spawnMicFfmpeg(device);
       this._micEnabled = true;
@@ -377,35 +379,93 @@ export class Session {
       // Raise concurrency when both pipelines active
       this.vertexMaxConcurrency = 8;
 
+      let micDataReceived = false;
+      let micTotalBytes = 0;
+      let micNonZeroSeen = false;
+
       this.micProcess.stdout?.on("data", (data: Buffer) => {
+        if (!micDataReceived) {
+          micDataReceived = true;
+          log("INFO", `Mic: receiving audio data`);
+          this.events.emit("status", "Mic active — listening...");
+        }
+
+        // Detect all-zero audio (TCC permission issue)
+        if (!micNonZeroSeen) {
+          micTotalBytes += data.length;
+          const hasNonZero = data.some((b) => b !== 0);
+          if (hasNonZero) {
+            micNonZeroSeen = true;
+            log("INFO", "Mic: non-zero audio detected — signal OK");
+          } else if (micTotalBytes > 16000 * 2 * 3) {
+            // 3 seconds of pure zeros — almost certainly a permissions issue
+            log("WARN", `Mic: ${micTotalBytes} bytes received, all zeros — likely macOS mic permission issue`);
+            this.events.emit("error", "Mic producing silent audio. macOS may be blocking mic access for ffmpeg. Check System Settings > Privacy & Security > Microphone.");
+            this.events.emit("status", "Mic: all zeros — permission issue?");
+            micNonZeroSeen = true; // stop re-warning
+          }
+        }
+
         this.handleAudioData(this.micPipeline, data);
       });
 
       this.micProcess.stderr?.on("data", (data: Buffer) => {
         const msg = data.toString().trim();
-        if (msg) log("WARN", `mic ffmpeg: ${msg}`);
+        if (msg) {
+          micStderrBuffer += msg + "\n";
+          log("INFO", `mic ffmpeg: ${msg}`);
+        }
       });
 
       this.micProcess.on("error", (err) => {
         log("ERROR", `Mic ffmpeg error: ${err.message}`);
         this._micEnabled = false;
+        this.events.emit("error", `Mic failed: ${err.message}`);
         this.events.emit("state-change", this.getUIState(this.isRecording ? "recording" : "paused"));
       });
 
-      this.micProcess.on("close", () => {
+      this.micProcess.on("close", (code) => {
         if (this._micEnabled) {
           this._micEnabled = false;
           this.vertexMaxConcurrency = 5;
+          if (code !== 0 && code !== null) {
+            const detail = micStderrBuffer.trim().slice(-200) || `exit code ${code}`;
+            log("ERROR", `Mic ffmpeg exited: code=${code}, stderr: ${micStderrBuffer.trim()}`);
+            this.events.emit("error", `Mic stopped unexpectedly: ${detail}`);
+          }
           this.events.emit("state-change", this.getUIState(this.isRecording ? "recording" : "paused"));
         }
       });
 
-      log("INFO", `Mic started: device=${device}`);
+      log("INFO", `Mic started: device=${device}, cmd: ffmpeg -loglevel info -f avfoundation -thread_queue_size 1024 -i none:${device} -ac 1 -ar 16000 -f s16le -acodec pcm_s16le -nostdin -`);
+      this.events.emit("status", "Starting microphone...");
       this.events.emit("state-change", this.getUIState(this.isRecording ? "recording" : "idle"));
     } catch (error) {
+      this._micEnabled = false;
       log("ERROR", `Failed to start mic: ${toReadableError(error)}`);
       this.events.emit("error", `Mic error: ${toReadableError(error)}`);
     }
+  }
+
+  /** Start mic pipeline without ffmpeg — audio will be fed via feedMicAudio from renderer */
+  startMicFromIPC(): void {
+    if (this._micEnabled) return;
+
+    this._micEnabled = true;
+    resetVadState(this.micPipeline.vadState);
+    this.micPipeline.overlap = Buffer.alloc(0);
+    this.vertexMaxConcurrency = 8;
+    this.micDebugWindowCount = 0;
+
+    log("INFO", "Mic started via renderer capture (Web Audio API)");
+    this.events.emit("status", "Mic active — listening...");
+    this.events.emit("state-change", this.getUIState(this.isRecording ? "recording" : "idle"));
+  }
+
+  /** Receive PCM audio from renderer IPC */
+  feedMicAudio(data: Buffer): void {
+    if (!this._micEnabled) return;
+    this.handleAudioData(this.micPipeline, data);
   }
 
   stopMic(): void {
@@ -447,9 +507,30 @@ export class Session {
     writeSummaryLog(this.contextState.allKeyPoints);
   }
 
+  private micDebugWindowCount = 0;
+
   private handleAudioData(pipeline: AudioPipeline, data: Buffer) {
     const chunks = processAudioData(pipeline.vadState, data);
+
+    // Periodic mic level reporting (~every 2s of audio = 20 × 100ms windows)
+    if (pipeline.source === "microphone") {
+      const prev = this.micDebugWindowCount;
+      this.micDebugWindowCount = pipeline.vadState.windowCount;
+      if (Math.floor(this.micDebugWindowCount / 20) > Math.floor(prev / 20)) {
+        const { peakRms, silenceThreshold, speechStarted } = pipeline.vadState;
+        const speechBufMs = (pipeline.vadState.speechBuffer.length / (16000 * 2)) * 1000;
+        log("INFO", `Mic levels: peakRms=${peakRms.toFixed(0)} threshold=${silenceThreshold} speechStarted=${speechStarted} speechBuf=${speechBufMs.toFixed(0)}ms queue=${this.vertexChunkQueue.length}`);
+        this.events.emit("status", `Mic: peak=${peakRms.toFixed(0)} thr=${silenceThreshold}${speechStarted ? ` speaking ${speechBufMs.toFixed(0)}ms` : ""}`);
+        pipeline.vadState.peakRms = 0;
+      }
+    }
+
     for (const chunk of chunks) {
+      const durationMs = (chunk.length / (16000 * 2)) * 1000;
+      if (pipeline.source === "microphone") {
+        log("INFO", `Mic VAD: speech chunk ${durationMs.toFixed(0)}ms, queue=${this.vertexChunkQueue.length}`);
+        this.events.emit("status", `Mic: sending ${durationMs.toFixed(0)}ms chunk for transcription...`);
+      }
       this.enqueueVertexChunk(pipeline, chunk);
       void this.processVertexQueue();
     }

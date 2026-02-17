@@ -1,4 +1,4 @@
-import { ipcMain, type BrowserWindow } from "electron";
+import { ipcMain, systemPreferences, type BrowserWindow } from "electron";
 import { Session } from "../core/session";
 import { validateEnv } from "../core/config";
 import { log } from "../core/logger";
@@ -52,7 +52,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     }
 
     session = new Session(config, db);
-    db.createSession(session.sessionId);
+    db.createSession(session.sessionId, sourceLang, targetLang);
 
     session.events.on("state-change", (state: UIState) => {
       send(getWindow, "session:state-change", state);
@@ -117,14 +117,34 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     return { ok: true, recording: session.recording };
   });
 
-  ipcMain.handle("toggle-mic", () => {
+  ipcMain.handle("toggle-mic", async () => {
     if (!session) return { ok: false, error: "No active session" };
     if (session.micEnabled) {
       session.stopMic();
-    } else {
-      session.startMic();
+      return { ok: true, micEnabled: false, captureInRenderer: false };
     }
-    return { ok: true, micEnabled: session.micEnabled };
+
+    // Request microphone permission on macOS
+    if (process.platform === "darwin") {
+      const status = systemPreferences.getMediaAccessStatus("microphone");
+      if (status !== "granted") {
+        const granted = await systemPreferences.askForMediaAccess("microphone");
+        if (!granted) {
+          return { ok: false, error: "Microphone permission denied. Grant access in System Settings > Privacy & Security > Microphone." };
+        }
+      }
+    }
+
+    // Use renderer-based capture (Web Audio API) — avoids macOS TCC issues with ffmpeg subprocess
+    session.startMicFromIPC();
+    return { ok: true, micEnabled: true, captureInRenderer: true };
+  });
+
+  // Fire-and-forget handler for mic audio data streamed from renderer
+  ipcMain.on("mic-audio-data", (_event, data: ArrayBuffer) => {
+    if (session?.micEnabled) {
+      session.feedMicAudio(Buffer.from(data));
+    }
   });
 
   ipcMain.handle("toggle-translation", () => {
@@ -166,6 +186,11 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
 
   ipcMain.handle("get-session-blocks", (_event, sessionId: string) => {
     return db.getBlocksForSession(sessionId);
+  });
+
+  ipcMain.handle("delete-session", (_event, id: string) => {
+    db.deleteSession(id);
+    return { ok: true };
   });
 
   // Persistence: Insights

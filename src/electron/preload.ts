@@ -7,7 +7,8 @@ export type ElectronAPI = {
   startRecording: () => Promise<{ ok: boolean; error?: string }>;
   stopRecording: () => Promise<{ ok: boolean; error?: string }>;
   toggleRecording: () => Promise<{ ok: boolean; recording?: boolean; error?: string }>;
-  toggleMic: () => Promise<{ ok: boolean; micEnabled?: boolean; error?: string }>;
+  toggleMic: () => Promise<{ ok: boolean; micEnabled?: boolean; captureInRenderer?: boolean; error?: string }>;
+  sendMicAudio: (data: ArrayBuffer) => void;
   toggleTranslation: () => Promise<{ ok: boolean; enabled?: boolean; error?: string }>;
   listMicDevices: () => Promise<Device[]>;
   shutdownSession: () => Promise<{ ok: boolean }>;
@@ -17,6 +18,7 @@ export type ElectronAPI = {
   toggleTodo: (id: string) => Promise<{ ok: boolean; error?: string }>;
   getSessions: (limit?: number) => Promise<SessionMeta[]>;
   getSessionBlocks: (sessionId: string) => Promise<TranscriptBlock[]>;
+  deleteSession: (id: string) => Promise<{ ok: boolean }>;
   getInsights: (limit?: number) => Promise<Insight[]>;
 
   onStateChange: (callback: (state: UIState) => void) => () => void;
@@ -46,6 +48,7 @@ const api: ElectronAPI = {
   stopRecording: () => ipcRenderer.invoke("stop-recording"),
   toggleRecording: () => ipcRenderer.invoke("toggle-recording"),
   toggleMic: () => ipcRenderer.invoke("toggle-mic"),
+  sendMicAudio: (data) => ipcRenderer.send("mic-audio-data", data),
   toggleTranslation: () => ipcRenderer.invoke("toggle-translation"),
   listMicDevices: () => ipcRenderer.invoke("list-mic-devices"),
   shutdownSession: () => ipcRenderer.invoke("shutdown-session"),
@@ -55,6 +58,7 @@ const api: ElectronAPI = {
   toggleTodo: (id) => ipcRenderer.invoke("toggle-todo", id),
   getSessions: (limit) => ipcRenderer.invoke("get-sessions", limit),
   getSessionBlocks: (sessionId) => ipcRenderer.invoke("get-session-blocks", sessionId),
+  deleteSession: (id) => ipcRenderer.invoke("delete-session", id),
   getInsights: (limit) => ipcRenderer.invoke("get-insights", limit),
 
   onStateChange: createListener<UIState>("session:state-change"),

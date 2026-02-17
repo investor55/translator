@@ -7,6 +7,7 @@ type LeftSidebarProps = {
   sessions: SessionMeta[];
   activeSessionId?: string | null;
   onSelectSession?: (sessionId: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
 };
 
 function formatTime(ms: number): string {
@@ -34,7 +35,7 @@ const INSIGHT_ICONS: Record<string, string> = {
   "key-point": "•",
 };
 
-export function LeftSidebar({ summary, insights, sessions, activeSessionId, onSelectSession }: LeftSidebarProps) {
+export function LeftSidebar({ summary, insights, sessions, activeSessionId, onSelectSession, onDeleteSession }: LeftSidebarProps) {
   return (
     <div className="w-[280px] shrink-0 border-r border-border flex flex-col min-h-0 bg-sidebar">
       {/* Summary section */}
@@ -93,7 +94,7 @@ export function LeftSidebar({ summary, insights, sessions, activeSessionId, onSe
         {sessions.length > 0 ? (
           <ul className="space-y-1">
             {sessions.map((session) => (
-              <li key={session.id}>
+              <li key={session.id} className="group relative">
                 <button
                   type="button"
                   onClick={() => onSelectSession?.(session.id)}
@@ -111,6 +112,16 @@ export function LeftSidebar({ summary, insights, sessions, activeSessionId, onSe
                     {formatDate(session.startedAt)} · {formatTime(session.startedAt)}
                   </div>
                 </button>
+                {onDeleteSession && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
+                    className="absolute right-1 top-1 hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    title="Delete session"
+                  >
+                    ×
+                  </button>
+                )}
               </li>
             ))}
           </ul>

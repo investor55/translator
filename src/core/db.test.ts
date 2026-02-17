@@ -10,7 +10,7 @@ beforeEach(() => {
 
 describe("sessions", () => {
   it("creates and retrieves a session", () => {
-    db.createSession("s1", "Test Session");
+    db.createSession("s1", undefined, undefined, "Test Session");
     const sessions = db.getSessions();
     expect(sessions).toHaveLength(1);
     expect(sessions[0].id).toBe("s1");
@@ -55,6 +55,56 @@ describe("sessions", () => {
     db.createSession("s2");
     db.createSession("s3");
     expect(db.getSessions(2)).toHaveLength(2);
+  });
+
+  it("persists source and target language", () => {
+    db.createSession("s1", "ko", "en");
+    const sessions = db.getSessions();
+    expect(sessions[0].sourceLang).toBe("ko");
+    expect(sessions[0].targetLang).toBe("en");
+  });
+
+  it("returns undefined langs when not provided", () => {
+    db.createSession("s1");
+    const sessions = db.getSessions();
+    expect(sessions[0].sourceLang).toBeUndefined();
+    expect(sessions[0].targetLang).toBeUndefined();
+  });
+
+  it("deletes a session and its blocks and insights", () => {
+    db.createSession("s1");
+    db.insertBlock("s1", {
+      id: 1, sourceLabel: "K", sourceText: "hello", targetLabel: "E",
+      translation: "hi", audioSource: "system", partial: false, newTopic: false, createdAt: Date.now(),
+    });
+    db.insertInsight({
+      id: "i1", kind: "key-point", text: "Important", sessionId: "s1", createdAt: Date.now(),
+    });
+
+    db.deleteSession("s1");
+
+    expect(db.getSessions()).toHaveLength(0);
+    expect(db.getBlocksForSession("s1")).toHaveLength(0);
+    expect(db.getRecentInsights()).toHaveLength(0);
+  });
+
+  it("deleting one session does not affect others", () => {
+    db.createSession("s1");
+    db.createSession("s2");
+    db.insertBlock("s1", {
+      id: 1, sourceLabel: "K", sourceText: "a", targetLabel: "E",
+      audioSource: "system", partial: false, newTopic: false, createdAt: Date.now(),
+    });
+    db.insertBlock("s2", {
+      id: 2, sourceLabel: "K", sourceText: "b", targetLabel: "E",
+      audioSource: "system", partial: false, newTopic: false, createdAt: Date.now(),
+    });
+
+    db.deleteSession("s1");
+
+    expect(db.getSessions()).toHaveLength(1);
+    expect(db.getSessions()[0].id).toBe("s2");
+    expect(db.getBlocksForSession("s2")).toHaveLength(1);
   });
 });
 

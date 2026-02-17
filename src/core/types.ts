@@ -74,6 +74,8 @@ export type SessionMeta = Readonly<{
   endedAt?: number;
   title?: string;
   blockCount: number;
+  sourceLang?: LanguageCode;
+  targetLang?: LanguageCode;
 }>;
 
 export type UIState = {

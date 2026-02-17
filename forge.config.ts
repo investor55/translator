@@ -18,7 +18,9 @@ const config: ForgeConfig = {
     darwinDarkModeSupport: true,
     extendInfo: {
       NSScreenCaptureUsageDescription:
-        "Rosetta needs screen capture access to record system audio for real-time translation.",
+        "Ambient needs screen capture access to record system audio.",
+      NSMicrophoneUsageDescription:
+        "Ambient needs microphone access to capture your voice.",
     },
   },
   makers: [

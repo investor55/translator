@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import type { TodoItem, Insight, InsightKind, SessionMeta, TranscriptBlock, AudioSource } from "./types";
+import type { TodoItem, Insight, InsightKind, SessionMeta, TranscriptBlock, AudioSource, LanguageCode } from "./types";
 
 export type AppDatabase = ReturnType<typeof createDatabase>;
 
@@ -14,14 +14,17 @@ export function createDatabase(dbPath: string) {
   // Prepared statements
   const stmts = {
     insertSession: db.prepare(
-      "INSERT INTO sessions (id, started_at, title) VALUES (?, ?, ?)"
+      "INSERT INTO sessions (id, started_at, title, source_lang, target_lang) VALUES (?, ?, ?, ?, ?)"
     ),
     endSession: db.prepare(
       "UPDATE sessions SET ended_at = ?, block_count = (SELECT COUNT(*) FROM blocks WHERE session_id = ?) WHERE id = ?"
     ),
     getSessions: db.prepare(
-      "SELECT id, started_at, ended_at, title, block_count FROM sessions ORDER BY started_at DESC LIMIT ?"
+      "SELECT id, started_at, ended_at, title, block_count, source_lang, target_lang FROM sessions ORDER BY started_at DESC LIMIT ?"
     ),
+    deleteSessionBlocks: db.prepare("DELETE FROM blocks WHERE session_id = ?"),
+    deleteSessionInsights: db.prepare("DELETE FROM insights WHERE session_id = ?"),
+    deleteSessionRow: db.prepare("DELETE FROM sessions WHERE id = ?"),
     insertBlock: db.prepare(
       "INSERT INTO blocks (session_id, source_label, source_text, target_label, translation, audio_source, partial, new_topic, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ),
@@ -58,17 +61,26 @@ export function createDatabase(dbPath: string) {
   };
 
   return {
-    createSession(id: string, title?: string) {
-      stmts.insertSession.run(id, Date.now(), title ?? null);
+    createSession(id: string, sourceLang?: LanguageCode, targetLang?: LanguageCode, title?: string) {
+      stmts.insertSession.run(id, Date.now(), title ?? null, sourceLang ?? null, targetLang ?? null);
     },
 
     endSession(id: string) {
       stmts.endSession.run(Date.now(), id, id);
     },
 
+    deleteSession(id: string) {
+      db.transaction(() => {
+        stmts.deleteSessionBlocks.run(id);
+        stmts.deleteSessionInsights.run(id);
+        stmts.deleteSessionRow.run(id);
+      })();
+    },
+
     getSessions(limit = 20): SessionMeta[] {
       const rows = stmts.getSessions.all(limit) as Array<{
         id: string; started_at: number; ended_at: number | null; title: string | null; block_count: number;
+        source_lang: string | null; target_lang: string | null;
       }>;
       return rows.map((r) => ({
         id: r.id,
@@ -76,6 +88,8 @@ export function createDatabase(dbPath: string) {
         endedAt: r.ended_at ?? undefined,
         title: r.title ?? undefined,
         blockCount: r.block_count,
+        sourceLang: (r.source_lang as LanguageCode) ?? undefined,
+        targetLang: (r.target_lang as LanguageCode) ?? undefined,
       }));
     },
 
@@ -193,7 +207,9 @@ function runMigrations(db: Database.Database) {
       started_at INTEGER NOT NULL,
       ended_at INTEGER,
       title TEXT,
-      block_count INTEGER DEFAULT 0
+      block_count INTEGER DEFAULT 0,
+      source_lang TEXT,
+      target_lang TEXT
     );
 
     CREATE TABLE IF NOT EXISTS blocks (
@@ -243,4 +259,14 @@ function runMigrations(db: Database.Database) {
       VALUES (new.id, new.source_text, COALESCE(new.translation, ''));
     END;
   `);
+
+  // Add language columns to existing sessions table
+  const cols = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+  const colNames = new Set(cols.map((c) => c.name));
+  if (!colNames.has("source_lang")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN source_lang TEXT");
+  }
+  if (!colNames.has("target_lang")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN target_lang TEXT");
+  }
 }
