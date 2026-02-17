@@ -3,7 +3,6 @@ import {
   pcmToWavBuffer,
   normalizeText,
   cleanTranslationOutput,
-  parseArgs,
   toReadableError,
 } from "./utils";
 
@@ -151,122 +150,6 @@ describe("cleanTranslationOutput", () => {
 
   it("falls back to first line if all lines are headers", () => {
     expect(cleanTranslationOutput("# Header\n## Another")).toBe("# Header");
-  });
-});
-
-describe("parseArgs", () => {
-  it("returns default config with no args", () => {
-    const config = parseArgs([]);
-    expect(config.direction).toBe("auto");
-    expect(config.listDevices).toBe(false);
-    expect(config.help).toBe(false);
-    expect(config.useContext).toBe(true);
-    expect(config.compact).toBe(false);
-  });
-
-  it("parses --help flag", () => {
-    expect(parseArgs(["--help"]).help).toBe(true);
-    expect(parseArgs(["-h"]).help).toBe(true);
-  });
-
-  it("parses --list-devices flag", () => {
-    const config = parseArgs(["--list-devices"]);
-    expect(config.listDevices).toBe(true);
-  });
-
-  it("parses --device with space separator", () => {
-    const config = parseArgs(["--device", "blackhole"]);
-    expect(config.device).toBe("blackhole");
-  });
-
-  it("parses --device with equals separator", () => {
-    const config = parseArgs(["--device=blackhole"]);
-    expect(config.device).toBe("blackhole");
-  });
-
-  it("parses --direction", () => {
-    expect(parseArgs(["--direction", "source-target"]).direction).toBe("source-target");
-    expect(parseArgs(["--direction", "auto"]).direction).toBe("auto");
-  });
-
-  it("ignores invalid direction values", () => {
-    const config = parseArgs(["--direction", "invalid"]);
-    expect(config.direction).toBe("auto");
-  });
-
-  it("parses --vertex-model (sets both transcription and analysis models)", () => {
-    const config = parseArgs(["--vertex-model", "gemini-pro"]);
-    expect(config.transcriptionModelId).toBe("gemini-pro");
-    expect(config.analysisModelId).toBe("gemini-pro");
-  });
-
-  it("parses --vertex-project", () => {
-    const config = parseArgs(["--vertex-project", "my-project"]);
-    expect(config.vertexProject).toBe("my-project");
-  });
-
-  it("parses --vertex-location", () => {
-    const config = parseArgs(["--vertex-location", "europe-west1"]);
-    expect(config.vertexLocation).toBe("europe-west1");
-  });
-
-  it("parses --context-file", () => {
-    const config = parseArgs(["--context-file", "custom.md"]);
-    expect(config.contextFile).toBe("custom.md");
-  });
-
-  it("parses --no-context", () => {
-    const config = parseArgs(["--no-context"]);
-    expect(config.useContext).toBe(false);
-  });
-
-  it("parses --compact", () => {
-    const config = parseArgs(["--compact"]);
-    expect(config.compact).toBe(true);
-  });
-
-  it("parses multiple flags together", () => {
-    const config = parseArgs([
-      "--direction",
-      "source-target",
-      "--compact",
-      "--no-context",
-    ]);
-    expect(config.direction).toBe("source-target");
-    expect(config.compact).toBe(true);
-    expect(config.useContext).toBe(false);
-  });
-
-  it("defaults to vertex for both providers (CLI backward compat)", () => {
-    const config = parseArgs([]);
-    expect(config.transcriptionProvider).toBe("vertex");
-    expect(config.analysisProvider).toBe("vertex");
-  });
-
-  it("parses --transcription-provider", () => {
-    const config = parseArgs(["--transcription-provider", "google"]);
-    expect(config.transcriptionProvider).toBe("google");
-  });
-
-  it("parses --analysis-provider", () => {
-    const config = parseArgs(["--analysis-provider", "openrouter"]);
-    expect(config.analysisProvider).toBe("openrouter");
-  });
-
-  it("ignores invalid provider values", () => {
-    const config = parseArgs(["--transcription-provider", "invalid", "--analysis-provider", "bogus"]);
-    expect(config.transcriptionProvider).toBe("vertex");
-    expect(config.analysisProvider).toBe("vertex");
-  });
-
-  it("parses --transcription-model", () => {
-    const config = parseArgs(["--transcription-model", "gemini-2.5-flash"]);
-    expect(config.transcriptionModelId).toBe("gemini-2.5-flash");
-  });
-
-  it("parses --analysis-model", () => {
-    const config = parseArgs(["--analysis-model", "gpt-4o"]);
-    expect(config.analysisModelId).toBe("gpt-4o");
   });
 });
 

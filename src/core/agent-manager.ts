@@ -21,6 +21,7 @@ export type AgentManager = {
   launchAgent: (todoId: string, task: string, sessionId?: string) => Agent;
   followUpAgent: (agentId: string, question: string) => boolean;
   cancelAgent: (id: string) => boolean;
+  hydrateAgents: (items: Agent[]) => void;
   getAgent: (id: string) => Agent | undefined;
   getAllAgents: () => Agent[];
   getAgentsForSession: (sessionId: string) => Agent[];
@@ -33,6 +34,25 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   const abortControllers = new Map<string, AbortController>();
   const conversationHistory = new Map<string, ModelMessage[]>();
   const pendingFlush = new Map<string, NodeJS.Timeout>();
+
+  function buildHistoryFromSteps(agent: Agent): ModelMessage[] {
+    const history: ModelMessage[] = [];
+    if (agent.task.trim()) {
+      history.push({ role: "user", content: agent.task });
+    }
+
+    for (const step of agent.steps) {
+      if (!step.content.trim()) continue;
+      if (step.kind === "user") {
+        history.push({ role: "user", content: step.content });
+      }
+      if (step.kind === "text") {
+        history.push({ role: "assistant", content: step.content });
+      }
+    }
+
+    return history;
+  }
 
   // Lazy-import exa-js to avoid blocking module load if the package has resolution issues
   let exaInstance: InstanceType<typeof import("exa-js").default> | null = null;
@@ -72,7 +92,12 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   function makeAgentCallbacks(agent: Agent) {
     return {
       onStep: (step: AgentStep) => {
-        agent.steps.push(step);
+        const existingIdx = agent.steps.findIndex((s) => s.id === step.id);
+        if (existingIdx >= 0) {
+          agent.steps[existingIdx] = step;
+        } else {
+          agent.steps.push(step);
+        }
         deps.events.emit("agent-step", agent.id, step);
         scheduleStepFlush(agent.id);
       },
@@ -152,7 +177,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     if (agent.status === "running") return false;
 
     const history = conversationHistory.get(agentId);
-    if (!history) return false;
+    if (!history || history.length === 0) return false;
 
     let exa: ReturnType<typeof getExa>;
     try {
@@ -194,6 +219,24 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     return true;
   }
 
+  function hydrateAgents(items: Agent[]) {
+    for (const item of items) {
+      // Copy arrays to avoid accidental shared mutation with renderer snapshots.
+      const agent: Agent = {
+        ...item,
+        steps: [...item.steps],
+      };
+      agents.set(agent.id, agent);
+      const history = buildHistoryFromSteps(agent);
+      if (history.length > 0) {
+        conversationHistory.set(agent.id, history);
+      }
+    }
+    if (items.length > 0) {
+      log("INFO", `Hydrated ${items.length} agent(s) from database`);
+    }
+  }
+
   function cancelAgent(id: string): boolean {
     const controller = abortControllers.get(id);
     if (!controller) return false;
@@ -205,6 +248,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     launchAgent,
     followUpAgent,
     cancelAgent,
+    hydrateAgents,
     getAgent: (id) => agents.get(id),
     getAllAgents: () => [...agents.values()],
     getAgentsForSession: (sessionId) => {

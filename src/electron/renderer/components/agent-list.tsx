@@ -28,18 +28,19 @@ function StatusIcon({ status }: { status: Agent["status"] }) {
 }
 
 function lastStepSummary(agent: Agent): string {
-  if (agent.steps.length === 0) return "Starting...";
-  const last = agent.steps[agent.steps.length - 1];
-  switch (last.kind) {
-    case "thinking":
-      return "Thinking...";
-    case "tool-call":
-      return `Searching: ${last.content.slice(0, 40)}`;
-    case "tool-result":
-      return "Processing results...";
-    case "text":
-      return last.content.slice(0, 60);
+  const lastVisible = [...agent.steps]
+    .reverse()
+    .find((step) => step.kind === "user" || step.kind === "text");
+
+  if (!lastVisible) {
+    return agent.status === "running" ? "Researching..." : "No messages yet";
   }
+
+  if (lastVisible.kind === "user") {
+    return `You: ${lastVisible.content.slice(0, 52)}`;
+  }
+
+  return lastVisible.content.slice(0, 60);
 }
 
 export function AgentList({ agents, selectedAgentId, onSelectAgent }: AgentListProps) {

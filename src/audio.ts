@@ -53,7 +53,7 @@ export function createAudioRecorder(sampleRate = 16000): AudioRecorder {
 
 // ============================================================================
 // Legacy AVFoundation/ffmpeg Audio Capture (deprecated)
-// Kept for --legacy-audio fallback mode
+// Optional ffmpeg-based fallback for audio capture.
 // ============================================================================
 
 // ============================================================================
@@ -92,7 +92,7 @@ export function spawnMicFfmpeg(deviceIdentifier: string | number): ChildProcess 
 
 // ============================================================================
 // Legacy AVFoundation/ffmpeg Audio Capture (deprecated)
-// Kept for --legacy-audio fallback mode
+// Optional ffmpeg-based fallback for audio capture.
 // ============================================================================
 
 /** @deprecated Use createAudioRecorder() with ScreenCaptureKit instead */

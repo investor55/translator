@@ -1,5 +1,4 @@
 // All shared types for the translator app.
-// Both terminal and Electron UIs import from here.
 
 export type LanguageCode =
   | "en" | "es" | "fr" | "de" | "it" | "pt"
@@ -100,11 +99,6 @@ export type UIState = {
   micEnabled: boolean;
 };
 
-export type IntroSelection = {
-  sourceLang: LanguageCode;
-  targetLang: LanguageCode;
-};
-
 export type SessionConfig = {
   device?: string;
   direction: Direction;
@@ -124,12 +118,6 @@ export type SessionConfig = {
   legacyAudio: boolean;
   translationEnabled: boolean;
   micDevice?: string;
-};
-
-export type CliConfig = SessionConfig & {
-  listDevices: boolean;
-  help: boolean;
-  skipIntro: boolean;
 };
 
 export const DEFAULT_VERTEX_MODEL_ID =

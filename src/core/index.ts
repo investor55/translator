@@ -1,7 +1,7 @@
 // Barrel export for core modules
 export { Session } from "./session";
 export { log } from "./logger";
-export { parseArgs, validateEnv, printHelp } from "./config";
+export { validateEnv } from "./config";
 export { pcmToWavBuffer, isAudioSilent } from "./audio-utils";
 export { normalizeText, cleanTranslationOutput, toReadableError } from "./text-utils";
 export {
@@ -31,9 +31,7 @@ export type {
   TranscriptBlock,
   Summary,
   UIState,
-  IntroSelection,
   SessionConfig,
-  CliConfig,
   SessionEvents,
   TranscriptionProvider,
   AnalysisProvider,

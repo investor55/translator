@@ -1,4 +1,4 @@
-import { generateText, tool, stepCountIs, type ModelMessage } from "ai";
+import { streamText, tool, stepCountIs, type ModelMessage } from "ai";
 import { z } from "zod";
 import type { AgentStep, Agent } from "./types";
 
@@ -9,7 +9,7 @@ type ExaClient = {
 };
 
 type AgentDeps = {
-  model: Parameters<typeof generateText>[0]["model"];
+  model: Parameters<typeof streamText>[0]["model"];
   exa: ExaClient;
   getTranscriptContext: () => string;
   onStep: (step: AgentStep) => void;
@@ -17,17 +17,6 @@ type AgentDeps = {
   onFail: (error: string) => void;
   abortSignal?: AbortSignal;
 };
-
-function makeStep(kind: AgentStep["kind"], content: string, toolName?: string, toolInput?: string): AgentStep {
-  return {
-    id: crypto.randomUUID(),
-    kind,
-    content,
-    toolName,
-    toolInput,
-    createdAt: Date.now(),
-  };
-}
 
 const buildSystemPrompt = (transcriptContext: string) =>
   `You are a helpful research agent. Your task is to research the following and provide a concise, actionable answer.
@@ -42,7 +31,7 @@ Instructions:
 - Cite sources with URLs when possible
 - Focus on actionable, specific results (e.g., specific restaurant names, addresses, hours)`;
 
-function buildTools(exa: ExaClient, getTranscriptContext: () => string, onStep: AgentDeps["onStep"]) {
+function buildTools(exa: ExaClient, getTranscriptContext: () => string) {
   return {
     searchWeb: tool({
       description: "Search the web for information. Use specific, targeted queries.",
@@ -50,8 +39,6 @@ function buildTools(exa: ExaClient, getTranscriptContext: () => string, onStep: 
         query: z.string().describe("The search query"),
       }),
       execute: async ({ query }) => {
-        onStep(makeStep("tool-call", query, "searchWeb", JSON.stringify({ query })));
-
         const results = await exa.searchAndContents(query, {
           type: "auto",
           numResults: 5,
@@ -62,7 +49,6 @@ function buildTools(exa: ExaClient, getTranscriptContext: () => string, onStep: 
           .map((r) => `**${r.title}** (${r.url})\n${r.text ?? ""}`)
           .join("\n\n---\n\n");
 
-        onStep(makeStep("tool-result", formatted, "searchWeb"));
         return formatted;
       },
     }),
@@ -70,9 +56,7 @@ function buildTools(exa: ExaClient, getTranscriptContext: () => string, onStep: 
       description: "Get recent transcript blocks from the current conversation for more context.",
       inputSchema: z.object({}),
       execute: async () => {
-        const context = getTranscriptContext();
-        onStep(makeStep("tool-result", context, "getTranscriptContext"));
-        return context;
+        return getTranscriptContext();
       },
     }),
   };
@@ -110,33 +94,46 @@ async function runAgentWithMessages(
   const { model, exa, getTranscriptContext, onStep, onComplete, onFail, abortSignal } = deps;
 
   const systemPrompt = buildSystemPrompt(getTranscriptContext());
-  const tools = buildTools(exa, getTranscriptContext, onStep);
+  const tools = buildTools(exa, getTranscriptContext);
 
   try {
-    const { text, steps, response } = await generateText({
+    const result = streamText({
       model,
       system: systemPrompt,
       messages: inputMessages,
       stopWhen: stepCountIs(5),
       abortSignal,
       tools,
-      onStepFinish: async ({ text: stepText }) => {
-        if (stepText) {
-          onStep(makeStep("thinking", stepText));
-        }
-      },
     });
 
-    for (const step of steps) {
-      if (step.text && step.text !== text) {
-        onStep(makeStep("thinking", step.text));
+    const streamedAt = Date.now();
+    let stepId: string | null = null;
+    let streamedText = "";
+
+    for await (const delta of result.textStream) {
+      streamedText += delta;
+      if (!stepId) {
+        stepId = crypto.randomUUID();
       }
+      onStep({
+        id: stepId,
+        kind: "text",
+        content: streamedText,
+        createdAt: streamedAt,
+      });
     }
 
-    const finalText = text || "No results found.";
-    onStep(makeStep("text", finalText));
+    const finalText = (await result.text).trim() || streamedText || "No results found.";
+    const finalStepId = stepId ?? crypto.randomUUID();
+    onStep({
+      id: finalStepId,
+      kind: "text",
+      content: finalText,
+      createdAt: streamedAt,
+    });
 
     // Build full conversation history for future follow-ups
+    const response = await result.response;
     const fullHistory = [...inputMessages, ...response.messages];
     onComplete(finalText, fullHistory);
   } catch (error) {

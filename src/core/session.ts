@@ -116,6 +116,9 @@ export class Session {
 
   private analysisTimer: NodeJS.Timeout | null = null;
   private analysisInFlight = false;
+  private analysisRequested = false;
+  private readonly analysisDebounceMs = 300;
+  private readonly analysisRetryDelayMs = 2000;
   private lastSummary: Summary | null = null;
   private lastAnalysisBlockCount = 0;
   private db: AppDatabase | null;
@@ -145,6 +148,12 @@ export class Session {
         getTranscriptContext: () => this.getTranscriptContextForAgent(),
         db: this.db ?? undefined,
       });
+      if (this.db) {
+        const persistedAgents = this.db.getAgentsForSession(this.sessionId);
+        if (persistedAgents.length > 0) {
+          this.agentManager.hydrateAgents(persistedAgents);
+        }
+      }
       log("INFO", "AgentManager initialized (EXA_API_KEY present)");
     }
 
@@ -705,6 +714,8 @@ export class Session {
       } else if (translation && hasTranslatableContent(translation)) {
         recordContext(this.contextState, translation);
       }
+
+      this.scheduleAnalysis();
     } catch (error) {
       const elapsed = Date.now() - startTime;
       const isAbortError =
@@ -729,22 +740,40 @@ export class Session {
   }
 
   private startAnalysisTimer() {
-    if (this.analysisTimer) clearInterval(this.analysisTimer);
-    this.analysisTimer = setInterval(() => {
-      if (!this.isRecording) return;
+    if (this.analysisTimer) {
+      clearTimeout(this.analysisTimer);
+      this.analysisTimer = null;
+    }
+    this.analysisRequested = false;
+  }
+
+  private scheduleAnalysis(delayMs = this.analysisDebounceMs) {
+    if (!this.isRecording) return;
+    if (this.analysisInFlight) {
+      this.analysisRequested = true;
+      return;
+    }
+    if (this.analysisTimer) return;
+
+    this.analysisTimer = setTimeout(() => {
+      this.analysisTimer = null;
       void this.generateAnalysis();
-    }, 15000);
+    }, Math.max(0, delayMs));
   }
 
   private stopAnalysisTimer() {
     if (this.analysisTimer) {
-      clearInterval(this.analysisTimer);
+      clearTimeout(this.analysisTimer);
       this.analysisTimer = null;
     }
+    this.analysisRequested = false;
   }
 
   private async generateAnalysis(): Promise<void> {
-    if (this.analysisInFlight) return;
+    if (this.analysisInFlight) {
+      this.analysisRequested = true;
+      return;
+    }
 
     const allBlocks = [...this.contextState.transcriptBlocks.values()];
     if (allBlocks.length <= this.lastAnalysisBlockCount) return;
@@ -752,11 +781,13 @@ export class Session {
     // Send all blocks since last analysis, plus up to 10 earlier blocks for context continuity
     const newBlocks = allBlocks.slice(this.lastAnalysisBlockCount);
     if (newBlocks.length < 1) return;
+    const analysisTargetBlockCount = allBlocks.length;
     const contextStart = Math.max(0, this.lastAnalysisBlockCount - 10);
     const recentBlocks = allBlocks.slice(contextStart);
 
     this.analysisInFlight = true;
-    this.lastAnalysisBlockCount = allBlocks.length;
+    this.analysisRequested = false;
+    let analysisSucceeded = false;
     const startTime = Date.now();
 
     try {
@@ -788,6 +819,8 @@ export class Session {
         this.config.analysisProvider
       );
       this.events.emit("cost-updated", totalCost);
+      this.lastAnalysisBlockCount = analysisTargetBlockCount;
+      analysisSucceeded = true;
 
       if (this.config.debug) {
         log("INFO", `Analysis response: ${elapsed}ms, keyPoints=${result.keyPoints.length}, insights=${result.educationalInsights.length}, todos=${result.suggestedTodos.length}`);
@@ -837,6 +870,11 @@ export class Session {
       }
     } finally {
       this.analysisInFlight = false;
+      const hasUnanalyzedBlocks = this.contextState.transcriptBlocks.size > this.lastAnalysisBlockCount;
+      if (this.isRecording && (this.analysisRequested || hasUnanalyzedBlocks)) {
+        this.analysisRequested = false;
+        this.scheduleAnalysis(analysisSucceeded ? 0 : this.analysisRetryDelayMs);
+      }
     }
   }
 }

@@ -60,7 +60,7 @@ export function App() {
   }, []);
 
   const micCapture = useMicCapture();
-  const { agents, selectedAgentId, selectedAgent, selectAgent, seedAgents } = useAgents(sessionActive);
+  const { agents, selectedAgentId, selectedAgent, selectAgent, seedAgents } = useAgents();
 
   const handleResumed = useCallback((data: ResumeData) => {
     setTodos(data.todos);
@@ -224,8 +224,12 @@ export function App() {
   }, [session.sessionId, micCapture]);
 
   const handleFollowUp = useCallback(async (agent: Agent, question: string) => {
-    await window.electronAPI.followUpAgent(agent.id, question);
-  }, []);
+    const targetSessionId = agent.sessionId ?? session.sessionId ?? null;
+    if (!targetSessionId) {
+      return { ok: false, error: "Missing session id for this agent" };
+    }
+    return window.electronAPI.followUpAgentInSession(targetSessionId, agent.id, question);
+  }, [session.sessionId]);
 
   const handleCancelAgent = useCallback(async (agentId: string) => {
     await window.electronAPI.cancelAgent(agentId);

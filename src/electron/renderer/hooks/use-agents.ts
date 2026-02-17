@@ -30,9 +30,18 @@ function agentsReducer(state: AgentsState, action: AgentsAction): AgentsState {
       return {
         ...state,
         agents: state.agents.map((a) =>
-          a.id === action.agentId
-            ? { ...a, steps: [...a.steps, action.step] }
-            : a
+          a.id !== action.agentId
+            ? a
+            : (() => {
+                const existingIdx = a.steps.findIndex((s) => s.id === action.step.id);
+                if (existingIdx >= 0) {
+                  return {
+                    ...a,
+                    steps: a.steps.map((s, idx) => (idx === existingIdx ? action.step : s)),
+                  };
+                }
+                return { ...a, steps: [...a.steps, action.step] };
+              })()
         ),
       };
     case "agent-completed":
@@ -64,12 +73,10 @@ function agentsReducer(state: AgentsState, action: AgentsAction): AgentsState {
 
 const initialState: AgentsState = { agents: [], selectedAgentId: null };
 
-export function useAgents(sessionActive: boolean) {
+export function useAgents() {
   const [state, dispatch] = useReducer(agentsReducer, initialState);
 
   useEffect(() => {
-    if (!sessionActive) return;
-
     const api = window.electronAPI;
     const cleanups = [
       api.onAgentStarted((agent) => dispatch({ kind: "agent-started", agent })),
@@ -79,7 +86,7 @@ export function useAgents(sessionActive: boolean) {
     ];
 
     return () => cleanups.forEach((fn) => fn());
-  }, [sessionActive]);
+  }, []);
 
   const selectAgent = useCallback((agentId: string | null) => {
     dispatch({ kind: "select-agent", agentId });

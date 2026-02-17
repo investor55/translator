@@ -96,6 +96,40 @@ function shutdownCurrentSession(db: AppDatabase) {
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: AppDatabase) {
+  async function ensureSession(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (session && session.sessionId === sessionId) {
+      return { ok: true };
+    }
+
+    shutdownCurrentSession(db);
+
+    const meta = db.getSession(sessionId);
+    if (!meta) {
+      return { ok: false, error: `Session ${sessionId} not found` };
+    }
+
+    const sourceLang = (meta.sourceLang as LanguageCode) ?? "ko";
+    const targetLang = (meta.targetLang as LanguageCode) ?? "en";
+    const config = buildConfig(sourceLang, targetLang);
+
+    try {
+      validateEnv(config);
+    } catch (error) {
+      return { ok: false, error: toReadableError(error) };
+    }
+
+    session = new Session(config, db, sessionId);
+    wireSessionEvents(session, getWindow, db);
+
+    try {
+      await session.initialize();
+      return { ok: true };
+    } catch (error) {
+      log("ERROR", `Session ensure failed: ${toReadableError(error)}`);
+      return { ok: false, error: toReadableError(error) };
+    }
+  }
+
   ipcMain.handle("get-languages", () => {
     return SUPPORTED_LANGUAGES;
   });
@@ -293,6 +327,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
 
   ipcMain.handle("follow-up-agent", (_event, agentId: string, question: string) => {
     if (!session) return { ok: false, error: "No active session" };
+    const started = session.followUpAgent(agentId, question);
+    if (!started) return { ok: false, error: "Agent not found or still running" };
+    return { ok: true };
+  });
+
+  ipcMain.handle("follow-up-agent-in-session", async (_event, sessionId: string, agentId: string, question: string) => {
+    const ensured = await ensureSession(sessionId);
+    if (!ensured.ok) return ensured;
+    if (!session) return { ok: false, error: "Could not load session" };
     const started = session.followUpAgent(agentId, question);
     if (!started) return { ok: false, error: "Agent not found or still running" };
     return { ok: true };
