@@ -66,6 +66,7 @@ import {
   RealtimeEvents,
   type RealtimeConnection,
 } from "./elevenlabs";
+import { preloadWhisperPipeline, disposeWhisperPipeline, transcribeWithWhisper } from "./whisper-local";
 
 type TypedEmitter = EventEmitter & {
   emit<K extends keyof SessionEvents>(event: K, ...args: SessionEvents[K]): boolean;
@@ -162,9 +163,11 @@ export class Session {
     this._translationEnabled = config.translationEnabled;
     this.userContext = loadUserContext(config.contextFile, config.useContext);
 
-    this.transcriptionModel = config.transcriptionProvider === "elevenlabs"
-      ? null
-      : createTranscriptionModel(config);
+    this.transcriptionModel =
+      config.transcriptionProvider === "elevenlabs" ||
+      config.transcriptionProvider === "whisper"
+        ? null
+        : createTranscriptionModel(config);
     this.analysisModel = createAnalysisModel(config);
     this.todoModel = createTodoModel(config);
 
@@ -412,6 +415,13 @@ export class Session {
     if (this.config.transcriptionProvider === "elevenlabs") {
       void this.openElevenLabsConnection("system");
     }
+
+    if (this.config.transcriptionProvider === "whisper") {
+      this.events.emit("status", "Loading Whisper model...");
+      preloadWhisperPipeline(this.config.transcriptionModelId)
+        .then(() => { this.events.emit("status", "Whisper ready. Speak now."); })
+        .catch((err: Error) => { this.events.emit("error", `Whisper load failed: ${err.message}`); });
+    }
   }
 
   stopRecording(): void {
@@ -428,7 +438,7 @@ export class Session {
     if (this.audioRecorder) { this.audioRecorder.stop(); this.audioRecorder = null; }
     if (this.ffmpegProcess) { this.ffmpegProcess.kill("SIGTERM"); this.ffmpegProcess = null; }
 
-    // VAD flush only needed for Google/Vertex
+    // VAD flush only needed for Google/Vertex/Whisper
     if (this.config.transcriptionProvider !== "elevenlabs") {
       const remaining = flushVad(this.systemPipeline.vadState);
       if (remaining) {
@@ -689,6 +699,7 @@ export class Session {
     log("INFO", "Session shutdown");
     if (this._micEnabled) this.stopMic();
     if (this.isRecording) this.stopRecording();
+    if (this.config.transcriptionProvider === "whisper") disposeWhisperPipeline();
     writeSummaryLog(this.contextState.allKeyPoints);
   }
 
@@ -949,7 +960,7 @@ export class Session {
   }
 
   private async processQueue(): Promise<void> {
-    // ElevenLabs uses persistent WS; this queue is for Google/Vertex only.
+    // ElevenLabs uses persistent WS; this queue is for Google/Vertex/Whisper.
     if (this.config.transcriptionProvider === "elevenlabs") return;
     if (this.inFlight >= this.maxConcurrency || this.chunkQueue.length === 0) return;
     const item = this.chunkQueue.shift();
@@ -961,11 +972,7 @@ export class Session {
     const chunkDurationMs = (chunk.length / (16000 * 2)) * 1000;
     this.updateInFlightDisplay();
 
-    const useTranslation = this._translationEnabled;
-    const schema = useTranslation ? this.audioTranscriptionSchema : this.transcriptionOnlySchema;
-
     try {
-      const wavBuffer = pcmToWavBuffer(chunk, 16000);
       let transcript = "";
       let translation = "";
       let detectedLang: LanguageCode = this.config.sourceLang;
@@ -973,59 +980,83 @@ export class Session {
       let isNewTopic = false;
 
       if (this.config.debug) {
-        log("INFO", `Transcription request [${this.config.transcriptionProvider}]: src=${audioSource} chunk=${chunkDurationMs.toFixed(0)}ms (${(wavBuffer.byteLength / 1024).toFixed(0)}KB), queue=${this.chunkQueue.length}, inflight=${this.inFlight}`);
+        log("INFO", `Transcription request [${this.config.transcriptionProvider}]: src=${audioSource} chunk=${chunkDurationMs.toFixed(0)}ms, queue=${this.chunkQueue.length}, inflight=${this.inFlight}`);
       }
 
-      const prompt = buildAudioPromptForStructured(
-        this.config.direction,
-        this.config.sourceLang,
-        this.config.targetLang,
-        getContextWindow(this.contextState),
-        this.contextState.allKeyPoints.slice(-8)
-      );
-      if (!this.transcriptionModel) {
-        throw new Error("Transcription model is not initialized.");
+      if (this.config.transcriptionProvider === "whisper") {
+        const result = await transcribeWithWhisper(chunk, this.config.transcriptionModelId, this.config.sourceLang, this.config.targetLang);
+        transcript = result.transcript;
+        detectedLang = result.detectedLang;
+
+        if (transcript && this._translationEnabled) {
+          const post = await this.postProcessTranscriptText(transcript, detectedLang, true);
+          translation = post.translation;
+          detectedLang = post.sourceLanguage;
+          isPartial = post.isPartial;
+          isNewTopic = post.isNewTopic;
+        } else if (transcript) {
+          isPartial = this.isTranscriptLikelyPartial(transcript);
+        }
+      } else {
+        const useTranslation = this._translationEnabled;
+        const schema = useTranslation ? this.audioTranscriptionSchema : this.transcriptionOnlySchema;
+        const wavBuffer = pcmToWavBuffer(chunk, 16000);
+
+        if (this.config.debug) {
+          log("INFO", `Audio buffer: ${(wavBuffer.byteLength / 1024).toFixed(0)}KB`);
+        }
+
+        const prompt = buildAudioPromptForStructured(
+          this.config.direction,
+          this.config.sourceLang,
+          this.config.targetLang,
+          getContextWindow(this.contextState),
+          this.contextState.allKeyPoints.slice(-8)
+        );
+        if (!this.transcriptionModel) {
+          throw new Error("Transcription model is not initialized.");
+        }
+
+        const { object: result, usage: finalUsage } = await generateObject({
+          model: this.transcriptionModel,
+          schema,
+          system: this.userContext || undefined,
+          temperature: 0,
+          maxRetries: 2,
+          abortSignal: AbortSignal.timeout(30000),
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: prompt },
+                {
+                  type: "file",
+                  mediaType: "audio/wav",
+                  data: wavBuffer,
+                },
+              ],
+            },
+          ],
+        });
+
+        const inTok = finalUsage?.inputTokens ?? 0;
+        const outTok = finalUsage?.outputTokens ?? 0;
+        const totalCost = addCostToAcc(this.costAccumulator, inTok, outTok, "audio", this.config.transcriptionProvider);
+        this.events.emit("cost-updated", totalCost);
+
+        if (this.config.debug) {
+          log("INFO", `Transcription response [${this.config.transcriptionProvider}]: ${Date.now() - startTime}ms, tokens: ${inTok}→${outTok}, queue: ${this.chunkQueue.length}`);
+          this.events.emit("status", `Response: ${Date.now() - startTime}ms | T: ${inTok}→${outTok}`);
+        }
+
+        transcript = (result as { transcript?: string }).transcript?.trim() ?? "";
+        translation = useTranslation
+          ? ((result as { translation?: string }).translation?.trim() ?? "")
+          : "";
+        detectedLang = (result as { sourceLanguage: string }).sourceLanguage as LanguageCode;
+        isPartial = (result as { isPartial: boolean }).isPartial;
+        isNewTopic = (result as { isNewTopic: boolean }).isNewTopic;
       }
-
-      const { object: result, usage: finalUsage } = await generateObject({
-        model: this.transcriptionModel,
-        schema,
-        system: this.userContext || undefined,
-        temperature: 0,
-        maxRetries: 2,
-        abortSignal: AbortSignal.timeout(30000),
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: prompt },
-              {
-                type: "file",
-                mediaType: "audio/wav",
-                data: wavBuffer,
-              },
-            ],
-          },
-        ],
-      });
-
-      const inTok = finalUsage?.inputTokens ?? 0;
-      const outTok = finalUsage?.outputTokens ?? 0;
-      const totalCost = addCostToAcc(this.costAccumulator, inTok, outTok, "audio", this.config.transcriptionProvider);
-      this.events.emit("cost-updated", totalCost);
-
-      if (this.config.debug) {
-        log("INFO", `Transcription response [${this.config.transcriptionProvider}]: ${Date.now() - startTime}ms, tokens: ${inTok}→${outTok}, queue: ${this.chunkQueue.length}`);
-        this.events.emit("status", `Response: ${Date.now() - startTime}ms | T: ${inTok}→${outTok}`);
-      }
-
-      transcript = (result as { transcript?: string }).transcript?.trim() ?? "";
-      translation = useTranslation
-        ? ((result as { translation?: string }).translation?.trim() ?? "")
-        : "";
-      detectedLang = (result as { sourceLanguage: string }).sourceLanguage as LanguageCode;
-      isPartial = (result as { isPartial: boolean }).isPartial;
-      isNewTopic = (result as { isNewTopic: boolean }).isNewTopic;
 
       if (!translation && !transcript) {
         log("WARN", "Transcription returned empty transcript and translation");

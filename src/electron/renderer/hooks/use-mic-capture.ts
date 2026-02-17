@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useMemo } from "react";
 
 /**
  * Captures mic audio via Web Audio API and streams PCM to main process via IPC.
@@ -50,5 +50,5 @@ export function useMicCapture() {
     streamRef.current = null;
   }, []);
 
-  return { start, stop };
+  return useMemo(() => ({ start, stop }), [start, stop]);
 }

@@ -15,6 +15,8 @@ export default defineConfig({
         "ws",
         "bufferutil",
         "utf-8-validate",
+        "@huggingface/transformers",
+        "onnxruntime-node",
       ],
       output: {
         format: "cjs",

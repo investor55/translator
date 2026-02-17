@@ -31,7 +31,7 @@ export type Device = { index: number; name: string };
 export type AudioSource = "system" | "microphone";
 export type ThemeMode = "system" | "light" | "dark";
 
-export type TranscriptionProvider = "google" | "vertex" | "elevenlabs";
+export type TranscriptionProvider = "google" | "vertex" | "elevenlabs" | "whisper";
 export type AnalysisProvider = "openrouter" | "google" | "vertex";
 
 export type TranscriptBlock = {
@@ -151,6 +151,7 @@ export const DEFAULT_VERTEX_LOCATION =
   ENV?.GOOGLE_VERTEX_PROJECT_LOCATION ?? "global";
 export const DEFAULT_TRANSCRIPTION_MODEL_ID =
   ENV?.TRANSCRIPTION_MODEL_ID ?? "scribe_v2_realtime";
+export const DEFAULT_WHISPER_MODEL_ID = "Xenova/whisper-small";
 export const DEFAULT_ANALYSIS_MODEL_ID =
   ENV?.ANALYSIS_MODEL_ID ?? "moonshotai/kimi-k2-thinking";
 export const DEFAULT_TODO_MODEL_ID =
@@ -194,7 +195,8 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
   const transcriptionProvider: TranscriptionProvider =
     merged.transcriptionProvider === "google" ||
     merged.transcriptionProvider === "vertex" ||
-    merged.transcriptionProvider === "elevenlabs"
+    merged.transcriptionProvider === "elevenlabs" ||
+    merged.transcriptionProvider === "whisper"
       ? merged.transcriptionProvider
       : DEFAULT_APP_CONFIG.transcriptionProvider;
   const analysisProvider: AnalysisProvider =

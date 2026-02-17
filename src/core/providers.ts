@@ -46,6 +46,9 @@ export function createTranscriptionModel(config: SessionConfig): LanguageModel {
     case "elevenlabs": {
       throw new Error("ElevenLabs transcription does not use an AI SDK language model.");
     }
+    case "whisper": {
+      throw new Error("Whisper runs locally and does not use an AI SDK model.");
+    }
   }
   throw new Error(`Unsupported transcription provider: ${String(config.transcriptionProvider)}`);
 }

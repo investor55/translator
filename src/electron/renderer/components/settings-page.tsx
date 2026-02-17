@@ -7,6 +7,11 @@ import type {
   ThemeMode,
   TranscriptionProvider,
 } from "../../../core/types";
+import {
+  DEFAULT_TRANSCRIPTION_MODEL_ID,
+  DEFAULT_WHISPER_MODEL_ID,
+  DEFAULT_VERTEX_MODEL_ID,
+} from "../../../core/types";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,10 +44,24 @@ const DIRECTION_OPTIONS: Array<{ value: Direction; label: string }> = [
 ];
 
 const TRANSCRIPTION_PROVIDERS: Array<{ value: TranscriptionProvider; label: string }> = [
-  { value: "elevenlabs", label: "ElevenLabs" },
+  { value: "elevenlabs", label: "ElevenLabs (Realtime)" },
+  { value: "whisper", label: "Whisper (Local / Offline)" },
   { value: "google", label: "Google" },
   { value: "vertex", label: "Vertex AI" },
 ];
+
+function getDefaultModelId(provider: TranscriptionProvider): string {
+  switch (provider) {
+    case "whisper": return DEFAULT_WHISPER_MODEL_ID;
+    case "elevenlabs": return DEFAULT_TRANSCRIPTION_MODEL_ID;
+    case "google": return "gemini-2.0-flash";
+    case "vertex": return DEFAULT_VERTEX_MODEL_ID;
+  }
+}
+
+function getModelIdPlaceholder(provider: TranscriptionProvider): string {
+  return getDefaultModelId(provider);
+}
 
 const ANALYSIS_PROVIDERS: Array<{ value: AnalysisProvider; label: string }> = [
   { value: "openrouter", label: "OpenRouter" },
@@ -272,7 +291,10 @@ export function SettingsPage({
                 <label className="text-[11px] text-muted-foreground">Provider</label>
                 <Select
                   value={config.transcriptionProvider}
-                  onValueChange={(v) => set("transcriptionProvider", v as TranscriptionProvider)}
+                  onValueChange={(v) => {
+                    const provider = v as TranscriptionProvider;
+                    onConfigChange({ ...config, transcriptionProvider: provider, transcriptionModelId: getDefaultModelId(provider) });
+                  }}
                 >
                   <SelectTrigger size="sm" className="w-full">
                     <SelectValue />
@@ -291,10 +313,15 @@ export function SettingsPage({
                 <Input
                   value={config.transcriptionModelId}
                   onChange={(e) => set("transcriptionModelId", e.target.value)}
-                  placeholder="scribe_v2"
+                  placeholder={getModelIdPlaceholder(config.transcriptionProvider)}
                 />
               </div>
             </div>
+            {config.transcriptionProvider === "whisper" && (
+              <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
+                Whisper runs locally — no API key required. The model is downloaded on first use (~150 MB for whisper-small). Use <code className="font-mono">Xenova/whisper-large-v3-turbo</code> for higher accuracy.
+              </p>
+            )}
           </section>
 
           <section className="border border-border bg-card px-4 py-3 rounded-none">
