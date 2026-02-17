@@ -4,6 +4,7 @@ import { MicIcon, Volume2Icon } from "lucide-react";
 
 type TranscriptAreaProps = {
   blocks: TranscriptBlock[];
+  partialText?: string;
 };
 
 const PARAGRAPH_MAX_MS = 30_000;
@@ -111,7 +112,7 @@ function Paragraph({ blocks, isLast }: { blocks: TranscriptBlock[]; isLast: bool
 }
 
 export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
-  function TranscriptArea({ blocks }, ref) {
+  function TranscriptArea({ blocks, partialText }, ref) {
     const bottomRef = useRef<HTMLDivElement>(null);
     const paragraphs = useMemo(() => groupIntoParagraphs(blocks), [blocks]);
 
@@ -137,6 +138,11 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
                 isLast={i === paragraphs.length - 1}
               />
             ))
+          )}
+          {partialText && (
+            <p className="text-sm font-mono text-muted-foreground/50 italic animate-pulse">
+              {partialText}
+            </p>
           )}
           <div ref={bottomRef} />
         </div>

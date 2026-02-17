@@ -31,8 +31,8 @@ export type ElectronAPI = {
   getTodos: () => Promise<TodoItem[]>;
   addTodo: (todo: TodoItem) => Promise<{ ok: boolean }>;
   toggleTodo: (id: string) => Promise<{ ok: boolean; error?: string }>;
-  scanTodos: () => Promise<{ ok: boolean; queued: boolean; todoAnalysisRan: boolean; todoSuggestionsEmitted: number; error?: string }>;
-  scanTodosInSession: (sessionId: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; queued: boolean; todoAnalysisRan: boolean; todoSuggestionsEmitted: number; error?: string }>;
+  scanTodos: () => Promise<{ ok: boolean; queued: boolean; todoAnalysisRan: boolean; todoSuggestionsEmitted: number; suggestions?: TodoSuggestion[]; error?: string }>;
+  scanTodosInSession: (sessionId: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; queued: boolean; todoAnalysisRan: boolean; todoSuggestionsEmitted: number; suggestions?: TodoSuggestion[]; error?: string }>;
   getSessions: (limit?: number) => Promise<SessionMeta[]>;
   getSessionBlocks: (sessionId: string) => Promise<TranscriptBlock[]>;
   deleteSession: (id: string) => Promise<{ ok: boolean }>;
@@ -54,6 +54,7 @@ export type ElectronAPI = {
   onBlocksCleared: (callback: () => void) => () => void;
   onSummaryUpdated: (callback: (summary: Summary | null) => void) => () => void;
   onCostUpdated: (callback: (cost: number) => void) => () => void;
+  onPartial: (callback: (text: string) => void) => () => void;
   onStatus: (callback: (text: string) => void) => () => void;
   onError: (callback: (text: string) => void) => () => void;
   onTodoAdded: (callback: (todo: TodoItem) => void) => () => void;
@@ -113,6 +114,7 @@ const api: ElectronAPI = {
   onBlocksCleared: createListener<void>("session:blocks-cleared"),
   onSummaryUpdated: createListener<Summary | null>("session:summary-updated"),
   onCostUpdated: createListener<number>("session:cost-updated"),
+  onPartial: createListener<string>("session:partial"),
   onStatus: createListener<string>("session:status"),
   onError: createListener<string>("session:error"),
   onTodoAdded: createListener<TodoItem>("session:todo-added"),

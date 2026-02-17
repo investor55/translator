@@ -262,6 +262,7 @@ export type SessionEvents = {
   "blocks-cleared": [];
   "summary-updated": [summary: Summary | null];
   "cost-updated": [cost: number];
+  "partial": [text: string];
   "status": [text: string];
   "error": [error: string];
   "todo-added": [todo: TodoItem];

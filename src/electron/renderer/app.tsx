@@ -163,14 +163,23 @@ export function App() {
 
   useThemeMode(appConfig.themeMode);
 
-  const handleTodoSuggested = useCallback((suggestion: TodoSuggestion) => {
+  const appendSuggestions = useCallback((incoming: TodoSuggestion[]) => {
+    if (incoming.length === 0) return;
     setSuggestions((prev) => {
-      if (prev.some((existing) => existing.id === suggestion.id)) {
-        return prev;
+      const existingIds = new Set(prev.map((item) => item.id));
+      const next = [...prev];
+      for (const suggestion of incoming) {
+        if (existingIds.has(suggestion.id)) continue;
+        next.unshift(suggestion);
+        existingIds.add(suggestion.id);
       }
-      return [suggestion, ...prev];
+      return next;
     });
   }, []);
+
+  const handleTodoSuggested = useCallback((suggestion: TodoSuggestion) => {
+    appendSuggestions([suggestion]);
+  }, [appendSuggestions]);
 
   const handleInsightAdded = useCallback((insight: Insight) => {
     setInsights((prev) => [...prev, insight]);
@@ -273,7 +282,20 @@ export function App() {
     setRouteNotice("");
     setTodos((prev) => [todo, ...prev]);
     window.electronAPI.addTodo(todo);
-  }, [selectedSessionId, session.sessionId]);
+
+    const useActiveRuntime = sessionActive && session.sessionId === targetSessionId;
+    void (async () => {
+      const result = useActiveRuntime
+        ? await window.electronAPI.launchAgent(todo.id, todo.text)
+        : await window.electronAPI.launchAgentInSession(targetSessionId, todo.id, todo.text, appConfig);
+
+      if (result.ok && result.agent) {
+        selectAgent(result.agent.id);
+        return;
+      }
+      setRouteNotice(`Todo added, but failed to launch agent: ${result.error ?? "Unknown error"}`);
+    })();
+  }, [appConfig, selectAgent, selectedSessionId, session.sessionId, sessionActive]);
 
   const handleToggleTodo = useCallback((id: string) => {
     setTodos((prev) =>
@@ -341,6 +363,7 @@ export function App() {
       } else if (result.queued) {
         setScanFeedback("Scan queued...");
       } else if (result.todoAnalysisRan) {
+        appendSuggestions(result.suggestions ?? []);
         const suffix = result.todoSuggestionsEmitted === 1 ? "" : "s";
         setScanFeedback(`Todo scan complete: ${result.todoSuggestionsEmitted} suggestion${suffix}.`);
         setScanningTodos(false);
@@ -353,7 +376,7 @@ export function App() {
       setRouteNotice(`Todo scan failed: ${String(error)}`);
       setScanningTodos(false);
     }
-  }, [appConfig, selectedSessionId, session.sessionId]);
+  }, [appConfig, appendSuggestions, selectedSessionId, session.sessionId]);
 
   const handleLaunchAgent = useCallback(async (todoId: string, task: string) => {
     const todoSessionId = todos.find((todo) => todo.id === todoId)?.sessionId ?? null;
@@ -489,7 +512,7 @@ export function App() {
               onDeleteSession={handleDeleteSession}
             />
             <main className="flex-1 flex flex-col min-h-0 min-w-0 relative">
-              <TranscriptArea ref={transcriptRef} blocks={session.blocks} />
+              <TranscriptArea ref={transcriptRef} blocks={session.blocks} partialText={session.partialText} />
             </main>
             {selectedAgent && (
               <AgentDetailPanel

@@ -599,6 +599,7 @@ export class Session {
     queued: boolean;
     todoAnalysisRan: boolean;
     todoSuggestionsEmitted: number;
+    suggestions: TodoSuggestion[];
     error?: string;
   }> {
     if (this.contextState.transcriptBlocks.size === 0) {
@@ -611,6 +612,7 @@ export class Session {
         queued: false,
         todoAnalysisRan: false,
         todoSuggestionsEmitted: 0,
+        suggestions: [],
         error: "No transcript available to scan yet",
       };
     }
@@ -624,6 +626,7 @@ export class Session {
         queued: true,
         todoAnalysisRan: false,
         todoSuggestionsEmitted: 0,
+        suggestions: [],
       };
     }
 
@@ -635,6 +638,7 @@ export class Session {
         queued: true,
         todoAnalysisRan: false,
         todoSuggestionsEmitted: 0,
+        suggestions: [],
       };
     }
 
@@ -644,6 +648,7 @@ export class Session {
       queued: false,
       todoAnalysisRan: analysisResult.todoAnalysisRan,
       todoSuggestionsEmitted: analysisResult.todoSuggestionsEmitted,
+      suggestions: analysisResult.suggestions,
     };
   }
 
@@ -801,7 +806,7 @@ export class Session {
 
   private attachElevenLabsHandlers(connection: RealtimeConnection, source: AudioSource): void {
     connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (msg) => {
-      if (msg.text) this.events.emit("status", `${msg.text}`);
+      if (msg.text) this.events.emit("partial", `${msg.text}`);
     });
 
     connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT_WITH_TIMESTAMPS, (msg) => {
@@ -844,6 +849,7 @@ export class Session {
     audioSource: AudioSource,
     capturedAt: number
   ): Promise<void> {
+    this.events.emit("partial", "");
     const useTranslation = this._translationEnabled;
     let detectedLang = detectedLangHint;
     let translation = "";
@@ -1216,12 +1222,14 @@ Return:
   private async generateAnalysis(): Promise<{
     todoAnalysisRan: boolean;
     todoSuggestionsEmitted: number;
+    suggestions: TodoSuggestion[];
   }> {
     if (this.analysisInFlight) {
       this.analysisRequested = true;
       return {
         todoAnalysisRan: false,
         todoSuggestionsEmitted: 0,
+        suggestions: [],
       };
     }
 
@@ -1243,6 +1251,7 @@ Return:
       return {
         todoAnalysisRan: false,
         todoSuggestionsEmitted: 0,
+        suggestions: [],
       };
     }
 
@@ -1260,6 +1269,7 @@ Return:
     let analysisInsightsCount = 0;
     let todoAnalysisRan = false;
     let todoSuggestionsEmitted = 0;
+    let emittedTodoSuggestions: TodoSuggestion[] = [];
 
     try {
       const existingTodos = this.db
@@ -1377,14 +1387,22 @@ Return:
 
       // Emit todo suggestions (not auto-added — user must accept)
       const existingTodoTexts = existingTodos.map((t) => t.text);
-      const emittedTodoSuggestions: string[] = [];
+      const emittedTodoTexts: string[] = [];
+      emittedTodoSuggestions = [];
       for (const text of todoSuggestions) {
         const candidate = text.trim();
         if (!candidate) continue;
-        if (!this.tryEmitTodoSuggestion(candidate, existingTodoTexts, emittedTodoSuggestions, forceTodoAnalysis)) {
+        const emittedSuggestion = this.tryEmitTodoSuggestion(
+          candidate,
+          existingTodoTexts,
+          emittedTodoTexts,
+          forceTodoAnalysis,
+        );
+        if (!emittedSuggestion) {
           continue;
         }
-        emittedTodoSuggestions.push(candidate);
+        emittedTodoTexts.push(candidate);
+        emittedTodoSuggestions.push(emittedSuggestion);
         todoSuggestionsEmitted += 1;
       }
 
@@ -1418,6 +1436,7 @@ Return:
     return {
       todoAnalysisRan,
       todoSuggestionsEmitted,
+      suggestions: emittedTodoSuggestions,
     };
   }
 
@@ -1448,13 +1467,13 @@ Return:
     existingTodoTexts?: readonly string[],
     emittedInCurrentAnalysis: readonly string[] = [],
     ignoreRecentSuggestions = false,
-  ): boolean {
+  ): TodoSuggestion | null {
     const normalized = candidate.trim();
-    if (!normalized) return false;
+    if (!normalized) return null;
 
     const knownTodoTexts = existingTodoTexts ?? (this.db ? this.db.getTodos().map((t) => t.text) : []);
     if (this.isDuplicateTodoSuggestion(normalized, knownTodoTexts, emittedInCurrentAnalysis, ignoreRecentSuggestions)) {
-      return false;
+      return null;
     }
 
     const suggestion: TodoSuggestion = {
@@ -1468,6 +1487,6 @@ Return:
       this.recentSuggestedTodoTexts = this.recentSuggestedTodoTexts.slice(-500);
     }
     this.events.emit("todo-suggested", suggestion);
-    return true;
+    return suggestion;
   }
 }

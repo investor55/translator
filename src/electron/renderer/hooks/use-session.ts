@@ -8,6 +8,7 @@ export type SessionState = {
   summary: Summary | null;
   rollingKeyPoints: string[];
   cost: number;
+  partialText: string;
   statusText: string;
   errorText: string;
   sessionActive: boolean;
@@ -28,6 +29,7 @@ type SessionAction =
   | { kind: "blocks-cleared" }
   | { kind: "summary-updated"; summary: Summary | null }
   | { kind: "cost-updated"; cost: number }
+  | { kind: "partial"; text: string }
   | { kind: "status"; text: string }
   | { kind: "error"; text: string }
   | { kind: "session-started"; sessionId: string }
@@ -47,7 +49,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
     case "state-change":
       return { ...state, uiState: action.state };
     case "block-added":
-      return { ...state, blocks: sortBlocks([...state.blocks, action.block]) };
+      return { ...state, partialText: "", blocks: sortBlocks([...state.blocks, action.block]) };
     case "block-updated":
       return {
         ...state,
@@ -56,7 +58,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         )),
       };
     case "blocks-cleared":
-      return { ...state, blocks: [], summary: null, rollingKeyPoints: [], cost: 0, statusText: "" };
+      return { ...state, blocks: [], summary: null, rollingKeyPoints: [], cost: 0, partialText: "", statusText: "" };
     case "summary-updated":
       return {
         ...state,
@@ -67,6 +69,8 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
       };
     case "cost-updated":
       return { ...state, cost: action.cost };
+    case "partial":
+      return { ...state, partialText: action.text };
     case "status":
       return { ...state, statusText: action.text };
     case "error":
@@ -80,6 +84,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         summary: null,
         rollingKeyPoints: [],
         cost: 0,
+        partialText: "",
         statusText: "",
         errorText: "",
       };
@@ -95,12 +100,13 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         rollingKeyPoints: keyPoints,
         summary: null,
         cost: 0,
+        partialText: "",
         statusText: "",
         errorText: "",
       };
     }
     case "session-ended":
-      return { ...state, sessionActive: false, uiState: null, statusText: "", errorText: "" };
+      return { ...state, sessionActive: false, uiState: null, partialText: "", statusText: "", errorText: "" };
     case "session-viewed":
       return {
         ...state,
@@ -111,6 +117,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         uiState: null,
         summary: null,
         cost: 0,
+        partialText: "",
         statusText: "",
         errorText: "",
       };
@@ -124,6 +131,7 @@ const initialState: SessionState = {
   summary: null,
   rollingKeyPoints: [],
   cost: 0,
+  partialText: "",
   statusText: "",
   errorText: "",
   sessionActive: false,
@@ -174,6 +182,7 @@ export function useSession(
     cleanups.push(api.onBlocksCleared(() => dispatch({ kind: "blocks-cleared" })));
     cleanups.push(api.onSummaryUpdated((s) => dispatch({ kind: "summary-updated", summary: s })));
     cleanups.push(api.onCostUpdated((c) => dispatch({ kind: "cost-updated", cost: c })));
+    cleanups.push(api.onPartial((t) => dispatch({ kind: "partial", text: t })));
     cleanups.push(api.onStatus((t) => dispatch({ kind: "status", text: t })));
     cleanups.push(api.onError((t) => dispatch({ kind: "error", text: t })));
 

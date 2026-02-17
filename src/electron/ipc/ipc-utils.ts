@@ -87,6 +87,10 @@ export function wireSessionEvents(
     if (!isCurrentSession()) return;
     sendToRenderer(getWindow, "session:cost-updated", cost);
   });
+  activeSession.events.on("partial", (text: string) => {
+    if (!isCurrentSession()) return;
+    sendToRenderer(getWindow, "session:partial", text);
+  });
   activeSession.events.on("status", (text: string) => {
     if (!isCurrentSession()) return;
     sendToRenderer(getWindow, "session:status", text);
