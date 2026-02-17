@@ -49,7 +49,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
     case "session-started":
       return { ...state, sessionActive: true };
     case "session-ended":
-      return { ...state, sessionActive: false };
+      return { ...state, sessionActive: false, uiState: null };
   }
 }
 
@@ -63,10 +63,12 @@ const initialState: SessionState = {
   sessionActive: false,
 };
 
-export function useSession(sourceLang: LanguageCode, targetLang: LanguageCode) {
+export function useSession(sourceLang: LanguageCode, targetLang: LanguageCode, active: boolean) {
   const [state, dispatch] = useReducer(sessionReducer, initialState);
 
   useEffect(() => {
+    if (!active) return;
+
     const api = window.electronAPI;
     const cleanups: (() => void)[] = [];
 
@@ -91,8 +93,9 @@ export function useSession(sourceLang: LanguageCode, targetLang: LanguageCode) {
     return () => {
       cleanups.forEach((fn) => fn());
       api.shutdownSession();
+      dispatch({ kind: "session-ended" });
     };
-  }, [sourceLang, targetLang]);
+  }, [sourceLang, targetLang, active]);
 
   const toggleRecording = useCallback(async () => {
     const result = await window.electronAPI.toggleRecording();
