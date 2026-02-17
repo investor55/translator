@@ -5,6 +5,7 @@ import { createVertex } from "@ai-sdk/google-vertex";
 import { z } from "zod";
 
 import type {
+  Agent,
   AudioSource,
   SessionConfig,
   SessionEvents,
@@ -58,6 +59,7 @@ import {
   spawnMicFfmpeg,
   type AudioRecorder,
 } from "./audio";
+import { createAgentManager, type AgentManager } from "./agent-manager";
 
 type TypedEmitter = EventEmitter & {
   emit<K extends keyof SessionEvents>(event: K, ...args: SessionEvents[K]): boolean;
@@ -117,6 +119,7 @@ export class Session {
   private lastSummary: Summary | null = null;
   private lastAnalysisBlockCount = 0;
   private db: AppDatabase | null;
+  private agentManager: AgentManager | null = null;
 
   private sourceLangLabel: string;
   private targetLangLabel: string;
@@ -136,6 +139,17 @@ export class Session {
     });
     this.vertexModel = vertex(config.vertexModelId);
     this.analysisModel = vertex(config.vertexModelId);
+
+    const exaApiKey = process.env.EXA_API_KEY;
+    if (exaApiKey) {
+      this.agentManager = createAgentManager({
+        model: this.analysisModel,
+        exaApiKey,
+        events: this.events,
+        getTranscriptContext: () => this.getTranscriptContextForAgent(),
+      });
+      log("INFO", "AgentManager initialized (EXA_API_KEY present)");
+    }
 
     this.sourceLangLabel = getLanguageLabel(config.sourceLang);
     this.targetLangLabel = getLanguageLabel(config.targetLang);
@@ -508,6 +522,27 @@ export class Session {
     if (this._micEnabled) this.stopMic();
     if (this.isRecording) this.stopRecording();
     writeSummaryLog(this.contextState.allKeyPoints);
+  }
+
+  launchAgent(todoId: string, task: string): Agent | null {
+    if (!this.agentManager) return null;
+    return this.agentManager.launchAgent(todoId, task, this.sessionId);
+  }
+
+  getAgents(): Agent[] {
+    return this.agentManager?.getAllAgents() ?? [];
+  }
+
+  private getTranscriptContextForAgent(): string {
+    const blocks = [...this.contextState.transcriptBlocks.values()].slice(-20);
+    if (blocks.length === 0) return "(No transcript yet)";
+    return blocks
+      .map((b) => {
+        const src = `[${b.audioSource}] ${b.sourceText}`;
+        const translation = b.translation ? ` → ${b.translation}` : "";
+        return src + translation;
+      })
+      .join("\n");
   }
 
   private micDebugWindowCount = 0;

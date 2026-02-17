@@ -1,12 +1,17 @@
 import { useState, useEffect, useCallback } from "react";
-import type { TodoItem, TodoSuggestion } from "../../../core/types";
-import { PlusIcon, ChevronDownIcon, CheckIcon, XIcon } from "lucide-react";
+import type { TodoItem, TodoSuggestion, Agent } from "../../../core/types";
+import { PlusIcon, ChevronDownIcon, CheckIcon, XIcon, SearchIcon, LoaderCircleIcon } from "lucide-react";
+import { AgentList } from "./agent-list";
 
 const SUGGESTION_TTL_MS = 30_000;
 
 type RightSidebarProps = {
   todos: TodoItem[];
   suggestions: TodoSuggestion[];
+  agents?: Agent[];
+  selectedAgentId?: string | null;
+  onSelectAgent?: (id: string | null) => void;
+  onLaunchAgent?: (todoId: string, task: string) => void;
   onAddTodo?: (text: string) => void;
   onToggleTodo?: (id: string) => void;
   onAcceptSuggestion?: (suggestion: TodoSuggestion) => void;
@@ -86,12 +91,13 @@ function SuggestionItem({
   );
 }
 
-export function RightSidebar({ todos, suggestions, onAddTodo, onToggleTodo, onAcceptSuggestion, onDismissSuggestion }: RightSidebarProps) {
+export function RightSidebar({ todos, suggestions, agents, selectedAgentId, onSelectAgent, onLaunchAgent, onAddTodo, onToggleTodo, onAcceptSuggestion, onDismissSuggestion }: RightSidebarProps) {
   const [input, setInput] = useState("");
   const [completedOpen, setCompletedOpen] = useState(false);
 
   const activeTodos = todos.filter((t) => !t.completed);
   const completedTodos = todos.filter((t) => t.completed);
+  const agentTodoIds = new Set(agents?.map((a) => a.todoId) ?? []);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -151,6 +157,15 @@ export function RightSidebar({ todos, suggestions, onAddTodo, onToggleTodo, onAc
           </div>
         )}
 
+        {/* Agents */}
+        {agents && onSelectAgent && (
+          <AgentList
+            agents={agents}
+            selectedAgentId={selectedAgentId ?? null}
+            onSelectAgent={onSelectAgent}
+          />
+        )}
+
         {/* Active todos */}
         <div className="mb-3">
           <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
@@ -158,24 +173,51 @@ export function RightSidebar({ todos, suggestions, onAddTodo, onToggleTodo, onAc
           </span>
           {activeTodos.length > 0 ? (
             <ul className="mt-1.5 space-y-1">
-              {activeTodos.map((todo) => (
-                <li key={todo.id} className="flex items-start gap-2 py-1 group">
-                  <input
-                    type="checkbox"
-                    checked={false}
-                    onChange={() => onToggleTodo?.(todo.id)}
-                    className="mt-0.5 size-3.5 rounded border-input accent-primary cursor-pointer shrink-0"
-                  />
-                  <span className="text-xs text-foreground leading-relaxed flex-1">
-                    {todo.text}
-                  </span>
-                  {todo.source === "ai" && (
-                    <span className="text-[10px] text-muted-foreground bg-muted px-1 py-0.5 rounded shrink-0 leading-none">
-                      AI
+              {activeTodos.map((todo) => {
+                const hasAgent = agentTodoIds.has(todo.id);
+                const todoAgent = agents?.find((a) => a.todoId === todo.id);
+                return (
+                  <li key={todo.id} className="flex items-start gap-2 py-1 group">
+                    <input
+                      type="checkbox"
+                      checked={false}
+                      onChange={() => onToggleTodo?.(todo.id)}
+                      className="mt-0.5 size-3.5 rounded border-input accent-primary cursor-pointer shrink-0"
+                    />
+                    <span className="text-xs text-foreground leading-relaxed flex-1">
+                      {todo.text}
                     </span>
-                  )}
-                </li>
-              ))}
+                    {hasAgent && todoAgent ? (
+                      <button
+                        type="button"
+                        onClick={() => onSelectAgent?.(todoAgent.id)}
+                        className="shrink-0 rounded p-0.5 text-primary hover:bg-primary/10 transition-colors"
+                        aria-label="View agent"
+                      >
+                        {todoAgent.status === "running" ? (
+                          <LoaderCircleIcon className="size-3.5 animate-spin" />
+                        ) : (
+                          <SearchIcon className="size-3.5" />
+                        )}
+                      </button>
+                    ) : onLaunchAgent ? (
+                      <button
+                        type="button"
+                        onClick={() => onLaunchAgent(todo.id, todo.text)}
+                        className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 transition-all"
+                        aria-label="Research this todo"
+                      >
+                        <SearchIcon className="size-3.5" />
+                      </button>
+                    ) : null}
+                    {todo.source === "ai" && !hasAgent && (
+                      <span className="text-[10px] text-muted-foreground bg-muted px-1 py-0.5 rounded shrink-0 leading-none">
+                        AI
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p className="text-xs text-muted-foreground italic mt-1.5">

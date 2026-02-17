@@ -3,11 +3,13 @@ import { useLocalStorage } from "usehooks-ts";
 import type { Language, LanguageCode, TodoItem, TodoSuggestion, Insight, SessionMeta, TranscriptBlock } from "../../core/types";
 import { useSession } from "./hooks/use-session";
 import { useMicCapture } from "./hooks/use-mic-capture";
+import { useAgents } from "./hooks/use-agents";
 import { useKeyboard } from "./hooks/use-keyboard";
 import { ToolbarHeader } from "./components/toolbar-header";
 import { TranscriptArea } from "./components/transcript-area";
 import { LeftSidebar } from "./components/left-sidebar";
 import { RightSidebar } from "./components/right-sidebar";
+import { AgentDetailPanel } from "./components/agent-detail-panel";
 import { Footer } from "./components/footer";
 
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
@@ -61,6 +63,7 @@ export function App() {
 
   const session = useSession(sourceLang, targetLang, sessionActive);
   const micCapture = useMicCapture();
+  const { agents, selectedAgentId, selectedAgent, selectAgent } = useAgents(sessionActive);
 
   useEffect(() => {
     window.electronAPI.getLanguages().then(setLanguages);
@@ -158,7 +161,7 @@ export function App() {
     window.electronAPI.toggleTodo(id);
   }, []);
 
-  const handleAcceptSuggestion = useCallback((suggestion: TodoSuggestion) => {
+  const handleAcceptSuggestion = useCallback(async (suggestion: TodoSuggestion) => {
     const todo: TodoItem = {
       id: suggestion.id,
       text: suggestion.text,
@@ -170,11 +173,22 @@ export function App() {
     setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
     setTodos((prev) => [todo, ...prev]);
     window.electronAPI.addTodo(todo);
-  }, []);
+    const result = await window.electronAPI.launchAgent(suggestion.id, suggestion.text);
+    if (result.ok && result.agent) {
+      selectAgent(result.agent.id);
+    }
+  }, [selectAgent]);
 
   const handleDismissSuggestion = useCallback((id: string) => {
     setSuggestions((prev) => prev.filter((s) => s.id !== id));
   }, []);
+
+  const handleLaunchAgent = useCallback(async (todoId: string, task: string) => {
+    const result = await window.electronAPI.launchAgent(todoId, task);
+    if (result.ok && result.agent) {
+      selectAgent(result.agent.id);
+    }
+  }, [selectAgent]);
 
   const viewingKeyPoints = viewingInsights
     .filter((i) => i.kind === "key-point")
@@ -273,9 +287,21 @@ export function App() {
             </div>
           )}
         </main>
+        {selectedAgent && !viewingSessionId && (
+          <AgentDetailPanel
+            agent={selectedAgent}
+            agents={agents}
+            onSelectAgent={selectAgent}
+            onClose={() => selectAgent(null)}
+          />
+        )}
         <RightSidebar
           todos={viewingSessionId ? viewingTodos : todos}
           suggestions={viewingSessionId ? [] : suggestions}
+          agents={viewingSessionId ? undefined : agents}
+          selectedAgentId={viewingSessionId ? null : selectedAgentId}
+          onSelectAgent={viewingSessionId ? undefined : selectAgent}
+          onLaunchAgent={viewingSessionId ? undefined : handleLaunchAgent}
           onAddTodo={viewingSessionId ? undefined : handleAddTodo}
           onToggleTodo={handleToggleTodo}
           onAcceptSuggestion={handleAcceptSuggestion}

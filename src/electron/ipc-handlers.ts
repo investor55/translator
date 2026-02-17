@@ -5,7 +5,7 @@ import { log } from "../core/logger";
 import { toReadableError } from "../core/text-utils";
 import { listMicDevices } from "../audio";
 import type { AppDatabase } from "../core/db";
-import type { SessionConfig, LanguageCode, UIState, TranscriptBlock, Summary, TodoItem, TodoSuggestion, Insight } from "../core/types";
+import type { SessionConfig, LanguageCode, UIState, TranscriptBlock, Summary, TodoItem, TodoSuggestion, Insight, Agent, AgentStep } from "../core/types";
 import { SUPPORTED_LANGUAGES, DEFAULT_VERTEX_MODEL_ID, DEFAULT_VERTEX_LOCATION, DEFAULT_INTERVAL_MS } from "../core/types";
 
 let session: Session | null = null;
@@ -87,6 +87,18 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     });
     session.events.on("insight-added", (insight) => {
       send(getWindow, "session:insight-added", insight);
+    });
+    session.events.on("agent-started", (agent: Agent) => {
+      send(getWindow, "session:agent-started", agent);
+    });
+    session.events.on("agent-step", (agentId: string, step: AgentStep) => {
+      send(getWindow, "session:agent-step", agentId, step);
+    });
+    session.events.on("agent-completed", (agentId: string, result: string) => {
+      send(getWindow, "session:agent-completed", agentId, result);
+    });
+    session.events.on("agent-failed", (agentId: string, error: string) => {
+      send(getWindow, "session:agent-failed", agentId, error);
     });
 
     try {
@@ -207,6 +219,18 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
 
   ipcMain.handle("get-session-insights", (_event, sessionId: string) => {
     return db.getInsightsForSession(sessionId);
+  });
+
+  ipcMain.handle("launch-agent", (_event, todoId: string, task: string) => {
+    if (!session) return { ok: false, error: "No active session" };
+    const agent = session.launchAgent(todoId, task);
+    if (!agent) return { ok: false, error: "Agent system unavailable (EXA_API_KEY not set)" };
+    return { ok: true, agent };
+  });
+
+  ipcMain.handle("get-agents", () => {
+    if (!session) return [];
+    return session.getAgents();
   });
 
   ipcMain.handle("shutdown-session", () => {

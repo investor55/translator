@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron/renderer";
-import type { Language, UIState, TranscriptBlock, Summary, LanguageCode, Device, TodoItem, TodoSuggestion, Insight, SessionMeta } from "../core/types";
+import type { Language, UIState, TranscriptBlock, Summary, LanguageCode, Device, TodoItem, TodoSuggestion, Insight, SessionMeta, Agent, AgentStep } from "../core/types";
 
 export type ElectronAPI = {
   getLanguages: () => Promise<Language[]>;
@@ -23,6 +23,9 @@ export type ElectronAPI = {
   getSessionTodos: (sessionId: string) => Promise<TodoItem[]>;
   getSessionInsights: (sessionId: string) => Promise<Insight[]>;
 
+  launchAgent: (todoId: string, task: string) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
+  getAgents: () => Promise<Agent[]>;
+
   onStateChange: (callback: (state: UIState) => void) => () => void;
   onBlockAdded: (callback: (block: TranscriptBlock) => void) => () => void;
   onBlockUpdated: (callback: (block: TranscriptBlock) => void) => () => void;
@@ -34,6 +37,10 @@ export type ElectronAPI = {
   onTodoAdded: (callback: (todo: TodoItem) => void) => () => void;
   onTodoSuggested: (callback: (suggestion: TodoSuggestion) => void) => () => void;
   onInsightAdded: (callback: (insight: Insight) => void) => () => void;
+  onAgentStarted: (callback: (agent: Agent) => void) => () => void;
+  onAgentStep: (callback: (agentId: string, step: AgentStep) => void) => () => void;
+  onAgentCompleted: (callback: (agentId: string, result: string) => void) => () => void;
+  onAgentFailed: (callback: (agentId: string, error: string) => void) => () => void;
 };
 
 function createListener<T>(channel: string) {
@@ -66,6 +73,9 @@ const api: ElectronAPI = {
   getSessionTodos: (sessionId) => ipcRenderer.invoke("get-session-todos", sessionId),
   getSessionInsights: (sessionId) => ipcRenderer.invoke("get-session-insights", sessionId),
 
+  launchAgent: (todoId, task) => ipcRenderer.invoke("launch-agent", todoId, task),
+  getAgents: () => ipcRenderer.invoke("get-agents"),
+
   onStateChange: createListener<UIState>("session:state-change"),
   onBlockAdded: createListener<TranscriptBlock>("session:block-added"),
   onBlockUpdated: createListener<TranscriptBlock>("session:block-updated"),
@@ -77,6 +87,22 @@ const api: ElectronAPI = {
   onTodoAdded: createListener<TodoItem>("session:todo-added"),
   onTodoSuggested: createListener<TodoSuggestion>("session:todo-suggested"),
   onInsightAdded: createListener<Insight>("session:insight-added"),
+  onAgentStarted: createListener<Agent>("session:agent-started"),
+  onAgentStep: (callback: (agentId: string, step: AgentStep) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, agentId: string, step: AgentStep) => callback(agentId, step);
+    ipcRenderer.on("session:agent-step", handler);
+    return () => ipcRenderer.removeListener("session:agent-step", handler);
+  },
+  onAgentCompleted: (callback: (agentId: string, result: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, agentId: string, result: string) => callback(agentId, result);
+    ipcRenderer.on("session:agent-completed", handler);
+    return () => ipcRenderer.removeListener("session:agent-completed", handler);
+  },
+  onAgentFailed: (callback: (agentId: string, error: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, agentId: string, error: string) => callback(agentId, error);
+    ipcRenderer.on("session:agent-failed", handler);
+    return () => ipcRenderer.removeListener("session:agent-failed", handler);
+  },
 };
 
 contextBridge.exposeInMainWorld("electronAPI", api);

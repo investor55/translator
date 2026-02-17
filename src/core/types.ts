@@ -132,6 +132,31 @@ export const DEFAULT_VERTEX_LOCATION =
   process.env.GOOGLE_VERTEX_PROJECT_LOCATION ?? "global";
 export const DEFAULT_INTERVAL_MS = 2000;
 
+// Agent types
+export type AgentStatus = "running" | "completed" | "failed";
+export type AgentStepKind = "thinking" | "tool-call" | "tool-result" | "text";
+
+export type AgentStep = Readonly<{
+  id: string;
+  kind: AgentStepKind;
+  content: string;
+  toolName?: string;
+  toolInput?: string;
+  createdAt: number;
+}>;
+
+export type Agent = {
+  id: string;
+  todoId: string;
+  task: string;
+  status: AgentStatus;
+  steps: AgentStep[];
+  result?: string;
+  createdAt: number;
+  completedAt?: number;
+  sessionId?: string;
+};
+
 // Session event types for EventEmitter
 export type SessionEvents = {
   "state-change": [state: UIState];
@@ -147,4 +172,8 @@ export type SessionEvents = {
   "todo-suggested": [suggestion: TodoSuggestion];
   "insight-added": [insight: Insight];
   "insights-updated": [insights: Insight[]];
+  "agent-started": [agent: Agent];
+  "agent-step": [agentId: string, step: AgentStep];
+  "agent-completed": [agentId: string, result: string];
+  "agent-failed": [agentId: string, error: string];
 };
