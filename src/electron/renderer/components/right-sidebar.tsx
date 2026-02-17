@@ -1,28 +1,94 @@
-import { useState, useCallback } from "react";
-import type { TodoItem } from "../../../core/types";
-import {
-  Queue,
-  QueueSection,
-  QueueSectionTrigger,
-  QueueSectionLabel,
-  QueueSectionContent,
-  QueueList,
-  QueueItem,
-  QueueItemIndicator,
-  QueueItemContent,
-  QueueItemActions,
-  QueueItemAction,
-} from "@/components/ai-elements/queue";
-import { CheckIcon, PlusIcon, TrashIcon } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import type { TodoItem, TodoSuggestion } from "../../../core/types";
+import { PlusIcon, ChevronDownIcon, CheckIcon, XIcon } from "lucide-react";
+
+const SUGGESTION_TTL_MS = 30_000;
 
 type RightSidebarProps = {
   todos: TodoItem[];
+  suggestions: TodoSuggestion[];
   onAddTodo?: (text: string) => void;
   onToggleTodo?: (id: string) => void;
+  onAcceptSuggestion?: (suggestion: TodoSuggestion) => void;
+  onDismissSuggestion?: (id: string) => void;
 };
 
-export function RightSidebar({ todos, onAddTodo, onToggleTodo }: RightSidebarProps) {
+function SuggestionItem({
+  suggestion,
+  onAccept,
+  onDismiss,
+}: {
+  suggestion: TodoSuggestion;
+  onAccept: () => void;
+  onDismiss: () => void;
+}) {
+  const [opacity, setOpacity] = useState(1);
+  const [progress, setProgress] = useState(100);
+
+  useEffect(() => {
+    const age = Date.now() - suggestion.createdAt;
+    const remaining = Math.max(0, SUGGESTION_TTL_MS - age);
+
+    // Start progress from current remaining fraction
+    setProgress((remaining / SUGGESTION_TTL_MS) * 100);
+
+    // Tick the progress bar down every 100ms
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - suggestion.createdAt;
+      const pct = Math.max(0, 1 - elapsed / SUGGESTION_TTL_MS) * 100;
+      setProgress(pct);
+    }, 100);
+
+    const fadeTimer = setTimeout(() => setOpacity(0), Math.max(0, remaining - 500));
+    const dismissTimer = setTimeout(onDismiss, remaining);
+
+    return () => {
+      clearInterval(interval);
+      clearTimeout(fadeTimer);
+      clearTimeout(dismissTimer);
+    };
+  }, [suggestion.createdAt, onDismiss]);
+
+  return (
+    <li
+      className="relative overflow-hidden rounded-md bg-primary/5 border border-primary/10 transition-opacity duration-500"
+      style={{ opacity }}
+    >
+      <div className="flex items-start gap-2 py-1.5 px-2 relative z-10">
+        <span className="text-xs text-foreground leading-relaxed flex-1">
+          {suggestion.text}
+        </span>
+        <button
+          type="button"
+          onClick={onAccept}
+          className="shrink-0 rounded p-0.5 text-primary hover:bg-primary/10 transition-colors"
+          aria-label="Accept suggestion"
+        >
+          <CheckIcon className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          aria-label="Dismiss suggestion"
+        >
+          <XIcon className="size-3.5" />
+        </button>
+      </div>
+      {/* Countdown progress bar */}
+      <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary/5">
+        <div
+          className="h-full bg-primary/30 transition-none"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </li>
+  );
+}
+
+export function RightSidebar({ todos, suggestions, onAddTodo, onToggleTodo, onAcceptSuggestion, onDismissSuggestion }: RightSidebarProps) {
   const [input, setInput] = useState("");
+  const [completedOpen, setCompletedOpen] = useState(false);
 
   const activeTodos = todos.filter((t) => !t.completed);
   const completedTodos = todos.filter((t) => t.completed);
@@ -45,92 +111,111 @@ export function RightSidebar({ todos, onAddTodo, onToggleTodo }: RightSidebarPro
           Todos
         </h2>
 
-        {/* Add todo input */}
-        <form onSubmit={handleSubmit} className="flex gap-1.5 mb-3">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Add a todo..."
-            className="flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-          <button
-            type="submit"
-            disabled={!input.trim()}
-            className="rounded-md bg-primary px-2 py-1.5 text-primary-foreground disabled:opacity-40 hover:bg-primary/90 transition-colors"
-          >
-            <PlusIcon className="size-3.5" />
-          </button>
-        </form>
+        {onAddTodo && (
+          <form onSubmit={handleSubmit} className="flex gap-1.5 mb-3">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Add a todo..."
+              className="flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              className="rounded-md bg-primary px-2 py-1.5 text-primary-foreground disabled:opacity-40 hover:bg-primary/90 transition-colors"
+            >
+              <PlusIcon className="size-3.5" />
+            </button>
+          </form>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3">
-        <Queue className="border-none shadow-none px-0">
-          {/* Active todos */}
-          <QueueSection defaultOpen>
-            <QueueSectionTrigger>
-              <QueueSectionLabel
-                count={activeTodos.length}
-                label={activeTodos.length === 1 ? "Active" : "Active"}
-              />
-            </QueueSectionTrigger>
-            <QueueSectionContent>
-              <QueueList className="max-h-none">
-                {activeTodos.length > 0 ? (
-                  activeTodos.map((todo) => (
-                    <QueueItem key={todo.id} className="flex-row items-start gap-2">
-                      <QueueItemIndicator />
-                      <QueueItemContent className="flex-1">
-                        {todo.text}
-                      </QueueItemContent>
-                      <QueueItemActions>
-                        <QueueItemAction
-                          aria-label="Complete"
-                          onClick={() => onToggleTodo?.(todo.id)}
-                        >
-                          <CheckIcon className="size-3" />
-                        </QueueItemAction>
-                      </QueueItemActions>
-                    </QueueItem>
-                  ))
-                ) : (
-                  <li className="px-3 py-2 text-xs text-muted-foreground italic">
-                    No active todos
-                  </li>
-                )}
-              </QueueList>
-            </QueueSectionContent>
-          </QueueSection>
-
-          {/* Completed todos */}
-          {completedTodos.length > 0 && (
-            <QueueSection defaultOpen={false}>
-              <QueueSectionTrigger>
-                <QueueSectionLabel
-                  count={completedTodos.length}
-                  label="Completed"
+        {/* AI Suggestions */}
+        {suggestions.length > 0 && (
+          <div className="mb-3">
+            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+              Suggested
+            </span>
+            <ul className="mt-1.5 space-y-1">
+              {suggestions.map((s) => (
+                <SuggestionItem
+                  key={s.id}
+                  suggestion={s}
+                  onAccept={() => onAcceptSuggestion?.(s)}
+                  onDismiss={() => onDismissSuggestion?.(s.id)}
                 />
-              </QueueSectionTrigger>
-              <QueueSectionContent>
-                <QueueList className="max-h-none">
-                  {completedTodos.map((todo) => (
-                    <QueueItem key={todo.id} className="flex-row items-start gap-2">
-                      <QueueItemIndicator completed />
-                      <QueueItemContent completed>
-                        {todo.text}
-                      </QueueItemContent>
-                      {todo.source === "ai" && (
-                        <span className="text-[10px] text-muted-foreground/50 shrink-0">
-                          AI
-                        </span>
-                      )}
-                    </QueueItem>
-                  ))}
-                </QueueList>
-              </QueueSectionContent>
-            </QueueSection>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Active todos */}
+        <div className="mb-3">
+          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+            Active ({activeTodos.length})
+          </span>
+          {activeTodos.length > 0 ? (
+            <ul className="mt-1.5 space-y-1">
+              {activeTodos.map((todo) => (
+                <li key={todo.id} className="flex items-start gap-2 py-1 group">
+                  <input
+                    type="checkbox"
+                    checked={false}
+                    onChange={() => onToggleTodo?.(todo.id)}
+                    className="mt-0.5 size-3.5 rounded border-input accent-primary cursor-pointer shrink-0"
+                  />
+                  <span className="text-xs text-foreground leading-relaxed flex-1">
+                    {todo.text}
+                  </span>
+                  {todo.source === "ai" && (
+                    <span className="text-[10px] text-muted-foreground bg-muted px-1 py-0.5 rounded shrink-0 leading-none">
+                      AI
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground italic mt-1.5">
+              No active todos
+            </p>
           )}
-        </Queue>
+        </div>
+
+        {/* Completed todos */}
+        {completedTodos.length > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setCompletedOpen((prev) => !prev)}
+              className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+            >
+              <ChevronDownIcon
+                className={`size-3 transition-transform ${completedOpen ? "" : "-rotate-90"}`}
+              />
+              Completed ({completedTodos.length})
+            </button>
+            {completedOpen && (
+              <ul className="mt-1.5 space-y-1">
+                {completedTodos.map((todo) => (
+                  <li key={todo.id} className="flex items-start gap-2 py-1">
+                    <input
+                      type="checkbox"
+                      checked
+                      onChange={() => onToggleTodo?.(todo.id)}
+                      className="mt-0.5 size-3.5 rounded border-input accent-primary cursor-pointer shrink-0"
+                    />
+                    <span className="text-xs text-muted-foreground line-through leading-relaxed flex-1">
+                      {todo.text}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

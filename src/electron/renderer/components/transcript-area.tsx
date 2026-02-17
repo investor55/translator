@@ -1,5 +1,4 @@
 import { forwardRef, useEffect, useRef, useMemo } from "react";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import type { TranscriptBlock } from "../../../core/types";
 import { MicIcon, Volume2Icon } from "lucide-react";
 
@@ -8,24 +7,6 @@ type TranscriptAreaProps = {
 };
 
 const PARAGRAPH_MAX_MS = 30_000;
-
-const LABEL_COLORS: Record<string, string> = {};
-const SPEAKER_CLASSES = [
-  "text-speaker-1",
-  "text-speaker-2",
-  "text-speaker-3",
-  "text-speaker-4",
-  "text-speaker-5",
-];
-let nextColorIdx = 0;
-
-function getSpeakerColor(label: string): string {
-  if (!LABEL_COLORS[label]) {
-    LABEL_COLORS[label] = SPEAKER_CLASSES[nextColorIdx % SPEAKER_CLASSES.length];
-    nextColorIdx++;
-  }
-  return LABEL_COLORS[label];
-}
 
 function groupIntoParagraphs(blocks: readonly TranscriptBlock[]): TranscriptBlock[][] {
   const paragraphs: TranscriptBlock[][] = [];
@@ -82,9 +63,8 @@ function joinTexts(
 
 function Paragraph({ blocks, isLast }: { blocks: TranscriptBlock[]; isLast: boolean }) {
   const first = blocks[0];
-  const sourceColor = getSpeakerColor(first.sourceLabel);
-  const targetColor = getSpeakerColor(first.targetLabel);
   const isTranscriptionOnly = first.sourceLabel === first.targetLabel;
+  const isNonEnglishSource = first.sourceLabel !== "EN";
 
   const sourceText = joinTexts(blocks, (b) => b.sourceText);
   const translationText = joinTexts(blocks, (b) => b.translation);
@@ -101,16 +81,15 @@ function Paragraph({ blocks, isLast }: { blocks: TranscriptBlock[]; isLast: bool
         {formatTimestamp(first.createdAt)}
       </div>
       <div className="text-sm font-mono">
-        <span className={`font-semibold ${sourceColor}`}>
-          {first.sourceLabel}:
-        </span>{" "}
         <span className="text-foreground">{sourceText}</span>
+        {isNonEnglishSource && (
+          <span className="text-[10px] text-muted-foreground/60 ml-1.5 font-sans">
+            {first.sourceLabel.toLowerCase()}
+          </span>
+        )}
       </div>
       {!isTranscriptionOnly && (
         <div className="text-sm font-sans mt-0.5">
-          <span className={`font-semibold ${targetColor}`}>
-            {first.targetLabel}:
-          </span>{" "}
           {translationText ? (
             <span className="text-foreground">
               {translationText}

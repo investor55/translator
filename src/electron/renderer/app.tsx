@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocalStorage } from "usehooks-ts";
-import type { Language, LanguageCode, TodoItem, Insight, SessionMeta, TranscriptBlock } from "../../core/types";
+import type { Language, LanguageCode, TodoItem, TodoSuggestion, Insight, SessionMeta, TranscriptBlock } from "../../core/types";
 import { useSession } from "./hooks/use-session";
 import { useMicCapture } from "./hooks/use-mic-capture";
 import { useKeyboard } from "./hooks/use-keyboard";
 import { ToolbarHeader } from "./components/toolbar-header";
-import { SummaryStrip } from "./components/summary-strip";
 import { TranscriptArea } from "./components/transcript-area";
 import { LeftSidebar } from "./components/left-sidebar";
 import { RightSidebar } from "./components/right-sidebar";
@@ -43,14 +42,15 @@ export function App() {
   const transcriptRef = useRef<HTMLDivElement>(null);
 
   const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [suggestions, setSuggestions] = useState<TodoSuggestion[]>([]);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
   const [viewingBlocks, setViewingBlocks] = useState<TranscriptBlock[]>([]);
+  const [viewingTodos, setViewingTodos] = useState<TodoItem[]>([]);
+  const [viewingInsights, setViewingInsights] = useState<Insight[]>([]);
 
   useEffect(() => {
-    window.electronAPI.getTodos().then(setTodos);
-    window.electronAPI.getInsights().then(setInsights);
     window.electronAPI.getSessions().then((loaded) => {
       setSessions(loaded);
       const last = loaded[0];
@@ -66,12 +66,12 @@ export function App() {
     window.electronAPI.getLanguages().then(setLanguages);
   }, []);
 
-  // Listen for AI-generated todos and insights during active session
+  // Listen for AI-generated suggestions and insights during active session
   useEffect(() => {
     if (!sessionActive) return;
     const cleanups = [
-      window.electronAPI.onTodoAdded((todo) => {
-        setTodos((prev) => [todo, ...prev]);
+      window.electronAPI.onTodoSuggested((suggestion) => {
+        setSuggestions((prev) => [suggestion, ...prev]);
       }),
       window.electronAPI.onInsightAdded((insight) => {
         setInsights((prev) => [insight, ...prev]);
@@ -89,21 +89,12 @@ export function App() {
     }
   }, [micCapture]);
 
-  // Auto-enable mic when session starts recording
-  const micAutoStarted = useRef(false);
-  useEffect(() => {
-    if (sessionActive && session.uiState?.status === "recording" && !micAutoStarted.current) {
-      micAutoStarted.current = true;
-      handleToggleMic();
-    }
-    if (!sessionActive) {
-      micAutoStarted.current = false;
-    }
-  }, [sessionActive, session.uiState?.status, handleToggleMic]);
-
   const handleStart = useCallback(() => {
     setLangError("");
     setSplashDone(true);
+    setTodos([]);
+    setSuggestions([]);
+    setInsights([]);
     setSessionActive(true);
   }, []);
 
@@ -115,6 +106,23 @@ export function App() {
   const handleStop = useCallback(() => {
     micCapture.stop();
     setSessionActive(false);
+    window.electronAPI.getSessions().then(setSessions);
+  }, [micCapture]);
+
+  const handleNewSession = useCallback(() => {
+    micCapture.stop();
+    setSessionActive(false);
+    // Brief delay to let the old session teardown before starting fresh
+    setTimeout(() => {
+      setTodos([]);
+      setSuggestions([]);
+      setInsights([]);
+      setViewingSessionId(null);
+      setViewingBlocks([]);
+      setViewingTodos([]);
+      setViewingInsights([]);
+      setSessionActive(true);
+    }, 100);
     window.electronAPI.getSessions().then(setSessions);
   }, [micCapture]);
 
@@ -133,10 +141,11 @@ export function App() {
       completed: false,
       source: "manual",
       createdAt: Date.now(),
+      sessionId: session.sessionId ?? undefined,
     };
     setTodos((prev) => [todo, ...prev]);
     window.electronAPI.addTodo(todo);
-  }, []);
+  }, [session.sessionId]);
 
   const handleToggleTodo = useCallback((id: string) => {
     setTodos((prev) =>
@@ -149,14 +158,41 @@ export function App() {
     window.electronAPI.toggleTodo(id);
   }, []);
 
+  const handleAcceptSuggestion = useCallback((suggestion: TodoSuggestion) => {
+    const todo: TodoItem = {
+      id: suggestion.id,
+      text: suggestion.text,
+      completed: false,
+      source: "ai",
+      createdAt: suggestion.createdAt,
+      sessionId: suggestion.sessionId,
+    };
+    setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
+    setTodos((prev) => [todo, ...prev]);
+    window.electronAPI.addTodo(todo);
+  }, []);
+
+  const handleDismissSuggestion = useCallback((id: string) => {
+    setSuggestions((prev) => prev.filter((s) => s.id !== id));
+  }, []);
+
+  const viewingKeyPoints = viewingInsights
+    .filter((i) => i.kind === "key-point")
+    .map((i) => i.text);
+  const viewingEducationalInsights = viewingInsights.filter((i) => i.kind !== "key-point");
+
   const handleSelectSession = useCallback((sessionId: string) => {
     setViewingSessionId(sessionId);
     window.electronAPI.getSessionBlocks(sessionId).then(setViewingBlocks);
+    window.electronAPI.getSessionTodos(sessionId).then(setViewingTodos);
+    window.electronAPI.getSessionInsights(sessionId).then(setViewingInsights);
   }, []);
 
   const handleCloseViewer = useCallback(() => {
     setViewingSessionId(null);
     setViewingBlocks([]);
+    setViewingTodos([]);
+    setViewingInsights([]);
   }, []);
 
   const handleDeleteSession = useCallback((id: string) => {
@@ -165,6 +201,8 @@ export function App() {
     if (viewingSessionId === id) {
       setViewingSessionId(null);
       setViewingBlocks([]);
+      setViewingTodos([]);
+      setViewingInsights([]);
     }
   }, [viewingSessionId]);
 
@@ -198,6 +236,7 @@ export function App() {
         sessionActive={sessionActive}
         onStart={handleStart}
         onStop={handleStop}
+        onNewSession={handleNewSession}
         onTogglePause={session.toggleRecording}
         uiState={session.uiState}
         langError={langError}
@@ -207,15 +246,14 @@ export function App() {
 
       <div className="flex flex-1 min-h-0">
         <LeftSidebar
-          summary={session.summary}
-          insights={insights}
+          rollingKeyPoints={viewingSessionId ? viewingKeyPoints : session.rollingKeyPoints}
+          insights={viewingSessionId ? viewingEducationalInsights : insights}
           sessions={sessions}
           activeSessionId={viewingSessionId}
           onSelectSession={handleSelectSession}
           onDeleteSession={handleDeleteSession}
         />
         <main className="flex-1 flex flex-col min-h-0 min-w-0 relative">
-          <SummaryStrip summary={session.summary} />
           <TranscriptArea ref={transcriptRef} blocks={session.blocks} />
           {viewingSessionId && (
             <div className="absolute inset-0 bg-background/95 flex flex-col min-h-0 z-10">
@@ -236,9 +274,12 @@ export function App() {
           )}
         </main>
         <RightSidebar
-          todos={todos}
-          onAddTodo={handleAddTodo}
+          todos={viewingSessionId ? viewingTodos : todos}
+          suggestions={viewingSessionId ? [] : suggestions}
+          onAddTodo={viewingSessionId ? undefined : handleAddTodo}
           onToggleTodo={handleToggleTodo}
+          onAcceptSuggestion={handleAcceptSuggestion}
+          onDismissSuggestion={handleDismissSuggestion}
         />
       </div>
 

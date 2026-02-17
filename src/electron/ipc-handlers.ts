@@ -5,7 +5,7 @@ import { log } from "../core/logger";
 import { toReadableError } from "../core/text-utils";
 import { listMicDevices } from "../audio";
 import type { AppDatabase } from "../core/db";
-import type { SessionConfig, LanguageCode, UIState, TranscriptBlock, Summary, TodoItem, Insight } from "../core/types";
+import type { SessionConfig, LanguageCode, UIState, TranscriptBlock, Summary, TodoItem, TodoSuggestion, Insight } from "../core/types";
 import { SUPPORTED_LANGUAGES, DEFAULT_VERTEX_MODEL_ID, DEFAULT_VERTEX_LOCATION, DEFAULT_INTERVAL_MS } from "../core/types";
 
 let session: Session | null = null;
@@ -38,7 +38,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
       vertexProject: process.env.GOOGLE_VERTEX_PROJECT_ID,
       vertexLocation: DEFAULT_VERTEX_LOCATION,
       contextFile: "context.md",
-      useContext: true,
+      useContext: false,
       compact: false,
       debug: !!process.env.DEBUG,
       legacyAudio: false,
@@ -82,13 +82,16 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     session.events.on("todo-added", (todo: TodoItem) => {
       send(getWindow, "session:todo-added", todo);
     });
+    session.events.on("todo-suggested", (suggestion: TodoSuggestion) => {
+      send(getWindow, "session:todo-suggested", suggestion);
+    });
     session.events.on("insight-added", (insight) => {
       send(getWindow, "session:insight-added", insight);
     });
 
     try {
       await session.initialize();
-      return { ok: true };
+      return { ok: true, sessionId: session.sessionId };
     } catch (error) {
       log("ERROR", `Session init failed: ${toReadableError(error)}`);
       return { ok: false, error: toReadableError(error) };
@@ -166,6 +169,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     return db.getTodos();
   });
 
+  ipcMain.handle("get-session-todos", (_event, sessionId: string) => {
+    return db.getTodosForSession(sessionId);
+  });
+
   ipcMain.handle("add-todo", (_event, todo: TodoItem) => {
     db.insertTodo(todo);
     return { ok: true };
@@ -196,6 +203,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
   // Persistence: Insights
   ipcMain.handle("get-insights", (_event, limit?: number) => {
     return db.getRecentInsights(limit);
+  });
+
+  ipcMain.handle("get-session-insights", (_event, sessionId: string) => {
+    return db.getInsightsForSession(sessionId);
   });
 
   ipcMain.handle("shutdown-session", () => {

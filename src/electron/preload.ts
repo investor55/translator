@@ -1,9 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron/renderer";
-import type { Language, UIState, TranscriptBlock, Summary, LanguageCode, Device, TodoItem, Insight, SessionMeta } from "../core/types";
+import type { Language, UIState, TranscriptBlock, Summary, LanguageCode, Device, TodoItem, TodoSuggestion, Insight, SessionMeta } from "../core/types";
 
 export type ElectronAPI = {
   getLanguages: () => Promise<Language[]>;
-  startSession: (sourceLang: LanguageCode, targetLang: LanguageCode) => Promise<{ ok: boolean; error?: string }>;
+  startSession: (sourceLang: LanguageCode, targetLang: LanguageCode) => Promise<{ ok: boolean; sessionId?: string; error?: string }>;
   startRecording: () => Promise<{ ok: boolean; error?: string }>;
   stopRecording: () => Promise<{ ok: boolean; error?: string }>;
   toggleRecording: () => Promise<{ ok: boolean; recording?: boolean; error?: string }>;
@@ -20,6 +20,8 @@ export type ElectronAPI = {
   getSessionBlocks: (sessionId: string) => Promise<TranscriptBlock[]>;
   deleteSession: (id: string) => Promise<{ ok: boolean }>;
   getInsights: (limit?: number) => Promise<Insight[]>;
+  getSessionTodos: (sessionId: string) => Promise<TodoItem[]>;
+  getSessionInsights: (sessionId: string) => Promise<Insight[]>;
 
   onStateChange: (callback: (state: UIState) => void) => () => void;
   onBlockAdded: (callback: (block: TranscriptBlock) => void) => () => void;
@@ -30,6 +32,7 @@ export type ElectronAPI = {
   onStatus: (callback: (text: string) => void) => () => void;
   onError: (callback: (text: string) => void) => () => void;
   onTodoAdded: (callback: (todo: TodoItem) => void) => () => void;
+  onTodoSuggested: (callback: (suggestion: TodoSuggestion) => void) => () => void;
   onInsightAdded: (callback: (insight: Insight) => void) => () => void;
 };
 
@@ -60,6 +63,8 @@ const api: ElectronAPI = {
   getSessionBlocks: (sessionId) => ipcRenderer.invoke("get-session-blocks", sessionId),
   deleteSession: (id) => ipcRenderer.invoke("delete-session", id),
   getInsights: (limit) => ipcRenderer.invoke("get-insights", limit),
+  getSessionTodos: (sessionId) => ipcRenderer.invoke("get-session-todos", sessionId),
+  getSessionInsights: (sessionId) => ipcRenderer.invoke("get-session-insights", sessionId),
 
   onStateChange: createListener<UIState>("session:state-change"),
   onBlockAdded: createListener<TranscriptBlock>("session:block-added"),
@@ -70,6 +75,7 @@ const api: ElectronAPI = {
   onStatus: createListener<string>("session:status"),
   onError: createListener<string>("session:error"),
   onTodoAdded: createListener<TodoItem>("session:todo-added"),
+  onTodoSuggested: createListener<TodoSuggestion>("session:todo-suggested"),
   onInsightAdded: createListener<Insight>("session:insight-added"),
 };
 

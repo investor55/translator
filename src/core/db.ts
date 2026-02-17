@@ -24,6 +24,7 @@ export function createDatabase(dbPath: string) {
     ),
     deleteSessionBlocks: db.prepare("DELETE FROM blocks WHERE session_id = ?"),
     deleteSessionInsights: db.prepare("DELETE FROM insights WHERE session_id = ?"),
+    deleteSessionTodos: db.prepare("DELETE FROM todos WHERE session_id = ?"),
     deleteSessionRow: db.prepare("DELETE FROM sessions WHERE id = ?"),
     insertBlock: db.prepare(
       "INSERT INTO blocks (session_id, source_label, source_text, target_label, translation, audio_source, partial, new_topic, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
@@ -32,19 +33,25 @@ export function createDatabase(dbPath: string) {
       "SELECT * FROM blocks WHERE session_id = ? ORDER BY created_at ASC"
     ),
     insertTodo: db.prepare(
-      "INSERT INTO todos (id, text, completed, source, created_at) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO todos (id, text, completed, source, created_at, session_id) VALUES (?, ?, ?, ?, ?, ?)"
     ),
     updateTodo: db.prepare(
       "UPDATE todos SET completed = ?, completed_at = ? WHERE id = ?"
     ),
     getTodos: db.prepare(
-      "SELECT id, text, completed, source, created_at, completed_at FROM todos ORDER BY created_at DESC"
+      "SELECT id, text, completed, source, created_at, completed_at, session_id FROM todos ORDER BY created_at DESC"
+    ),
+    getTodosForSession: db.prepare(
+      "SELECT id, text, completed, source, created_at, completed_at, session_id FROM todos WHERE session_id = ? ORDER BY created_at DESC"
     ),
     insertInsight: db.prepare(
       "INSERT INTO insights (id, kind, text, session_id, created_at) VALUES (?, ?, ?, ?, ?)"
     ),
     getRecentInsights: db.prepare(
       "SELECT id, kind, text, session_id, created_at FROM insights ORDER BY created_at DESC LIMIT ?"
+    ),
+    getInsightsForSession: db.prepare(
+      "SELECT id, kind, text, session_id, created_at FROM insights WHERE session_id = ? ORDER BY created_at DESC"
     ),
     getRecentKeyPoints: db.prepare(
       "SELECT text FROM insights WHERE kind = 'key-point' ORDER BY created_at DESC LIMIT ?"
@@ -73,6 +80,7 @@ export function createDatabase(dbPath: string) {
       db.transaction(() => {
         stmts.deleteSessionBlocks.run(id);
         stmts.deleteSessionInsights.run(id);
+        stmts.deleteSessionTodos.run(id);
         stmts.deleteSessionRow.run(id);
       })();
     },
@@ -128,7 +136,7 @@ export function createDatabase(dbPath: string) {
     },
 
     insertTodo(todo: TodoItem) {
-      stmts.insertTodo.run(todo.id, todo.text, todo.completed ? 1 : 0, todo.source, todo.createdAt);
+      stmts.insertTodo.run(todo.id, todo.text, todo.completed ? 1 : 0, todo.source, todo.createdAt, todo.sessionId ?? null);
     },
 
     updateTodo(id: string, completed: boolean) {
@@ -137,7 +145,7 @@ export function createDatabase(dbPath: string) {
 
     getTodos(): TodoItem[] {
       const rows = stmts.getTodos.all() as Array<{
-        id: string; text: string; completed: number; source: string; created_at: number; completed_at: number | null;
+        id: string; text: string; completed: number; source: string; created_at: number; completed_at: number | null; session_id: string | null;
       }>;
       return rows.map((r) => ({
         id: r.id,
@@ -146,6 +154,22 @@ export function createDatabase(dbPath: string) {
         source: r.source as "ai" | "manual",
         createdAt: r.created_at,
         completedAt: r.completed_at ?? undefined,
+        sessionId: r.session_id ?? undefined,
+      }));
+    },
+
+    getTodosForSession(sessionId: string): TodoItem[] {
+      const rows = stmts.getTodosForSession.all(sessionId) as Array<{
+        id: string; text: string; completed: number; source: string; created_at: number; completed_at: number | null; session_id: string | null;
+      }>;
+      return rows.map((r) => ({
+        id: r.id,
+        text: r.text,
+        completed: r.completed === 1,
+        source: r.source as "ai" | "manual",
+        createdAt: r.created_at,
+        completedAt: r.completed_at ?? undefined,
+        sessionId: r.session_id ?? undefined,
       }));
     },
 
@@ -155,6 +179,19 @@ export function createDatabase(dbPath: string) {
 
     getRecentInsights(limit = 50): Insight[] {
       const rows = stmts.getRecentInsights.all(limit) as Array<{
+        id: string; kind: string; text: string; session_id: string | null; created_at: number;
+      }>;
+      return rows.map((r) => ({
+        id: r.id,
+        kind: r.kind as InsightKind,
+        text: r.text,
+        sessionId: r.session_id ?? undefined,
+        createdAt: r.created_at,
+      }));
+    },
+
+    getInsightsForSession(sessionId: string): Insight[] {
+      const rows = stmts.getInsightsForSession.all(sessionId) as Array<{
         id: string; kind: string; text: string; session_id: string | null; created_at: number;
       }>;
       return rows.map((r) => ({
@@ -268,5 +305,12 @@ function runMigrations(db: Database.Database) {
   }
   if (!colNames.has("target_lang")) {
     db.exec("ALTER TABLE sessions ADD COLUMN target_lang TEXT");
+  }
+
+  // Add session_id to existing todos table
+  const todoCols = db.prepare("PRAGMA table_info(todos)").all() as Array<{ name: string }>;
+  const todoColNames = new Set(todoCols.map((c) => c.name));
+  if (!todoColNames.has("session_id")) {
+    db.exec("ALTER TABLE todos ADD COLUMN session_id TEXT");
   }
 }

@@ -12,10 +12,11 @@ import type {
   UIState,
   LanguageCode,
   TodoItem,
+  TodoSuggestion,
   Insight,
 } from "./types";
 import { log } from "./logger";
-import { pcmToWavBuffer } from "./audio-utils";
+import { pcmToWavBuffer, computeRms } from "./audio-utils";
 import { toReadableError } from "./text-utils";
 import { analysisSchema, buildAnalysisPrompt } from "./analysis";
 import type { AppDatabase } from "./db";
@@ -75,6 +76,7 @@ export class Session {
   readonly sessionId: string;
 
   private vertexModel: ReturnType<ReturnType<typeof createVertex>>;
+  private analysisModel: ReturnType<ReturnType<typeof createVertex>>;
   private audioTranscriptionSchema: z.ZodObject<z.ZodRawShape>;
   private transcriptionOnlySchema: z.ZodObject<z.ZodRawShape>;
 
@@ -101,7 +103,7 @@ export class Session {
   };
   private micPipeline: AudioPipeline = {
     source: "microphone",
-    vadState: createVadState(50),
+    vadState: createVadState(200),
     overlap: Buffer.alloc(0),
   };
 
@@ -133,6 +135,7 @@ export class Session {
       location: config.vertexLocation,
     });
     this.vertexModel = vertex(config.vertexModelId);
+    this.analysisModel = vertex(config.vertexModelId);
 
     this.sourceLangLabel = getLanguageLabel(config.sourceLang);
     this.targetLangLabel = getLanguageLabel(config.targetLang);
@@ -527,10 +530,11 @@ export class Session {
 
     for (const chunk of chunks) {
       const durationMs = (chunk.length / (16000 * 2)) * 1000;
+
       if (pipeline.source === "microphone") {
-        log("INFO", `Mic VAD: speech chunk ${durationMs.toFixed(0)}ms, queue=${this.vertexChunkQueue.length}`);
-        this.events.emit("status", `Mic: sending ${durationMs.toFixed(0)}ms chunk for transcription...`);
+        log("INFO", `Mic VAD: speech chunk ${durationMs.toFixed(0)}ms rms=${computeRms(chunk).toFixed(0)}, queue=${this.vertexChunkQueue.length}`);
       }
+
       this.enqueueVertexChunk(pipeline, chunk);
       void this.processVertexQueue();
     }
@@ -686,7 +690,7 @@ export class Session {
     this.analysisTimer = setInterval(() => {
       if (!this.isRecording) return;
       void this.generateAnalysis();
-    }, 45000);
+    }, 30000);
   }
 
   private stopAnalysisTimer() {
@@ -717,11 +721,19 @@ export class Session {
       const prompt = buildAnalysisPrompt(recentBlocks, existingTodos, previousKeyPoints);
 
       const { object: result, usage } = await generateObject({
-        model: this.vertexModel,
+        model: this.analysisModel,
         schema: analysisSchema,
         prompt,
-        abortSignal: AbortSignal.timeout(15000),
+        abortSignal: AbortSignal.timeout(30000),
         temperature: 0,
+        providerOptions: {
+          google: {
+            thinkingConfig: {
+              includeThoughts: false,
+              thinkingBudget: 2048,
+            },
+          },
+        },
       });
 
       const elapsed = Date.now() - startTime;
@@ -734,16 +746,26 @@ export class Session {
       this.events.emit("cost-updated", totalCost);
 
       if (this.config.debug) {
-        log("INFO", `Analysis response: ${elapsed}ms, keyPoints=${result.keyPoints.length}, actions=${result.actionItems.length}, todos=${result.suggestedTodos.length}`);
+        log("INFO", `Analysis response: ${elapsed}ms, keyPoints=${result.keyPoints.length}, insights=${result.educationalInsights.length}, todos=${result.suggestedTodos.length}`);
       }
 
-      // Update key points / summary
+      // Update key points / summary — persist each as an insight so history survives
       this.contextState.allKeyPoints.push(...result.keyPoints);
+      for (const text of result.keyPoints) {
+        const kpInsight: Insight = {
+          id: crypto.randomUUID(),
+          kind: "key-point",
+          text,
+          sessionId: this.sessionId,
+          createdAt: Date.now(),
+        };
+        this.db?.insertInsight(kpInsight);
+      }
       this.lastSummary = { keyPoints: result.keyPoints, updatedAt: Date.now() };
       this.events.emit("summary-updated", this.lastSummary);
 
-      // Emit insights
-      for (const item of result.actionItems) {
+      // Emit educational insights
+      for (const item of result.educationalInsights) {
         const insight: Insight = {
           id: crypto.randomUUID(),
           kind: item.kind,
@@ -755,17 +777,15 @@ export class Session {
         this.events.emit("insight-added", insight);
       }
 
-      // Emit suggested todos
+      // Emit todo suggestions (not auto-added — user must accept)
       for (const text of result.suggestedTodos) {
-        const todo: TodoItem = {
+        const suggestion: TodoSuggestion = {
           id: crypto.randomUUID(),
           text,
-          completed: false,
-          source: "ai",
+          sessionId: this.sessionId,
           createdAt: Date.now(),
         };
-        this.db?.insertTodo(todo);
-        this.events.emit("todo-added", todo);
+        this.events.emit("todo-suggested", suggestion);
       }
     } catch (error) {
       if (this.config.debug) {

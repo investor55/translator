@@ -117,17 +117,19 @@ export function buildAudioPromptForStructured(
   if (direction === "auto") {
     let translateRule: string;
     if (sourceLang === "en") {
-      translateRule = `If ${sourceLangName}, translate to ${targetLangName}. If ${targetLangName}, translate to ${sourceLangName}.`;
+      translateRule = `If the speech is ${sourceLangName}, translate to ${targetLangName}. If the speech is ${targetLangName}, translate to ${sourceLangName}. The translation MUST always be in a different language than the transcript.`;
     } else if (targetLang === "en") {
-      translateRule = `If ${sourceLangName}, translate to ${targetLangName}. If ${targetLangName} (English), leave translation empty \u2014 no translation needed.`;
+      translateRule = `If the speech is ${sourceLangName}, the translation MUST be in ${targetLangName} (English). If the speech is already ${targetLangName} (English), leave translation empty. The translation must NEVER be in the same language as the transcript.`;
     } else {
-      translateRule = `If ${sourceLangName}, translate to ${targetLangName}. If ${targetLangName}, translate to ${sourceLangName}. If English, leave translation empty \u2014 no translation needed.`;
+      translateRule = `If the speech is ${sourceLangName}, the translation MUST be in ${targetLangName}. If the speech is ${targetLangName}, the translation MUST be in ${sourceLangName}. If English, leave translation empty. The translation must NEVER be in the same language as the transcript.`;
     }
 
-    return `${summaryBlock}${contextBlock}Listen to the audio clip. The speaker may be speaking ${langList}. The speaker may occasionally use English words or phrases even when primarily speaking another language.
-1. Detect the spoken language (${codeList})
+    return `${summaryBlock}${contextBlock}Listen to the audio clip. The speaker may be speaking ${langList}. The speaker may occasionally use English words or phrases even when primarily speaking another language \u2014 treat code-switching as part of the primary language, not as a language change.
+1. Detect the primary spoken language (${codeList})
 2. Transcribe the audio in its original language
 3. ${translateRule}
+
+IMPORTANT: The transcript field must be in the detected source language. The translation field must ALWAYS be in a DIFFERENT language than the transcript. If you hear ${sourceLangName}, the translation must be ${targetLangName}, not ${sourceLangName}.
 
 If the audio is cut off mid-sentence, transcribe only what was actually spoken \u2014 do not add trailing punctuation or complete unfinished words/sentences. Set isPartial to true.
 
@@ -137,10 +139,12 @@ Return sourceLanguage (${codeList}), transcript, isPartial, and translation.`;
   }
 
   const englishNote = sourceLang !== "en"
-    ? ` The speaker may occasionally use English \u2014 if so, transcribe in English, set sourceLanguage to "en", and leave translation empty.`
+    ? ` The speaker may occasionally use English words/phrases \u2014 treat this as code-switching within ${sourceLangName}, not a language change.`
     : "";
 
   return `${summaryBlock}${contextBlock}Listen to the audio clip spoken in ${sourceLangName}. Transcribe it in ${sourceLangName} and translate it into ${targetLangName}.${englishNote}
+
+IMPORTANT: The translation MUST be in ${targetLangName}. Never return a translation in the same language as the transcript.
 
 If the audio is cut off mid-sentence, transcribe only what was actually spoken \u2014 do not add trailing punctuation or complete unfinished words/sentences. Set isPartial to true.
 

@@ -4,7 +4,7 @@ import {
   PauseIcon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
-import { LanguagesIcon, MicIcon, MicOffIcon } from "lucide-react";
+import { LanguagesIcon, MicIcon, MicOffIcon, PlusIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -26,6 +26,7 @@ type ToolbarHeaderProps = {
   sessionActive: boolean;
   onStart: () => void;
   onStop: () => void;
+  onNewSession: () => void;
   onTogglePause: () => void;
   uiState: UIState | null;
   langError: string;
@@ -67,6 +68,7 @@ export function ToolbarHeader({
   sessionActive,
   onStart,
   onStop,
+  onNewSession,
   onTogglePause,
   uiState,
   langError,
@@ -127,8 +129,8 @@ export function ToolbarHeader({
         <div className="flex items-center gap-1.5 titlebar-no-drag">
           {!sessionActive ? (
             <Button size="sm" onClick={onStart} disabled={loading}>
-              <HugeiconsIcon icon={PlayIcon} strokeWidth={2} data-icon="inline-start" className="size-3.5" />
-              Start
+              <PlusIcon className="size-3.5" data-icon="inline-start" />
+              New Session
             </Button>
           ) : (
             <>
@@ -147,6 +149,10 @@ export function ToolbarHeader({
               <Button variant="destructive" size="sm" onClick={onStop}>
                 <HugeiconsIcon icon={StopIcon} strokeWidth={2} data-icon="inline-start" className="size-3.5" />
                 Stop
+              </Button>
+              <Button variant="outline" size="sm" onClick={onNewSession}>
+                <PlusIcon className="size-3.5" data-icon="inline-start" />
+                New
               </Button>
             </>
           )}

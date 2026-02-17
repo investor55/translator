@@ -2,9 +2,11 @@ import { useEffect, useReducer, useCallback } from "react";
 import type { UIState, TranscriptBlock, Summary, LanguageCode } from "../../../core/types";
 
 type SessionState = {
+  sessionId: string | null;
   uiState: UIState | null;
   blocks: TranscriptBlock[];
   summary: Summary | null;
+  rollingKeyPoints: string[];
   cost: number;
   statusText: string;
   errorText: string;
@@ -20,7 +22,7 @@ type SessionAction =
   | { kind: "cost-updated"; cost: number }
   | { kind: "status"; text: string }
   | { kind: "error"; text: string }
-  | { kind: "session-started" }
+  | { kind: "session-started"; sessionId: string }
   | { kind: "session-ended" };
 
 function sessionReducer(state: SessionState, action: SessionAction): SessionState {
@@ -37,9 +39,15 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         ),
       };
     case "blocks-cleared":
-      return { ...state, blocks: [], summary: null, cost: 0, statusText: "" };
+      return { ...state, blocks: [], summary: null, rollingKeyPoints: [], cost: 0, statusText: "" };
     case "summary-updated":
-      return { ...state, summary: action.summary };
+      return {
+        ...state,
+        summary: action.summary,
+        rollingKeyPoints: action.summary
+          ? [...state.rollingKeyPoints, ...action.summary.keyPoints]
+          : state.rollingKeyPoints,
+      };
     case "cost-updated":
       return { ...state, cost: action.cost };
     case "status":
@@ -47,16 +55,18 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
     case "error":
       return { ...state, errorText: action.text };
     case "session-started":
-      return { ...state, sessionActive: true };
+      return { ...state, sessionActive: true, sessionId: action.sessionId };
     case "session-ended":
-      return { ...state, sessionActive: false, uiState: null };
+      return { ...state, sessionActive: false, sessionId: null, uiState: null, rollingKeyPoints: [] };
   }
 }
 
 const initialState: SessionState = {
+  sessionId: null,
   uiState: null,
   blocks: [],
   summary: null,
+  rollingKeyPoints: [],
   cost: 0,
   statusText: "",
   errorText: "",
@@ -82,8 +92,8 @@ export function useSession(sourceLang: LanguageCode, targetLang: LanguageCode, a
     cleanups.push(api.onError((t) => dispatch({ kind: "error", text: t })));
 
     api.startSession(sourceLang, targetLang).then(async (result) => {
-      if (result.ok) {
-        dispatch({ kind: "session-started" });
+      if (result.ok && result.sessionId) {
+        dispatch({ kind: "session-started", sessionId: result.sessionId });
         await api.startRecording();
       } else {
         dispatch({ kind: "error", text: result.error ?? "Failed to start session" });

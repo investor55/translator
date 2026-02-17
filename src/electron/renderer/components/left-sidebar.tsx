@@ -1,8 +1,8 @@
-import type { Summary, Insight, SessionMeta } from "../../../core/types";
+import type { Insight, SessionMeta } from "../../../core/types";
 import { Separator } from "@/components/ui/separator";
 
 type LeftSidebarProps = {
-  summary: Summary | null;
+  rollingKeyPoints: string[];
   insights: Insight[];
   sessions: SessionMeta[];
   activeSessionId?: string | null;
@@ -29,40 +29,42 @@ function formatDate(ms: number): string {
 }
 
 const INSIGHT_ICONS: Record<string, string> = {
-  "action-item": "→",
-  "decision": "◆",
-  "question": "?",
-  "key-point": "•",
+  "definition": "📖",
+  "context": "🔗",
+  "fact": "💡",
+  "tip": "✦",
 };
 
-export function LeftSidebar({ summary, insights, sessions, activeSessionId, onSelectSession, onDeleteSession }: LeftSidebarProps) {
+export function LeftSidebar({ rollingKeyPoints, insights, sessions, activeSessionId, onSelectSession, onDeleteSession }: LeftSidebarProps) {
   return (
     <div className="w-[280px] shrink-0 border-r border-border flex flex-col min-h-0 bg-sidebar">
-      {/* Summary section */}
-      <div className="px-3 pt-3 pb-2 shrink-0">
-        <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+      {/* Summary section — scrollable, takes remaining space */}
+      <div className="px-3 pt-3 pb-2 flex-1 min-h-0 flex flex-col">
+        <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2 shrink-0">
           Summary
         </h2>
-        {summary ? (
-          <ul className="space-y-1">
-            {summary.keyPoints.map((point, i) => (
-              <li key={i} className="text-xs text-foreground leading-relaxed">
-                <span className="text-muted-foreground mr-1">•</span>
-                {point}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-xs text-muted-foreground italic">
-            Summary will appear during recording...
-          </p>
-        )}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {rollingKeyPoints.length > 0 ? (
+            <ul className="space-y-1">
+              {rollingKeyPoints.map((point, i) => (
+                <li key={i} className="text-xs text-foreground leading-relaxed">
+                  <span className="text-muted-foreground mr-1">•</span>
+                  {point}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground italic">
+              Summary will appear during recording...
+            </p>
+          )}
+        </div>
       </div>
 
       <Separator />
 
-      {/* Insights feed */}
-      <div className="px-3 pt-2 pb-2 flex-1 min-h-0 overflow-y-auto">
+      {/* Insights feed — bounded height */}
+      <div className="px-3 pt-2 pb-2 shrink-0 max-h-48 overflow-y-auto">
         <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
           Insights
         </h2>

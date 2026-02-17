@@ -56,9 +56,17 @@ export type TodoItem = Readonly<{
   source: "ai" | "manual";
   createdAt: number;
   completedAt?: number;
+  sessionId?: string;
 }>;
 
-export type InsightKind = "action-item" | "decision" | "question" | "key-point";
+export type TodoSuggestion = Readonly<{
+  id: string;
+  text: string;
+  sessionId?: string;
+  createdAt: number;
+}>;
+
+export type InsightKind = "definition" | "context" | "fact" | "tip" | "key-point";
 
 export type Insight = Readonly<{
   id: string;
@@ -136,6 +144,7 @@ export type SessionEvents = {
   "error": [error: string];
   "todo-added": [todo: TodoItem];
   "todo-updated": [todo: TodoItem];
+  "todo-suggested": [suggestion: TodoSuggestion];
   "insight-added": [insight: Insight];
   "insights-updated": [insights: Insight[]];
 };
