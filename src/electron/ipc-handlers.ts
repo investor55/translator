@@ -354,6 +354,24 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     return { ok: true, agent };
   });
 
+  ipcMain.handle(
+    "launch-agent-in-session",
+    async (
+      _event,
+      sessionId: string,
+      todoId: string,
+      task: string,
+      appConfig?: AppConfigOverrides,
+    ) => {
+      const ensured = await ensureSession(sessionId, appConfig);
+      if (!ensured.ok) return ensured;
+      if (!session) return { ok: false, error: "Could not load session" };
+      const agent = session.launchAgent(todoId, task);
+      if (!agent) return { ok: false, error: "Agent system unavailable (EXA_API_KEY not set)" };
+      return { ok: true, agent };
+    },
+  );
+
   ipcMain.handle("follow-up-agent", (_event, agentId: string, question: string) => {
     if (!session) return { ok: false, error: "No active session" };
     const started = session.followUpAgent(agentId, question);

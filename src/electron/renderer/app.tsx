@@ -220,11 +220,19 @@ export function App() {
   }, []);
 
   const handleLaunchAgent = useCallback(async (todoId: string, task: string) => {
-    const result = await window.electronAPI.launchAgent(todoId, task);
+    const sessionId = session.sessionId;
+    if (!sessionId) return;
+
+    const result = sessionActive
+      ? await window.electronAPI.launchAgent(todoId, task)
+      : await window.electronAPI.launchAgentInSession(sessionId, todoId, task, appConfig);
+
     if (result.ok && result.agent) {
       selectAgent(result.agent.id);
+      return;
     }
-  }, [selectAgent]);
+    console.warn(`Failed to launch agent: ${result.error ?? "Unknown error"}`);
+  }, [appConfig, selectAgent, session.sessionId, sessionActive]);
 
   const handleSelectSession = useCallback(async (sessionId: string) => {
     micCapture.stop();

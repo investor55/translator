@@ -21,19 +21,13 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import {
-  Reasoning,
-  ReasoningContent,
-  ReasoningTrigger,
-} from "@/components/ai-elements/reasoning";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import {
   Tool,
   ToolContent,
   ToolHeader,
-  ToolInput,
-  type ToolState,
 } from "@/components/ai-elements/tool";
+import { useStickToBottomContext } from "use-stick-to-bottom";
 import type { Agent, AgentStep } from "../../../core/types";
 
 type FollowUpResult = { ok: boolean; error?: string };
@@ -75,12 +69,8 @@ function StatusBadge({ status }: { status: Agent["status"] }) {
 
 function StepItem({
   step,
-  isRunning,
-  isReasoningStreaming,
 }: {
   step: AgentStep;
-  isRunning: boolean;
-  isReasoningStreaming: boolean;
 }) {
   switch (step.kind) {
     case "text":
@@ -98,62 +88,72 @@ function StepItem({
           <p className="text-xs text-foreground leading-relaxed">{step.content}</p>
         </div>
       );
-    case "thinking":
-      return (
-        <div className="py-1 border-t border-border mt-1">
-          <Reasoning className="w-full" defaultOpen={false} isStreaming={isReasoningStreaming}>
-            <ReasoningTrigger />
-            <ReasoningContent>{step.content}</ReasoningContent>
-          </Reasoning>
-        </div>
-      );
-    case "tool-call":
-    case "tool-result": {
-      const state: ToolState =
-        step.kind === "tool-call"
-          ? isRunning
-            ? "input-streaming"
-            : "output-available"
-          : step.content.toLowerCase().includes("failed")
-            ? "output-error"
-            : "output-available";
-      return (
-        <div className="py-0.5 border-t border-border mt-1">
-          <Tool defaultOpen={false} isStreaming={state === "input-streaming"}>
-            <ToolHeader
-              state={state}
-              title={step.content}
-              type={`tool-${step.toolName ?? "tool"}`}
-            />
-            {step.toolInput && (
-              <ToolContent>
-                <ToolInput input={step.toolInput} />
-              </ToolContent>
-            )}
-          </Tool>
-        </div>
-      );
-    }
     default:
       return null;
   }
 }
 
-function ToolSummaryItem({ title, steps }: { title: string; steps: AgentStep[] }) {
+type TimelineItem =
+  | { kind: "step"; step: AgentStep }
+  | {
+      kind: "activity";
+      id: string;
+      title: string;
+      steps: AgentStep[];
+      isStreaming: boolean;
+    };
+
+function getActivityTitle(steps: AgentStep[]): string {
+  const hasThought = steps.some((step) => step.kind === "thinking");
+  const toolSteps = steps.filter((step) => step.kind !== "thinking");
+  const searchCount = toolSteps.filter((step) => step.toolName === "searchWeb").length;
+
+  if (hasThought && searchCount > 0) {
+    return `Thought + ${searchCount} search${searchCount === 1 ? "" : "es"}`;
+  }
+  if (hasThought && toolSteps.length > 0) {
+    return `Thought + ${toolSteps.length} tool${toolSteps.length === 1 ? "" : "s"}`;
+  }
+  if (hasThought) {
+    return "Thought process";
+  }
+  if (searchCount > 0) {
+    return `Did ${searchCount} search${searchCount === 1 ? "" : "es"}`;
+  }
+  return `Used ${toolSteps.length} tool${toolSteps.length === 1 ? "" : "s"}`;
+}
+
+function ActivitySummaryItem({
+  title,
+  steps,
+  isStreaming,
+}: {
+  title: string;
+  steps: AgentStep[];
+  isStreaming: boolean;
+}) {
+  const { stopScroll } = useStickToBottomContext();
+
   return (
     <div className="py-0.5 border-t border-border mt-1">
-      <Tool defaultOpen={false} isStreaming={false}>
-        <ToolHeader state="output-available" title={title} type="tool-summary" />
+      <Tool defaultOpen={false} isStreaming={isStreaming}>
+        <ToolHeader
+          onClickCapture={() => stopScroll()}
+          state={isStreaming ? "input-streaming" : "output-available"}
+          title={title}
+          type="tool-summary"
+        />
         <ToolContent>
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             {steps.map((step) => (
-              <p
-                className="text-[10px] text-muted-foreground/90 leading-snug truncate"
-                key={step.id}
-                title={step.content}
-              >
-                {step.content}
-              </p>
+              <div className="rounded-none border border-border/50 px-1.5 py-1" key={step.id}>
+                <p className="mb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                  {step.kind === "thinking" ? "Thought" : "Action"}
+                </p>
+                <div className="text-[11px] text-muted-foreground leading-relaxed [&_a]:text-primary [&_a]:underline">
+                  <MessageResponse>{step.content}</MessageResponse>
+                </div>
+              </div>
             ))}
           </div>
         </ToolContent>
@@ -172,16 +172,47 @@ export function AgentDetailPanel({
 }: AgentDetailPanelProps) {
   const [followUpError, setFollowUpError] = useState("");
   const visibleSteps = useMemo(
-    () =>
-      agent.steps.filter(
+    () => {
+      const filtered = agent.steps.filter(
         (step) =>
           step.kind === "user" ||
           step.kind === "text" ||
           step.kind === "thinking" ||
           step.kind === "tool-call" ||
           step.kind === "tool-result"
-      ),
-    [agent.steps]
+      );
+
+      const trimmedTask = agent.task.trim();
+      const firstNonUserAt = filtered.reduce((earliest, step) => {
+        if (step.kind === "user") return earliest;
+        return Math.min(earliest, step.createdAt);
+      }, Number.POSITIVE_INFINITY);
+
+      const hasInitialPromptStep = filtered.some(
+        (step) =>
+          step.kind === "user" &&
+          step.content.trim() === trimmedTask &&
+          step.createdAt <= firstNonUserAt
+      );
+
+      const withInitialPrompt =
+        trimmedTask && !hasInitialPromptStep
+          ? [
+              {
+                id: `initial-user:${agent.id}`,
+                kind: "user" as const,
+                content: trimmedTask,
+                createdAt: agent.createdAt,
+              },
+              ...filtered,
+            ]
+          : filtered;
+
+      // Preserve event order from the agent stream; timestamp sorting can
+      // mis-order tool/thought vs final text because text uses turn start time.
+      return withInitialPrompt;
+    },
+    [agent.createdAt, agent.id, agent.steps, agent.task]
   );
 
   const currentIndex = agents.findIndex((a) => a.id === agent.id);
@@ -210,60 +241,45 @@ export function AgentDetailPanel({
     [activeTurnStartAt, agent.steps]
   );
   const showPlanning = isRunning && !hasCurrentTurnActivity;
-  const latestThinkingStepId = useMemo(
-    () =>
-      [...visibleSteps].reverse().find((step) => step.kind === "thinking")?.id ??
-      null,
-    [visibleSteps]
-  );
-  const currentTurnToolSteps = useMemo(
-    () =>
-      visibleSteps.filter(
-        (step) =>
-          (step.kind === "tool-call" || step.kind === "tool-result") &&
-          step.createdAt >= activeTurnStartAt
-      ),
-    [activeTurnStartAt, visibleSteps]
-  );
-  const collapseCurrentTurnTools = hasCurrentTurnText && currentTurnToolSteps.length > 0;
-  const collapsedToolStepIds = useMemo(
-    () => new Set(currentTurnToolSteps.map((step) => step.id)),
-    [currentTurnToolSteps]
-  );
-  const toolSummaryTitle = useMemo(() => {
-    const searchCount = currentTurnToolSteps.filter(
-      (step) => step.toolName === "searchWeb"
-    ).length;
-    if (searchCount > 0) {
-      return `Did ${searchCount} search${searchCount === 1 ? "" : "es"}`;
-    }
-    const total = currentTurnToolSteps.length;
-    return `Used ${total} tool${total === 1 ? "" : "s"}`;
-  }, [currentTurnToolSteps]);
   const timelineItems = useMemo(() => {
-    if (!collapseCurrentTurnTools) {
-      return visibleSteps.map((step) => ({ kind: "step" as const, step }));
-    }
+    const items: TimelineItem[] = [];
+    let pendingActivity: AgentStep[] = [];
+    let activityIndex = 0;
 
-    const items: Array<
-      | { kind: "step"; step: AgentStep }
-      | { kind: "tool-summary" }
-    > = [];
-    let insertedSummary = false;
+    const flushActivity = () => {
+      if (pendingActivity.length === 0) return;
+      const steps = pendingActivity;
+      pendingActivity = [];
+      const id = `activity:${agent.id}:${activityIndex}`;
+      activityIndex += 1;
+      const isCurrentTurnGroup = steps.some(
+        (step) => step.createdAt >= activeTurnStartAt
+      );
+      items.push({
+        kind: "activity",
+        id,
+        steps,
+        title: getActivityTitle(steps),
+        isStreaming: isRunning && !hasCurrentTurnText && isCurrentTurnGroup,
+      });
+    };
 
     for (const step of visibleSteps) {
-      if (collapsedToolStepIds.has(step.id)) {
-        if (!insertedSummary) {
-          items.push({ kind: "tool-summary" });
-          insertedSummary = true;
-        }
+      if (
+        step.kind === "thinking" ||
+        step.kind === "tool-call" ||
+        step.kind === "tool-result"
+      ) {
+        pendingActivity.push(step);
         continue;
       }
+      flushActivity();
       items.push({ kind: "step", step });
     }
 
+    flushActivity();
     return items;
-  }, [collapseCurrentTurnTools, collapsedToolStepIds, visibleSteps]);
+  }, [activeTurnStartAt, agent.id, hasCurrentTurnText, isRunning, visibleSteps]);
 
   const handleFollowUpSubmit = useCallback(
     async (message: PromptInputMessage) => {
@@ -290,8 +306,8 @@ export function AgentDetailPanel({
       <div className="shrink-0 border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
           <StatusBadge status={agent.status} />
-          <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
-            {agent.task}
+          <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
+            Agent
           </span>
           <div className="flex shrink-0 items-center gap-0.5">
             {isRunning && onCancel && (
@@ -350,25 +366,16 @@ export function AgentDetailPanel({
               No messages yet.
             </p>
           )}
-          {timelineItems.map((item, index) =>
-            item.kind === "tool-summary" ? (
-              <ToolSummaryItem
-                key={`tool-summary-${agent.id}-${activeTurnStartAt}-${index}`}
-                steps={currentTurnToolSteps}
-                title={toolSummaryTitle}
+          {timelineItems.map((item) =>
+            item.kind === "activity" ? (
+              <ActivitySummaryItem
+                key={item.id}
+                isStreaming={item.isStreaming}
+                steps={item.steps}
+                title={item.title}
               />
             ) : (
-              <StepItem
-                isReasoningStreaming={
-                  isRunning &&
-                  !hasCurrentTurnText &&
-                  item.step.kind === "thinking" &&
-                  item.step.id === latestThinkingStepId
-                }
-                isRunning={isRunning}
-                key={item.step.id}
-                step={item.step}
-              />
+              <StepItem key={item.step.id} step={item.step} />
             )
           )}
           {showPlanning && (

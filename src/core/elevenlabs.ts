@@ -1,10 +1,13 @@
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import type { LanguageCode } from "./types";
 import { isValidLangCode } from "./language";
 
 type ElevenLabsSpeechToTextResponse = {
-  text?: string;
-  language_code?: string;
-  language_probability?: number;
+  text?: unknown;
+  languageCode?: unknown;
+  language_code?: unknown;
+  languageProbability?: unknown;
+  language_probability?: unknown;
 };
 
 const ELEVENLABS_LANGUAGE_MAP: Record<string, LanguageCode> = {
@@ -37,6 +40,31 @@ export type ElevenLabsTranscription = {
   languageProbability?: number;
 };
 
+let cachedClient: ElevenLabsClient | null = null;
+let cachedApiKey: string | null = null;
+
+function getElevenLabsClient(apiKey: string): ElevenLabsClient {
+  if (!cachedClient || cachedApiKey !== apiKey) {
+    cachedClient = new ElevenLabsClient({ apiKey });
+    cachedApiKey = apiKey;
+  }
+  return cachedClient;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(`ElevenLabs STT request timed out (${timeoutMs}ms)`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
 export async function transcribeWithElevenLabs(
   wavBuffer: Buffer,
   modelId: string
@@ -46,32 +74,31 @@ export async function transcribeWithElevenLabs(
     throw new Error("Missing ELEVENLABS_API_KEY");
   }
 
-  const formData = new FormData();
   const bytes = Uint8Array.from(wavBuffer);
-  formData.append("model_id", modelId);
-  formData.append("file", new Blob([bytes], { type: "audio/wav" }), "chunk.wav");
+  const file = new File([bytes], "chunk.wav", { type: "audio/wav" });
+  const payload = await withTimeout(
+    getElevenLabsClient(apiKey).speechToText.convert({
+      file,
+      modelId,
+    }),
+    30000
+  ) as ElevenLabsSpeechToTextResponse;
+  const languageCodeRaw =
+    typeof payload.languageCode === "string"
+      ? payload.languageCode
+      : typeof payload.language_code === "string"
+        ? payload.language_code
+        : undefined;
+  const languageProbabilityRaw =
+    typeof payload.languageProbability === "number"
+      ? payload.languageProbability
+      : typeof payload.language_probability === "number"
+        ? payload.language_probability
+        : undefined;
 
-  const response = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
-    method: "POST",
-    headers: {
-      "xi-api-key": apiKey,
-    },
-    body: formData,
-    signal: AbortSignal.timeout(30000),
-  });
-
-  if (!response.ok) {
-    const body = (await response.text()).slice(0, 300);
-    throw new Error(`ElevenLabs STT request failed (${response.status}): ${body}`);
-  }
-
-  const payload = (await response.json()) as ElevenLabsSpeechToTextResponse;
   return {
     transcript: typeof payload.text === "string" ? payload.text.trim() : "",
-    sourceLanguage: normalizeLanguageCode(payload.language_code),
-    languageProbability:
-      typeof payload.language_probability === "number"
-        ? payload.language_probability
-        : undefined,
+    sourceLanguage: normalizeLanguageCode(languageCodeRaw),
+    languageProbability: languageProbabilityRaw,
   };
 }

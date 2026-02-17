@@ -39,6 +39,7 @@ export type ElectronAPI = {
   getSessionInsights: (sessionId: string) => Promise<Insight[]>;
 
   launchAgent: (todoId: string, task: string) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
+  launchAgentInSession: (sessionId: string, todoId: string, task: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
   followUpAgent: (agentId: string, question: string) => Promise<{ ok: boolean; error?: string }>;
   followUpAgentInSession: (sessionId: string, agentId: string, question: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; error?: string }>;
   cancelAgent: (agentId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -94,6 +95,8 @@ const api: ElectronAPI = {
   getSessionInsights: (sessionId) => ipcRenderer.invoke("get-session-insights", sessionId),
 
   launchAgent: (todoId, task) => ipcRenderer.invoke("launch-agent", todoId, task),
+  launchAgentInSession: (sessionId, todoId, task, appConfig) =>
+    ipcRenderer.invoke("launch-agent-in-session", sessionId, todoId, task, appConfig),
   followUpAgent: (agentId, question) => ipcRenderer.invoke("follow-up-agent", agentId, question),
   followUpAgentInSession: (sessionId, agentId, question, appConfig) => ipcRenderer.invoke("follow-up-agent-in-session", sessionId, agentId, question, appConfig),
   cancelAgent: (agentId) => ipcRenderer.invoke("cancel-agent", agentId),

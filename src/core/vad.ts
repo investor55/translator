@@ -2,8 +2,8 @@ import { isAudioSilent, computeRms } from "./audio-utils";
 
 const VAD_WINDOW_MS = 100;
 const VAD_WINDOW_BYTES = Math.floor(16000 * 2 * (VAD_WINDOW_MS / 1000)); // 3200 bytes
-const VAD_SILENCE_FLUSH_MS = 800;
-const VAD_MAX_CHUNK_MS = 8000;
+const VAD_SILENCE_FLUSH_MS = 500;
+const VAD_MAX_CHUNK_MS = 4000;
 const VAD_MIN_CHUNK_MS = 500;
 const DEFAULT_SILENCE_THRESHOLD = 200;
 
