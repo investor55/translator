@@ -31,6 +31,9 @@ export type Direction = "auto" | "source-target";
 export type Device = { index: number; name: string };
 export type AudioSource = "system" | "microphone";
 
+export type TranscriptionProvider = "google" | "vertex";
+export type AnalysisProvider = "openrouter" | "google" | "vertex";
+
 export type TranscriptBlock = {
   id: number;
   sourceLabel: string;
@@ -108,7 +111,10 @@ export type SessionConfig = {
   sourceLang: LanguageCode;
   targetLang: LanguageCode;
   intervalMs: number;
-  vertexModelId: string;
+  transcriptionProvider: TranscriptionProvider;
+  transcriptionModelId: string;
+  analysisProvider: AnalysisProvider;
+  analysisModelId: string;
   vertexProject?: string;
   vertexLocation: string;
   contextFile: string;
@@ -130,6 +136,10 @@ export const DEFAULT_VERTEX_MODEL_ID =
   process.env.VERTEX_MODEL_ID ?? "gemini-3-flash-preview";
 export const DEFAULT_VERTEX_LOCATION =
   process.env.GOOGLE_VERTEX_PROJECT_LOCATION ?? "global";
+export const DEFAULT_TRANSCRIPTION_MODEL_ID =
+  process.env.TRANSCRIPTION_MODEL_ID ?? "gemini-3-flash-preview";
+export const DEFAULT_ANALYSIS_MODEL_ID =
+  process.env.ANALYSIS_MODEL_ID ?? "moonshotai/kimi-k2-thinking";
 export const DEFAULT_INTERVAL_MS = 2000;
 
 // Agent types

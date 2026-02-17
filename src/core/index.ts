@@ -35,10 +35,14 @@ export type {
   SessionConfig,
   CliConfig,
   SessionEvents,
+  TranscriptionProvider,
+  AnalysisProvider,
 } from "./types";
 export {
   SUPPORTED_LANGUAGES,
   DEFAULT_VERTEX_MODEL_ID,
   DEFAULT_VERTEX_LOCATION,
+  DEFAULT_TRANSCRIPTION_MODEL_ID,
+  DEFAULT_ANALYSIS_MODEL_ID,
   DEFAULT_INTERVAL_MS,
 } from "./types";

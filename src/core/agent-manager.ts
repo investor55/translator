@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { runAgent } from "./agent";
 import { log } from "./logger";
+import type { AppDatabase } from "./db";
 import type { Agent, AgentStep, SessionEvents } from "./types";
 
 type TypedEmitter = EventEmitter & {
@@ -12,16 +13,21 @@ type AgentManagerDeps = {
   exaApiKey: string;
   events: TypedEmitter;
   getTranscriptContext: () => string;
+  db?: AppDatabase;
 };
 
 export type AgentManager = {
   launchAgent: (todoId: string, task: string, sessionId?: string) => Agent;
   getAgent: (id: string) => Agent | undefined;
   getAllAgents: () => Agent[];
+  getAgentsForSession: (sessionId: string) => Agent[];
 };
+
+const STEP_FLUSH_INTERVAL_MS = 2000;
 
 export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   const agents = new Map<string, Agent>();
+  const pendingFlush = new Map<string, NodeJS.Timeout>();
 
   // Lazy-import exa-js to avoid blocking module load if the package has resolution issues
   let exaInstance: InstanceType<typeof import("exa-js").default> | null = null;
@@ -32,6 +38,30 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       exaInstance = new Exa(deps.exaApiKey);
     }
     return exaInstance;
+  }
+
+  function flushSteps(agentId: string) {
+    const agent = agents.get(agentId);
+    if (!agent || !deps.db) return;
+    deps.db.updateAgent(agentId, { steps: agent.steps });
+  }
+
+  function scheduleStepFlush(agentId: string) {
+    if (!deps.db) return;
+    if (pendingFlush.has(agentId)) return;
+    const timer = setTimeout(() => {
+      pendingFlush.delete(agentId);
+      flushSteps(agentId);
+    }, STEP_FLUSH_INTERVAL_MS);
+    pendingFlush.set(agentId, timer);
+  }
+
+  function cancelFlush(agentId: string) {
+    const timer = pendingFlush.get(agentId);
+    if (timer) {
+      clearTimeout(timer);
+      pendingFlush.delete(agentId);
+    }
   }
 
   function launchAgent(todoId: string, task: string, sessionId?: string): Agent {
@@ -46,6 +76,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     };
 
     agents.set(agent.id, agent);
+    deps.db?.insertAgent(agent);
     deps.events.emit("agent-started", agent);
     log("INFO", `Agent launched: ${agent.id} for todo ${todoId}`);
 
@@ -57,6 +88,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       agent.status = "failed";
       agent.result = `Failed to load Exa SDK: ${msg}`;
       agent.completedAt = Date.now();
+      deps.db?.updateAgent(agent.id, { status: agent.status, result: agent.result, completedAt: agent.completedAt });
       deps.events.emit("agent-failed", agent.id, agent.result);
       log("ERROR", `Exa SDK load failed: ${msg}`);
       return agent;
@@ -69,11 +101,14 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       onStep: (step: AgentStep) => {
         agent.steps.push(step);
         deps.events.emit("agent-step", agent.id, step);
+        scheduleStepFlush(agent.id);
       },
       onComplete: (result: string) => {
         agent.status = "completed";
         agent.result = result;
         agent.completedAt = Date.now();
+        cancelFlush(agent.id);
+        deps.db?.updateAgent(agent.id, { status: "completed", result, steps: agent.steps, completedAt: agent.completedAt });
         deps.events.emit("agent-completed", agent.id, result);
         log("INFO", `Agent completed: ${agent.id}`);
       },
@@ -81,6 +116,8 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         agent.status = "failed";
         agent.result = error;
         agent.completedAt = Date.now();
+        cancelFlush(agent.id);
+        deps.db?.updateAgent(agent.id, { status: "failed", result: error, steps: agent.steps, completedAt: agent.completedAt });
         deps.events.emit("agent-failed", agent.id, error);
         log("ERROR", `Agent failed: ${agent.id} — ${error}`);
       },
@@ -93,5 +130,8 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     launchAgent,
     getAgent: (id) => agents.get(id),
     getAllAgents: () => [...agents.values()],
+    getAgentsForSession: (sessionId) => {
+      return deps.db?.getAgentsForSession(sessionId) ?? [];
+    },
   };
 }

@@ -131,7 +131,9 @@ export function buildAudioPromptForStructured(
 
 IMPORTANT: The transcript field must be in the detected source language. The translation field must ALWAYS be in a DIFFERENT language than the transcript. If you hear ${sourceLangName}, the translation must be ${targetLangName}, not ${sourceLangName}.
 
-If the audio is cut off mid-sentence, transcribe only what was actually spoken \u2014 do not add trailing punctuation or complete unfinished words/sentences. Set isPartial to true.
+You are a strict transcriber. Output ONLY the exact words spoken \u2014 never add, infer, or complete words or sentences beyond what is audible.
+
+If the audio is cut off mid-sentence, transcribe only what was actually spoken. Set isPartial to true.
 
 If there is no speech, silence, or unintelligible audio, return an empty transcript and empty translation.
 
@@ -146,7 +148,9 @@ Return sourceLanguage (${codeList}), transcript, isPartial, and translation.`;
 
 IMPORTANT: The translation MUST be in ${targetLangName}. Never return a translation in the same language as the transcript.
 
-If the audio is cut off mid-sentence, transcribe only what was actually spoken \u2014 do not add trailing punctuation or complete unfinished words/sentences. Set isPartial to true.
+You are a strict transcriber. Output ONLY the exact words spoken \u2014 never add, infer, or complete words or sentences beyond what is audible.
+
+If the audio is cut off mid-sentence, transcribe only what was actually spoken. Set isPartial to true.
 
 If there is no speech, silence, or unintelligible audio, return an empty transcript and empty translation.`;
 }

@@ -1,7 +1,6 @@
 import { EventEmitter } from "node:events";
 import { type ChildProcess } from "node:child_process";
-import { generateObject } from "ai";
-import { createVertex } from "@ai-sdk/google-vertex";
+import { generateObject, type LanguageModel } from "ai";
 import { z } from "zod";
 
 import type {
@@ -16,6 +15,7 @@ import type {
   TodoSuggestion,
   Insight,
 } from "./types";
+import { createTranscriptionModel, createAnalysisModel } from "./providers";
 import { log } from "./logger";
 import { pcmToWavBuffer, computeRms } from "./audio-utils";
 import { toReadableError } from "./text-utils";
@@ -77,8 +77,8 @@ export class Session {
   readonly config: SessionConfig;
   readonly sessionId: string;
 
-  private vertexModel: ReturnType<ReturnType<typeof createVertex>>;
-  private analysisModel: ReturnType<ReturnType<typeof createVertex>>;
+  private transcriptionModel: LanguageModel;
+  private analysisModel: LanguageModel;
   private audioTranscriptionSchema: z.ZodObject<z.ZodRawShape>;
   private transcriptionOnlySchema: z.ZodObject<z.ZodRawShape>;
 
@@ -92,10 +92,10 @@ export class Session {
   private _micEnabled = false;
 
   // Shared Vertex queue for both pipelines
-  private vertexChunkQueue: Array<{ chunk: Buffer; audioSource: AudioSource }> = [];
-  private vertexInFlight = 0;
-  private vertexMaxConcurrency = 5;
-  private readonly vertexMaxQueueSize = 20;
+  private chunkQueue: Array<{ chunk: Buffer; audioSource: AudioSource }> = [];
+  private inFlight = 0;
+  private maxConcurrency = 5;
+  private readonly maxQueueSize = 20;
 
   // Per-pipeline state
   private systemPipeline: AudioPipeline = {
@@ -126,27 +126,24 @@ export class Session {
   private sourceLangName: string;
   private targetLangName: string;
 
-  constructor(config: SessionConfig, db?: AppDatabase) {
+  constructor(config: SessionConfig, db?: AppDatabase, sessionId?: string) {
     this.config = config;
     this.db = db ?? null;
-    this.sessionId = crypto.randomUUID();
+    this.sessionId = sessionId ?? crypto.randomUUID();
     this._translationEnabled = config.translationEnabled;
     this.userContext = loadUserContext(config.contextFile, config.useContext);
 
-    const vertex = createVertex({
-      project: config.vertexProject,
-      location: config.vertexLocation,
-    });
-    this.vertexModel = vertex(config.vertexModelId);
-    this.analysisModel = vertex(config.vertexModelId);
+    this.transcriptionModel = createTranscriptionModel(config);
+    this.analysisModel = createAnalysisModel(config);
 
     const exaApiKey = process.env.EXA_API_KEY;
     if (exaApiKey) {
       this.agentManager = createAgentManager({
-        model: this.analysisModel,
+        model: this.transcriptionModel,
         exaApiKey,
         events: this.events,
         getTranscriptContext: () => this.getTranscriptContextForAgent(),
+        db: this.db ?? undefined,
       });
       log("INFO", "AgentManager initialized (EXA_API_KEY present)");
     }
@@ -204,7 +201,7 @@ export class Session {
       : "System Audio (ScreenCaptureKit)";
     return {
       deviceName,
-      modelId: `${langPair} | ${this.config.vertexModelId}`,
+      modelId: `${langPair} | ${this.config.transcriptionModelId}`,
       intervalMs: this.config.intervalMs,
       status,
       contextLoaded: !!this.userContext,
@@ -268,9 +265,9 @@ export class Session {
     resetVadState(this.systemPipeline.vadState);
     resetContextState(this.contextState);
     resetCost(this.costAccumulator);
-    this.vertexChunkQueue = [];
+    this.chunkQueue = [];
     this.systemPipeline.overlap = Buffer.alloc(0);
-    this.vertexInFlight = 0;
+    this.inFlight = 0;
     this.lastSummary = null;
 
     this.events.emit("blocks-cleared");
@@ -363,8 +360,8 @@ export class Session {
     // Flush system pipeline
     const remaining = flushVad(this.systemPipeline.vadState);
     if (remaining) {
-      this.enqueueVertexChunk(this.systemPipeline, remaining);
-      void this.processVertexQueue();
+      this.enqueueChunk(this.systemPipeline, remaining);
+      void this.processQueue();
     }
 
     // Flush mic pipeline if active
@@ -372,9 +369,9 @@ export class Session {
       this.stopMic();
     }
 
-    this.vertexChunkQueue = [];
+    this.chunkQueue = [];
     this.systemPipeline.overlap = Buffer.alloc(0);
-    this.vertexInFlight = 0;
+    this.inFlight = 0;
     resetVadState(this.systemPipeline.vadState);
 
     this.events.emit("state-change", this.getUIState("paused"));
@@ -394,7 +391,7 @@ export class Session {
       this.micPipeline.overlap = Buffer.alloc(0);
 
       // Raise concurrency when both pipelines active
-      this.vertexMaxConcurrency = 8;
+      this.maxConcurrency = 8;
 
       let micDataReceived = false;
       let micTotalBytes = 0;
@@ -444,7 +441,7 @@ export class Session {
       this.micProcess.on("close", (code) => {
         if (this._micEnabled) {
           this._micEnabled = false;
-          this.vertexMaxConcurrency = 5;
+          this.maxConcurrency = 5;
           if (code !== 0 && code !== null) {
             const detail = micStderrBuffer.trim().slice(-200) || `exit code ${code}`;
             log("ERROR", `Mic ffmpeg exited: code=${code}, stderr: ${micStderrBuffer.trim()}`);
@@ -471,7 +468,7 @@ export class Session {
     this._micEnabled = true;
     resetVadState(this.micPipeline.vadState);
     this.micPipeline.overlap = Buffer.alloc(0);
-    this.vertexMaxConcurrency = 8;
+    this.maxConcurrency = 8;
     this.micDebugWindowCount = 0;
 
     log("INFO", "Mic started via renderer capture (Web Audio API)");
@@ -490,8 +487,8 @@ export class Session {
 
     const remaining = flushVad(this.micPipeline.vadState);
     if (remaining) {
-      this.enqueueVertexChunk(this.micPipeline, remaining);
-      void this.processVertexQueue();
+      this.enqueueChunk(this.micPipeline, remaining);
+      void this.processQueue();
     }
 
     if (this.micProcess) {
@@ -500,7 +497,7 @@ export class Session {
     }
 
     this._micEnabled = false;
-    this.vertexMaxConcurrency = 5;
+    this.maxConcurrency = 5;
     resetVadState(this.micPipeline.vadState);
     this.micPipeline.overlap = Buffer.alloc(0);
 
@@ -557,7 +554,7 @@ export class Session {
       if (Math.floor(this.micDebugWindowCount / 20) > Math.floor(prev / 20)) {
         const { peakRms, silenceThreshold, speechStarted } = pipeline.vadState;
         const speechBufMs = (pipeline.vadState.speechBuffer.length / (16000 * 2)) * 1000;
-        log("INFO", `Mic levels: peakRms=${peakRms.toFixed(0)} threshold=${silenceThreshold} speechStarted=${speechStarted} speechBuf=${speechBufMs.toFixed(0)}ms queue=${this.vertexChunkQueue.length}`);
+        log("INFO", `Mic levels: peakRms=${peakRms.toFixed(0)} threshold=${silenceThreshold} speechStarted=${speechStarted} speechBuf=${speechBufMs.toFixed(0)}ms queue=${this.chunkQueue.length}`);
         this.events.emit("status", `Mic: peak=${peakRms.toFixed(0)} thr=${silenceThreshold}${speechStarted ? ` speaking ${speechBufMs.toFixed(0)}ms` : ""}`);
         pipeline.vadState.peakRms = 0;
       }
@@ -567,45 +564,45 @@ export class Session {
       const durationMs = (chunk.length / (16000 * 2)) * 1000;
 
       if (pipeline.source === "microphone") {
-        log("INFO", `Mic VAD: speech chunk ${durationMs.toFixed(0)}ms rms=${computeRms(chunk).toFixed(0)}, queue=${this.vertexChunkQueue.length}`);
+        log("INFO", `Mic VAD: speech chunk ${durationMs.toFixed(0)}ms rms=${computeRms(chunk).toFixed(0)}, queue=${this.chunkQueue.length}`);
       }
 
-      this.enqueueVertexChunk(pipeline, chunk);
-      void this.processVertexQueue();
+      this.enqueueChunk(pipeline, chunk);
+      void this.processQueue();
     }
   }
 
-  private enqueueVertexChunk(pipeline: AudioPipeline, chunk: Buffer) {
+  private enqueueChunk(pipeline: AudioPipeline, chunk: Buffer) {
     if (!chunk.length) return;
     const overlapBytes = Math.floor(16000 * 2 * 0.5);
     const overlap = pipeline.overlap.subarray(0, overlapBytes);
     const combined = overlap.length ? Buffer.concat([overlap, chunk]) : chunk;
 
-    while (this.vertexChunkQueue.length >= this.vertexMaxQueueSize) {
-      this.vertexChunkQueue.shift();
-      log("WARN", `Dropped oldest chunk, queue was at ${this.vertexMaxQueueSize}`);
+    while (this.chunkQueue.length >= this.maxQueueSize) {
+      this.chunkQueue.shift();
+      log("WARN", `Dropped oldest chunk, queue was at ${this.maxQueueSize}`);
     }
 
-    this.vertexChunkQueue.push({ chunk: combined, audioSource: pipeline.source });
+    this.chunkQueue.push({ chunk: combined, audioSource: pipeline.source });
     pipeline.overlap = Buffer.from(
       chunk.subarray(Math.max(0, chunk.length - overlapBytes))
     );
   }
 
   private updateInFlightDisplay() {
-    if (this.vertexInFlight > 0) {
-      this.events.emit("status", `Processing ${this.vertexInFlight} chunk${this.vertexInFlight > 1 ? "s" : ""}...`);
+    if (this.inFlight > 0) {
+      this.events.emit("status", `Processing ${this.inFlight} chunk${this.inFlight > 1 ? "s" : ""}...`);
     } else if (this.isRecording) {
       this.events.emit("status", "Listening...");
     }
   }
 
-  private async processVertexQueue(): Promise<void> {
-    if (this.vertexInFlight >= this.vertexMaxConcurrency || this.vertexChunkQueue.length === 0) return;
-    const item = this.vertexChunkQueue.shift();
+  private async processQueue(): Promise<void> {
+    if (this.inFlight >= this.maxConcurrency || this.chunkQueue.length === 0) return;
+    const item = this.chunkQueue.shift();
     if (!item) return;
     const { chunk, audioSource } = item;
-    this.vertexInFlight++;
+    this.inFlight++;
 
     const startTime = Date.now();
     const chunkDurationMs = (chunk.length / (16000 * 2)) * 1000;
@@ -625,11 +622,11 @@ export class Session {
       const wavBuffer = pcmToWavBuffer(chunk, 16000);
 
       if (this.config.debug) {
-        log("INFO", `Vertex request: src=${audioSource} chunk=${chunkDurationMs.toFixed(0)}ms (${(wavBuffer.byteLength / 1024).toFixed(0)}KB), queue=${this.vertexChunkQueue.length}, inflight=${this.vertexInFlight}`);
+        log("INFO", `Transcription request [${this.config.transcriptionProvider}]: src=${audioSource} chunk=${chunkDurationMs.toFixed(0)}ms (${(wavBuffer.byteLength / 1024).toFixed(0)}KB), queue=${this.chunkQueue.length}, inflight=${this.inFlight}`);
       }
 
       const { object: result, usage: finalUsage } = await generateObject({
-        model: this.vertexModel,
+        model: this.transcriptionModel,
         schema,
         system: this.userContext || undefined,
         temperature: 0,
@@ -653,11 +650,11 @@ export class Session {
       const elapsed = Date.now() - startTime;
       const inTok = finalUsage?.inputTokens ?? 0;
       const outTok = finalUsage?.outputTokens ?? 0;
-      const totalCost = addCostToAcc(this.costAccumulator, inTok, outTok, "audio");
+      const totalCost = addCostToAcc(this.costAccumulator, inTok, outTok, "audio", this.config.transcriptionProvider);
       this.events.emit("cost-updated", totalCost);
 
       if (this.config.debug) {
-        log("INFO", `Vertex response: ${elapsed}ms, tokens: ${inTok}→${outTok}, queue: ${this.vertexChunkQueue.length}`);
+        log("INFO", `Transcription response [${this.config.transcriptionProvider}]: ${elapsed}ms, tokens: ${inTok}→${outTok}, queue: ${this.chunkQueue.length}`);
         this.events.emit("status", `Response: ${elapsed}ms | T: ${inTok}→${outTok}`);
       }
 
@@ -668,7 +665,7 @@ export class Session {
       const detectedLang = (result as { sourceLanguage: string }).sourceLanguage as LanguageCode;
 
       if (!translation && !transcript) {
-        log("WARN", "Vertex returned empty transcript and translation");
+        log("WARN", "Transcription returned empty transcript and translation");
         return;
       }
 
@@ -709,13 +706,13 @@ export class Session {
       const fullError = error instanceof Error
         ? `${error.name}: ${error.message}${error.cause ? ` cause=${JSON.stringify(error.cause)}` : ""}`
         : toReadableError(error);
-      log("ERROR", `Vertex chunk failed after ${elapsed}ms (audio=${chunkDurationMs.toFixed(0)}ms): ${fullError}`);
+      log("ERROR", `Transcription chunk failed after ${elapsed}ms (audio=${chunkDurationMs.toFixed(0)}ms): ${fullError}`);
       this.events.emit("status", `⚠ ${errorMsg}`);
     } finally {
-      this.vertexInFlight--;
+      this.inFlight--;
       this.updateInFlightDisplay();
-      if (this.vertexChunkQueue.length && this.vertexInFlight < this.vertexMaxConcurrency) {
-        void this.processVertexQueue();
+      if (this.chunkQueue.length && this.inFlight < this.maxConcurrency) {
+        void this.processQueue();
       }
     }
   }
@@ -757,20 +754,18 @@ export class Session {
 
       const prompt = buildAnalysisPrompt(recentBlocks, existingTodos, previousKeyPoints);
 
+      const analysisProvider = this.config.analysisProvider;
+      const providerOptions = analysisProvider === "google" || analysisProvider === "vertex"
+        ? { google: { thinkingConfig: { includeThoughts: false, thinkingBudget: 2048 } } }
+        : undefined;
+
       const { object: result, usage } = await generateObject({
         model: this.analysisModel,
         schema: analysisSchema,
         prompt,
         abortSignal: AbortSignal.timeout(30000),
         temperature: 0,
-        providerOptions: {
-          google: {
-            thinkingConfig: {
-              includeThoughts: false,
-              thinkingBudget: 2048,
-            },
-          },
-        },
+        providerOptions,
       });
 
       const elapsed = Date.now() - startTime;
@@ -778,7 +773,8 @@ export class Session {
         this.costAccumulator,
         usage?.inputTokens ?? 0,
         usage?.outputTokens ?? 0,
-        "text"
+        "text",
+        this.config.analysisProvider
       );
       this.events.emit("cost-updated", totalCost);
 

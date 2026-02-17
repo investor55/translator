@@ -25,6 +25,7 @@ export type ElectronAPI = {
 
   launchAgent: (todoId: string, task: string) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
   getAgents: () => Promise<Agent[]>;
+  getSessionAgents: (sessionId: string) => Promise<Agent[]>;
 
   onStateChange: (callback: (state: UIState) => void) => () => void;
   onBlockAdded: (callback: (block: TranscriptBlock) => void) => () => void;
@@ -75,6 +76,7 @@ const api: ElectronAPI = {
 
   launchAgent: (todoId, task) => ipcRenderer.invoke("launch-agent", todoId, task),
   getAgents: () => ipcRenderer.invoke("get-agents"),
+  getSessionAgents: (sessionId) => ipcRenderer.invoke("get-session-agents", sessionId),
 
   onStateChange: createListener<UIState>("session:state-change"),
   onBlockAdded: createListener<TranscriptBlock>("session:block-added"),

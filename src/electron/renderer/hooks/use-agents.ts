@@ -12,6 +12,7 @@ type AgentsAction =
   | { kind: "agent-completed"; agentId: string; result: string }
   | { kind: "agent-failed"; agentId: string; error: string }
   | { kind: "select-agent"; agentId: string | null }
+  | { kind: "load-agents"; agents: Agent[] }
   | { kind: "reset" };
 
 function agentsReducer(state: AgentsState, action: AgentsAction): AgentsState {
@@ -47,6 +48,8 @@ function agentsReducer(state: AgentsState, action: AgentsAction): AgentsState {
       };
     case "select-agent":
       return { ...state, selectedAgentId: action.agentId };
+    case "load-agents":
+      return { ...state, agents: action.agents };
     case "reset":
       return { agents: [], selectedAgentId: null };
   }
@@ -78,6 +81,11 @@ export function useAgents(sessionActive: boolean) {
     dispatch({ kind: "select-agent", agentId });
   }, []);
 
+  const loadAgentsForSession = useCallback(async (sessionId: string) => {
+    const saved = await window.electronAPI.getSessionAgents(sessionId);
+    dispatch({ kind: "load-agents", agents: saved });
+  }, []);
+
   const selectedAgent = state.selectedAgentId
     ? state.agents.find((a) => a.id === state.selectedAgentId) ?? null
     : null;
@@ -87,5 +95,6 @@ export function useAgents(sessionActive: boolean) {
     selectedAgentId: state.selectedAgentId,
     selectedAgent,
     selectAgent,
+    loadAgentsForSession,
   };
 }

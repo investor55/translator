@@ -1,215 +1,238 @@
 import Database from "better-sqlite3";
-import type { TodoItem, Insight, InsightKind, SessionMeta, TranscriptBlock, AudioSource, LanguageCode } from "./types";
+import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import { eq, desc, sql, count } from "drizzle-orm";
+import { sessions, blocks, todos, insights, agents } from "./schema";
+import type {
+  TodoItem,
+  Insight,
+  InsightKind,
+  SessionMeta,
+  TranscriptBlock,
+  AudioSource,
+  LanguageCode,
+  Agent,
+  AgentStep,
+} from "./types";
 
 export type AppDatabase = ReturnType<typeof createDatabase>;
 
 export function createDatabase(dbPath: string) {
-  const db = new Database(dbPath);
+  const sqlite = new Database(dbPath);
+  sqlite.pragma("journal_mode = WAL");
+  sqlite.pragma("foreign_keys = ON");
 
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
+  runMigrations(sqlite);
 
-  runMigrations(db);
-
-  // Prepared statements
-  const stmts = {
-    insertSession: db.prepare(
-      "INSERT INTO sessions (id, started_at, title, source_lang, target_lang) VALUES (?, ?, ?, ?, ?)"
-    ),
-    endSession: db.prepare(
-      "UPDATE sessions SET ended_at = ?, block_count = (SELECT COUNT(*) FROM blocks WHERE session_id = ?) WHERE id = ?"
-    ),
-    getSessions: db.prepare(
-      "SELECT id, started_at, ended_at, title, block_count, source_lang, target_lang FROM sessions ORDER BY started_at DESC LIMIT ?"
-    ),
-    deleteSessionBlocks: db.prepare("DELETE FROM blocks WHERE session_id = ?"),
-    deleteSessionInsights: db.prepare("DELETE FROM insights WHERE session_id = ?"),
-    deleteSessionTodos: db.prepare("DELETE FROM todos WHERE session_id = ?"),
-    deleteSessionRow: db.prepare("DELETE FROM sessions WHERE id = ?"),
-    insertBlock: db.prepare(
-      "INSERT INTO blocks (session_id, source_label, source_text, target_label, translation, audio_source, partial, new_topic, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ),
-    getBlocksForSession: db.prepare(
-      "SELECT * FROM blocks WHERE session_id = ? ORDER BY created_at ASC"
-    ),
-    insertTodo: db.prepare(
-      "INSERT INTO todos (id, text, completed, source, created_at, session_id) VALUES (?, ?, ?, ?, ?, ?)"
-    ),
-    updateTodo: db.prepare(
-      "UPDATE todos SET completed = ?, completed_at = ? WHERE id = ?"
-    ),
-    getTodos: db.prepare(
-      "SELECT id, text, completed, source, created_at, completed_at, session_id FROM todos ORDER BY created_at DESC"
-    ),
-    getTodosForSession: db.prepare(
-      "SELECT id, text, completed, source, created_at, completed_at, session_id FROM todos WHERE session_id = ? ORDER BY created_at DESC"
-    ),
-    insertInsight: db.prepare(
-      "INSERT INTO insights (id, kind, text, session_id, created_at) VALUES (?, ?, ?, ?, ?)"
-    ),
-    getRecentInsights: db.prepare(
-      "SELECT id, kind, text, session_id, created_at FROM insights ORDER BY created_at DESC LIMIT ?"
-    ),
-    getInsightsForSession: db.prepare(
-      "SELECT id, kind, text, session_id, created_at FROM insights WHERE session_id = ? ORDER BY created_at DESC"
-    ),
-    getRecentKeyPoints: db.prepare(
-      "SELECT text FROM insights WHERE kind = 'key-point' ORDER BY created_at DESC LIMIT ?"
-    ),
-    searchBlocks: db.prepare(
-      `SELECT b.id, b.session_id, b.source_label, b.source_text, b.target_label, b.translation,
-              b.audio_source, b.partial, b.new_topic, b.created_at
-       FROM blocks_fts f
-       JOIN blocks b ON b.id = f.rowid
-       WHERE blocks_fts MATCH ?
-       ORDER BY b.created_at DESC
-       LIMIT ?`
-    ),
-  };
+  const orm: BetterSQLite3Database = drizzle({ client: sqlite });
 
   return {
     createSession(id: string, sourceLang?: LanguageCode, targetLang?: LanguageCode, title?: string) {
-      stmts.insertSession.run(id, Date.now(), title ?? null, sourceLang ?? null, targetLang ?? null);
+      orm.insert(sessions).values({
+        id,
+        startedAt: Date.now(),
+        title: title ?? null,
+        sourceLang: sourceLang ?? null,
+        targetLang: targetLang ?? null,
+      }).run();
     },
 
     endSession(id: string) {
-      stmts.endSession.run(Date.now(), id, id);
+      const [row] = orm
+        .select({ n: count() })
+        .from(blocks)
+        .where(eq(blocks.sessionId, id))
+        .all();
+      orm.update(sessions)
+        .set({ endedAt: Date.now(), blockCount: row?.n ?? 0 })
+        .where(eq(sessions.id, id))
+        .run();
     },
 
     deleteSession(id: string) {
-      db.transaction(() => {
-        stmts.deleteSessionBlocks.run(id);
-        stmts.deleteSessionInsights.run(id);
-        stmts.deleteSessionTodos.run(id);
-        stmts.deleteSessionRow.run(id);
-      })();
+      orm.transaction((tx) => {
+        tx.delete(blocks).where(eq(blocks.sessionId, id)).run();
+        tx.delete(agents).where(eq(agents.sessionId, id)).run();
+        tx.delete(insights).where(eq(insights.sessionId, id)).run();
+        tx.delete(todos).where(eq(todos.sessionId, id)).run();
+        tx.delete(sessions).where(eq(sessions.id, id)).run();
+      });
     },
 
     getSessions(limit = 20): SessionMeta[] {
-      const rows = stmts.getSessions.all(limit) as Array<{
-        id: string; started_at: number; ended_at: number | null; title: string | null; block_count: number;
-        source_lang: string | null; target_lang: string | null;
-      }>;
+      const rows = orm
+        .select()
+        .from(sessions)
+        .orderBy(desc(sessions.startedAt))
+        .limit(limit)
+        .all();
       return rows.map((r) => ({
         id: r.id,
-        startedAt: r.started_at,
-        endedAt: r.ended_at ?? undefined,
+        startedAt: r.startedAt,
+        endedAt: r.endedAt ?? undefined,
         title: r.title ?? undefined,
-        blockCount: r.block_count,
-        sourceLang: (r.source_lang as LanguageCode) ?? undefined,
-        targetLang: (r.target_lang as LanguageCode) ?? undefined,
+        blockCount: r.blockCount ?? 0,
+        sourceLang: (r.sourceLang as LanguageCode) ?? undefined,
+        targetLang: (r.targetLang as LanguageCode) ?? undefined,
       }));
     },
 
+    getMostRecentSession(): SessionMeta | null {
+      const [row] = orm
+        .select()
+        .from(sessions)
+        .orderBy(desc(sessions.startedAt))
+        .limit(1)
+        .all();
+      if (!row) return null;
+      return {
+        id: row.id,
+        startedAt: row.startedAt,
+        endedAt: row.endedAt ?? undefined,
+        title: row.title ?? undefined,
+        blockCount: row.blockCount ?? 0,
+        sourceLang: (row.sourceLang as LanguageCode) ?? undefined,
+        targetLang: (row.targetLang as LanguageCode) ?? undefined,
+      };
+    },
+
+    reuseSession(id: string, sourceLang?: LanguageCode, targetLang?: LanguageCode) {
+      orm.update(sessions)
+        .set({
+          startedAt: Date.now(),
+          endedAt: null,
+          sourceLang: sourceLang ?? null,
+          targetLang: targetLang ?? null,
+        })
+        .where(eq(sessions.id, id))
+        .run();
+    },
+
     insertBlock(sessionId: string, block: TranscriptBlock) {
-      stmts.insertBlock.run(
+      orm.insert(blocks).values({
         sessionId,
-        block.sourceLabel,
-        block.sourceText,
-        block.targetLabel,
-        block.translation ?? null,
-        block.audioSource,
-        block.partial ? 1 : 0,
-        block.newTopic ? 1 : 0,
-        block.createdAt
-      );
+        sourceLabel: block.sourceLabel,
+        sourceText: block.sourceText,
+        targetLabel: block.targetLabel,
+        translation: block.translation ?? null,
+        audioSource: block.audioSource,
+        partial: block.partial ? 1 : 0,
+        newTopic: block.newTopic ? 1 : 0,
+        createdAt: block.createdAt,
+      }).run();
     },
 
     getBlocksForSession(sessionId: string): TranscriptBlock[] {
-      const rows = stmts.getBlocksForSession.all(sessionId) as Array<{
-        id: number; session_id: string; source_label: string; source_text: string;
-        target_label: string; translation: string | null; audio_source: string;
-        partial: number; new_topic: number; created_at: number;
-      }>;
+      const rows = orm
+        .select()
+        .from(blocks)
+        .where(eq(blocks.sessionId, sessionId))
+        .orderBy(blocks.createdAt)
+        .all();
       return rows.map((r) => ({
         id: r.id,
-        sourceLabel: r.source_label,
-        sourceText: r.source_text,
-        targetLabel: r.target_label,
+        sourceLabel: r.sourceLabel,
+        sourceText: r.sourceText,
+        targetLabel: r.targetLabel,
         translation: r.translation ?? undefined,
-        audioSource: r.audio_source as AudioSource,
+        audioSource: r.audioSource as AudioSource,
         partial: r.partial === 1,
-        newTopic: r.new_topic === 1,
-        createdAt: r.created_at,
-        sessionId: r.session_id,
+        newTopic: r.newTopic === 1,
+        createdAt: r.createdAt,
+        sessionId: r.sessionId,
       }));
     },
 
     insertTodo(todo: TodoItem) {
-      stmts.insertTodo.run(todo.id, todo.text, todo.completed ? 1 : 0, todo.source, todo.createdAt, todo.sessionId ?? null);
+      orm.insert(todos).values({
+        id: todo.id,
+        text: todo.text,
+        completed: todo.completed ? 1 : 0,
+        source: todo.source,
+        createdAt: todo.createdAt,
+        sessionId: todo.sessionId ?? null,
+      }).run();
     },
 
     updateTodo(id: string, completed: boolean) {
-      stmts.updateTodo.run(completed ? 1 : 0, completed ? Date.now() : null, id);
+      orm.update(todos)
+        .set({ completed: completed ? 1 : 0, completedAt: completed ? Date.now() : null })
+        .where(eq(todos.id, id))
+        .run();
     },
 
     getTodos(): TodoItem[] {
-      const rows = stmts.getTodos.all() as Array<{
-        id: string; text: string; completed: number; source: string; created_at: number; completed_at: number | null; session_id: string | null;
-      }>;
-      return rows.map((r) => ({
-        id: r.id,
-        text: r.text,
-        completed: r.completed === 1,
-        source: r.source as "ai" | "manual",
-        createdAt: r.created_at,
-        completedAt: r.completed_at ?? undefined,
-        sessionId: r.session_id ?? undefined,
-      }));
+      const rows = orm
+        .select()
+        .from(todos)
+        .orderBy(desc(todos.createdAt))
+        .all();
+      return rows.map(mapTodoRow);
     },
 
     getTodosForSession(sessionId: string): TodoItem[] {
-      const rows = stmts.getTodosForSession.all(sessionId) as Array<{
-        id: string; text: string; completed: number; source: string; created_at: number; completed_at: number | null; session_id: string | null;
-      }>;
-      return rows.map((r) => ({
-        id: r.id,
-        text: r.text,
-        completed: r.completed === 1,
-        source: r.source as "ai" | "manual",
-        createdAt: r.created_at,
-        completedAt: r.completed_at ?? undefined,
-        sessionId: r.session_id ?? undefined,
-      }));
+      const rows = orm
+        .select()
+        .from(todos)
+        .where(eq(todos.sessionId, sessionId))
+        .orderBy(desc(todos.createdAt))
+        .all();
+      return rows.map(mapTodoRow);
     },
 
     insertInsight(insight: Insight) {
-      stmts.insertInsight.run(insight.id, insight.kind, insight.text, insight.sessionId ?? null, insight.createdAt);
+      orm.insert(insights).values({
+        id: insight.id,
+        kind: insight.kind,
+        text: insight.text,
+        sessionId: insight.sessionId ?? null,
+        createdAt: insight.createdAt,
+      }).run();
     },
 
     getRecentInsights(limit = 50): Insight[] {
-      const rows = stmts.getRecentInsights.all(limit) as Array<{
-        id: string; kind: string; text: string; session_id: string | null; created_at: number;
-      }>;
-      return rows.map((r) => ({
-        id: r.id,
-        kind: r.kind as InsightKind,
-        text: r.text,
-        sessionId: r.session_id ?? undefined,
-        createdAt: r.created_at,
-      }));
+      const rows = orm
+        .select()
+        .from(insights)
+        .orderBy(desc(insights.createdAt))
+        .limit(limit)
+        .all();
+      return rows.map(mapInsightRow);
     },
 
     getInsightsForSession(sessionId: string): Insight[] {
-      const rows = stmts.getInsightsForSession.all(sessionId) as Array<{
-        id: string; kind: string; text: string; session_id: string | null; created_at: number;
-      }>;
-      return rows.map((r) => ({
-        id: r.id,
-        kind: r.kind as InsightKind,
-        text: r.text,
-        sessionId: r.session_id ?? undefined,
-        createdAt: r.created_at,
-      }));
+      const rows = orm
+        .select()
+        .from(insights)
+        .where(eq(insights.sessionId, sessionId))
+        .orderBy(desc(insights.createdAt))
+        .all();
+      return rows.map(mapInsightRow);
     },
 
     getRecentKeyPoints(limit = 20): string[] {
-      const rows = stmts.getRecentKeyPoints.all(limit) as Array<{ text: string }>;
+      const rows = orm
+        .select({ text: insights.text })
+        .from(insights)
+        .where(eq(insights.kind, "key-point"))
+        .orderBy(desc(insights.createdAt))
+        .limit(limit)
+        .all();
       return rows.map((r) => r.text);
     },
 
     searchBlocks(query: string, limit = 50): TranscriptBlock[] {
-      const rows = stmts.searchBlocks.all(query, limit) as Array<{
+      // FTS5 requires raw SQL — Drizzle doesn't support virtual tables
+      const rows = sqlite
+        .prepare(
+          `SELECT b.id, b.session_id, b.source_label, b.source_text, b.target_label, b.translation,
+                  b.audio_source, b.partial, b.new_topic, b.created_at
+           FROM blocks_fts f
+           JOIN blocks b ON b.id = f.rowid
+           WHERE blocks_fts MATCH ?
+           ORDER BY b.created_at DESC
+           LIMIT ?`
+        )
+        .all(query, limit) as Array<{
         id: number; session_id: string; source_label: string; source_text: string;
         target_label: string; translation: string | null; audio_source: string;
         partial: number; new_topic: number; created_at: number;
@@ -228,12 +251,77 @@ export function createDatabase(dbPath: string) {
       }));
     },
 
-    close() {
-      db.close();
+    // Agent persistence
+    insertAgent(agent: Agent) {
+      orm.insert(agents).values({
+        id: agent.id,
+        todoId: agent.todoId,
+        sessionId: agent.sessionId ?? null,
+        task: agent.task,
+        status: agent.status,
+        result: agent.result ?? null,
+        steps: agent.steps,
+        createdAt: agent.createdAt,
+        completedAt: agent.completedAt ?? null,
+      }).run();
     },
 
-    /** Expose raw db for tests or advanced use */
-    raw: db,
+    updateAgent(id: string, fields: { status?: string; result?: string; steps?: AgentStep[]; completedAt?: number }) {
+      const set: Record<string, unknown> = {};
+      if (fields.status !== undefined) set.status = fields.status;
+      if (fields.result !== undefined) set.result = fields.result;
+      if (fields.steps !== undefined) set.steps = fields.steps;
+      if (fields.completedAt !== undefined) set.completedAt = fields.completedAt;
+      orm.update(agents).set(set).where(eq(agents.id, id)).run();
+    },
+
+    getAgentsForSession(sessionId: string): Agent[] {
+      const rows = orm
+        .select()
+        .from(agents)
+        .where(eq(agents.sessionId, sessionId))
+        .orderBy(desc(agents.createdAt))
+        .all();
+      return rows.map((r) => ({
+        id: r.id,
+        todoId: r.todoId,
+        task: r.task,
+        status: r.status as Agent["status"],
+        result: r.result ?? undefined,
+        steps: (r.steps ?? []) as AgentStep[],
+        createdAt: r.createdAt,
+        completedAt: r.completedAt ?? undefined,
+        sessionId: r.sessionId ?? undefined,
+      }));
+    },
+
+    close() {
+      sqlite.close();
+    },
+
+    raw: sqlite,
+  };
+}
+
+function mapTodoRow(r: typeof todos.$inferSelect): TodoItem {
+  return {
+    id: r.id,
+    text: r.text,
+    completed: r.completed === 1,
+    source: r.source as "ai" | "manual",
+    createdAt: r.createdAt,
+    completedAt: r.completedAt ?? undefined,
+    sessionId: r.sessionId ?? undefined,
+  };
+}
+
+function mapInsightRow(r: typeof insights.$inferSelect): Insight {
+  return {
+    id: r.id,
+    kind: r.kind as InsightKind,
+    text: r.text,
+    sessionId: r.sessionId ?? undefined,
+    createdAt: r.createdAt,
   };
 }
 
@@ -279,10 +367,23 @@ function runMigrations(db: Database.Database) {
       created_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS agents (
+      id TEXT PRIMARY KEY,
+      todo_id TEXT NOT NULL,
+      session_id TEXT REFERENCES sessions(id),
+      task TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      result TEXT,
+      steps TEXT DEFAULT '[]',
+      created_at INTEGER NOT NULL,
+      completed_at INTEGER
+    );
+
     CREATE INDEX IF NOT EXISTS idx_blocks_session ON blocks(session_id);
     CREATE INDEX IF NOT EXISTS idx_blocks_created ON blocks(created_at);
     CREATE INDEX IF NOT EXISTS idx_todos_completed ON todos(completed);
     CREATE INDEX IF NOT EXISTS idx_insights_created ON insights(created_at);
+    CREATE INDEX IF NOT EXISTS idx_agents_session ON agents(session_id);
 
     CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5(
       source_text,
@@ -297,7 +398,7 @@ function runMigrations(db: Database.Database) {
     END;
   `);
 
-  // Add language columns to existing sessions table
+  // Backward-compat migrations for existing DBs
   const cols = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
   const colNames = new Set(cols.map((c) => c.name));
   if (!colNames.has("source_lang")) {
@@ -307,7 +408,6 @@ function runMigrations(db: Database.Database) {
     db.exec("ALTER TABLE sessions ADD COLUMN target_lang TEXT");
   }
 
-  // Add session_id to existing todos table
   const todoCols = db.prepare("PRAGMA table_info(todos)").all() as Array<{ name: string }>;
   const todoColNames = new Set(todoCols.map((c) => c.name));
   if (!todoColNames.has("session_id")) {

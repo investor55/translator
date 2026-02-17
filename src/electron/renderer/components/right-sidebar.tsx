@@ -99,6 +99,13 @@ export function RightSidebar({ todos, suggestions, agents, selectedAgentId, onSe
   const completedTodos = todos.filter((t) => t.completed);
   const agentTodoIds = new Set(agents?.map((a) => a.todoId) ?? []);
 
+  // Auto-expand completed section when viewing past sessions with agent results
+  const isViewingPast = !onAddTodo;
+  const completedHaveAgents = completedTodos.some((t) => agentTodoIds.has(t.id));
+  useEffect(() => {
+    if (isViewingPast && completedHaveAgents) setCompletedOpen(true);
+  }, [isViewingPast, completedHaveAgents]);
+
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
@@ -241,19 +248,42 @@ export function RightSidebar({ todos, suggestions, agents, selectedAgentId, onSe
             </button>
             {completedOpen && (
               <ul className="mt-1.5 space-y-1">
-                {completedTodos.map((todo) => (
-                  <li key={todo.id} className="flex items-start gap-2 py-1">
-                    <input
-                      type="checkbox"
-                      checked
-                      onChange={() => onToggleTodo?.(todo.id)}
-                      className="mt-0.5 size-3.5 rounded border-input accent-primary cursor-pointer shrink-0"
-                    />
-                    <span className="text-xs text-muted-foreground line-through leading-relaxed flex-1">
-                      {todo.text}
-                    </span>
-                  </li>
-                ))}
+                {completedTodos.map((todo) => {
+                  const todoAgent = agents?.find((a) => a.todoId === todo.id);
+                  return (
+                    <li key={todo.id} className="flex items-start gap-2 py-1 group">
+                      <input
+                        type="checkbox"
+                        checked
+                        onChange={() => onToggleTodo?.(todo.id)}
+                        className="mt-0.5 size-3.5 rounded border-input accent-primary cursor-pointer shrink-0"
+                      />
+                      {todoAgent && onSelectAgent ? (
+                        <button
+                          type="button"
+                          onClick={() => onSelectAgent(todoAgent.id)}
+                          className="text-xs text-muted-foreground leading-relaxed flex-1 text-left hover:text-foreground transition-colors cursor-pointer"
+                        >
+                          {todo.text}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground line-through leading-relaxed flex-1">
+                          {todo.text}
+                        </span>
+                      )}
+                      {todoAgent && onSelectAgent && (
+                        <button
+                          type="button"
+                          onClick={() => onSelectAgent(todoAgent.id)}
+                          className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 transition-all"
+                          aria-label="View agent results"
+                        >
+                          <SearchIcon className="size-3.5" />
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

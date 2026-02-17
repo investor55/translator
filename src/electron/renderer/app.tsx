@@ -63,7 +63,9 @@ export function App() {
 
   const session = useSession(sourceLang, targetLang, sessionActive);
   const micCapture = useMicCapture();
-  const { agents, selectedAgentId, selectedAgent, selectAgent } = useAgents(sessionActive);
+  const { agents, selectedAgentId, selectedAgent, selectAgent, loadAgentsForSession } = useAgents(sessionActive);
+  const [viewingAgents, setViewingAgents] = useState<import("../../core/types").Agent[]>([]);
+  const [viewingSelectedAgentId, setViewingSelectedAgentId] = useState<string | null>(null);
 
   useEffect(() => {
     window.electronAPI.getLanguages().then(setLanguages);
@@ -124,6 +126,8 @@ export function App() {
       setViewingBlocks([]);
       setViewingTodos([]);
       setViewingInsights([]);
+      setViewingAgents([]);
+      setViewingSelectedAgentId(null);
       setSessionActive(true);
     }, 100);
     window.electronAPI.getSessions().then(setSessions);
@@ -197,9 +201,11 @@ export function App() {
 
   const handleSelectSession = useCallback((sessionId: string) => {
     setViewingSessionId(sessionId);
+    setViewingSelectedAgentId(null);
     window.electronAPI.getSessionBlocks(sessionId).then(setViewingBlocks);
     window.electronAPI.getSessionTodos(sessionId).then(setViewingTodos);
     window.electronAPI.getSessionInsights(sessionId).then(setViewingInsights);
+    window.electronAPI.getSessionAgents(sessionId).then(setViewingAgents);
   }, []);
 
   const handleCloseViewer = useCallback(() => {
@@ -207,6 +213,8 @@ export function App() {
     setViewingBlocks([]);
     setViewingTodos([]);
     setViewingInsights([]);
+    setViewingAgents([]);
+    setViewingSelectedAgentId(null);
   }, []);
 
   const handleDeleteSession = useCallback((id: string) => {
@@ -217,6 +225,8 @@ export function App() {
       setViewingBlocks([]);
       setViewingTodos([]);
       setViewingInsights([]);
+      setViewingAgents([]);
+      setViewingSelectedAgentId(null);
     }
   }, [viewingSessionId]);
 
@@ -287,20 +297,25 @@ export function App() {
             </div>
           )}
         </main>
-        {selectedAgent && !viewingSessionId && (
-          <AgentDetailPanel
-            agent={selectedAgent}
-            agents={agents}
-            onSelectAgent={selectAgent}
-            onClose={() => selectAgent(null)}
-          />
-        )}
+        {(() => {
+          const activeAgent = viewingSessionId
+            ? viewingAgents.find((a) => a.id === viewingSelectedAgentId) ?? null
+            : selectedAgent;
+          return activeAgent && (
+            <AgentDetailPanel
+              agent={activeAgent}
+              agents={viewingSessionId ? viewingAgents : agents}
+              onSelectAgent={viewingSessionId ? setViewingSelectedAgentId : selectAgent}
+              onClose={() => viewingSessionId ? setViewingSelectedAgentId(null) : selectAgent(null)}
+            />
+          );
+        })()}
         <RightSidebar
           todos={viewingSessionId ? viewingTodos : todos}
           suggestions={viewingSessionId ? [] : suggestions}
-          agents={viewingSessionId ? undefined : agents}
-          selectedAgentId={viewingSessionId ? null : selectedAgentId}
-          onSelectAgent={viewingSessionId ? undefined : selectAgent}
+          agents={viewingSessionId ? viewingAgents : agents}
+          selectedAgentId={viewingSessionId ? viewingSelectedAgentId : selectedAgentId}
+          onSelectAgent={viewingSessionId ? setViewingSelectedAgentId : selectAgent}
           onLaunchAgent={viewingSessionId ? undefined : handleLaunchAgent}
           onAddTodo={viewingSessionId ? undefined : handleAddTodo}
           onToggleTodo={handleToggleTodo}

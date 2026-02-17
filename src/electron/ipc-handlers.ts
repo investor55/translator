@@ -6,7 +6,7 @@ import { toReadableError } from "../core/text-utils";
 import { listMicDevices } from "../audio";
 import type { AppDatabase } from "../core/db";
 import type { SessionConfig, LanguageCode, UIState, TranscriptBlock, Summary, TodoItem, TodoSuggestion, Insight, Agent, AgentStep } from "../core/types";
-import { SUPPORTED_LANGUAGES, DEFAULT_VERTEX_MODEL_ID, DEFAULT_VERTEX_LOCATION, DEFAULT_INTERVAL_MS } from "../core/types";
+import { SUPPORTED_LANGUAGES, DEFAULT_TRANSCRIPTION_MODEL_ID, DEFAULT_ANALYSIS_MODEL_ID, DEFAULT_VERTEX_LOCATION, DEFAULT_INTERVAL_MS } from "../core/types";
 
 let session: Session | null = null;
 
@@ -34,7 +34,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
       sourceLang,
       targetLang,
       intervalMs: DEFAULT_INTERVAL_MS,
-      vertexModelId: DEFAULT_VERTEX_MODEL_ID,
+      transcriptionProvider: "vertex",
+      transcriptionModelId: DEFAULT_TRANSCRIPTION_MODEL_ID,
+      analysisProvider: "openrouter",
+      analysisModelId: DEFAULT_ANALYSIS_MODEL_ID,
       vertexProject: process.env.GOOGLE_VERTEX_PROJECT_ID,
       vertexLocation: DEFAULT_VERTEX_LOCATION,
       contextFile: "context.md",
@@ -46,13 +49,24 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     };
 
     try {
-      validateEnv(config as Parameters<typeof validateEnv>[0]);
+      validateEnv(config);
     } catch (error) {
       return { ok: false, error: toReadableError(error) };
     }
 
-    session = new Session(config, db);
-    db.createSession(session.sessionId, sourceLang, targetLang);
+    // Session reuse: if last session was empty and not ended, reuse it
+    const recent = db.getMostRecentSession();
+    let sessionId: string;
+    if (recent && recent.blockCount === 0 && !recent.endedAt) {
+      db.reuseSession(recent.id, sourceLang, targetLang);
+      sessionId = recent.id;
+      log("INFO", `Reusing empty session: ${sessionId}`);
+    } else {
+      sessionId = crypto.randomUUID();
+      db.createSession(sessionId, sourceLang, targetLang);
+    }
+
+    session = new Session(config, db, sessionId);
 
     session.events.on("state-change", (state: UIState) => {
       send(getWindow, "session:state-change", state);
@@ -231,6 +245,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
   ipcMain.handle("get-agents", () => {
     if (!session) return [];
     return session.getAgents();
+  });
+
+  ipcMain.handle("get-session-agents", (_event, sessionId: string) => {
+    return db.getAgentsForSession(sessionId);
   });
 
   ipcMain.handle("shutdown-session", () => {

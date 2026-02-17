@@ -1,8 +1,16 @@
-const VERTEX_PRICING = {
-  audioInputPerToken: 1.0 / 1_000_000,
-  textInputPerToken: 0.5 / 1_000_000,
-  outputPerToken: 3.0 / 1_000_000,
-} as const;
+import type { TranscriptionProvider, AnalysisProvider } from "./types";
+
+type ProviderPricing = {
+  audioInputPerToken: number;
+  textInputPerToken: number;
+  outputPerToken: number;
+};
+
+const PRICING: Record<TranscriptionProvider | AnalysisProvider, ProviderPricing> = {
+  google:     { audioInputPerToken: 1.0 / 1_000_000,  textInputPerToken: 0.15 / 1_000_000, outputPerToken: 0.6 / 1_000_000 },
+  vertex:     { audioInputPerToken: 1.0 / 1_000_000,  textInputPerToken: 0.5 / 1_000_000,  outputPerToken: 3.0 / 1_000_000 },
+  openrouter: { audioInputPerToken: 0,                 textInputPerToken: 0.6 / 1_000_000,  outputPerToken: 2.4 / 1_000_000 },
+};
 
 export type CostAccumulator = {
   totalInputTokens: number;
@@ -18,12 +26,14 @@ export function addCost(
   acc: CostAccumulator,
   inputTokens: number,
   outputTokens: number,
-  inputType: "audio" | "text"
+  inputType: "audio" | "text",
+  provider: TranscriptionProvider | AnalysisProvider = "vertex"
 ): number {
+  const pricing = PRICING[provider];
   const inputRate = inputType === "audio"
-    ? VERTEX_PRICING.audioInputPerToken
-    : VERTEX_PRICING.textInputPerToken;
-  const cost = (inputTokens * inputRate) + (outputTokens * VERTEX_PRICING.outputPerToken);
+    ? pricing.audioInputPerToken
+    : pricing.textInputPerToken;
+  const cost = (inputTokens * inputRate) + (outputTokens * pricing.outputPerToken);
   acc.totalInputTokens += inputTokens;
   acc.totalOutputTokens += outputTokens;
   acc.totalCost += cost;

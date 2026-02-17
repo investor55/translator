@@ -194,9 +194,10 @@ describe("parseArgs", () => {
     expect(config.direction).toBe("auto");
   });
 
-  it("parses --vertex-model", () => {
+  it("parses --vertex-model (sets both transcription and analysis models)", () => {
     const config = parseArgs(["--vertex-model", "gemini-pro"]);
-    expect(config.vertexModelId).toBe("gemini-pro");
+    expect(config.transcriptionModelId).toBe("gemini-pro");
+    expect(config.analysisModelId).toBe("gemini-pro");
   });
 
   it("parses --vertex-project", () => {
@@ -234,6 +235,38 @@ describe("parseArgs", () => {
     expect(config.direction).toBe("source-target");
     expect(config.compact).toBe(true);
     expect(config.useContext).toBe(false);
+  });
+
+  it("defaults to vertex for both providers (CLI backward compat)", () => {
+    const config = parseArgs([]);
+    expect(config.transcriptionProvider).toBe("vertex");
+    expect(config.analysisProvider).toBe("vertex");
+  });
+
+  it("parses --transcription-provider", () => {
+    const config = parseArgs(["--transcription-provider", "google"]);
+    expect(config.transcriptionProvider).toBe("google");
+  });
+
+  it("parses --analysis-provider", () => {
+    const config = parseArgs(["--analysis-provider", "openrouter"]);
+    expect(config.analysisProvider).toBe("openrouter");
+  });
+
+  it("ignores invalid provider values", () => {
+    const config = parseArgs(["--transcription-provider", "invalid", "--analysis-provider", "bogus"]);
+    expect(config.transcriptionProvider).toBe("vertex");
+    expect(config.analysisProvider).toBe("vertex");
+  });
+
+  it("parses --transcription-model", () => {
+    const config = parseArgs(["--transcription-model", "gemini-2.5-flash"]);
+    expect(config.transcriptionModelId).toBe("gemini-2.5-flash");
+  });
+
+  it("parses --analysis-model", () => {
+    const config = parseArgs(["--analysis-model", "gpt-4o"]);
+    expect(config.analysisModelId).toBe("gpt-4o");
   });
 });
 
