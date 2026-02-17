@@ -49,7 +49,7 @@ export function LeftSidebar({ rollingKeyPoints, insights, sessions, activeSessio
   }, [insights.length]);
 
   return (
-    <div className="w-[280px] shrink-0 border-r border-border flex flex-col min-h-0 bg-sidebar">
+    <div className="w-full h-full shrink-0 border-r border-border flex flex-col min-h-0 bg-sidebar">
       {/* Summary section — scrollable, takes remaining space */}
       <div className="px-3 pt-2.5 pb-2 flex-1 min-h-0 flex flex-col">
         <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2 shrink-0">

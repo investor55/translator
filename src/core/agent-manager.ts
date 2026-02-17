@@ -3,7 +3,13 @@ import type { ModelMessage } from "ai";
 import { runAgent, continueAgent } from "./agent";
 import { log } from "./logger";
 import type { AppDatabase } from "./db";
-import type { Agent, AgentStep, SessionEvents } from "./types";
+import type {
+  Agent,
+  AgentStep,
+  SessionEvents,
+  AgentQuestionRequest,
+  AgentQuestionSelection,
+} from "./types";
 
 type TypedEmitter = EventEmitter & {
   emit<K extends keyof SessionEvents>(event: K, ...args: SessionEvents[K]): boolean;
@@ -20,6 +26,7 @@ type AgentManagerDeps = {
 export type AgentManager = {
   launchAgent: (todoId: string, task: string, sessionId?: string, taskContext?: string) => Agent;
   followUpAgent: (agentId: string, question: string) => boolean;
+  answerAgentQuestion: (agentId: string, answers: AgentQuestionSelection[]) => { ok: boolean; error?: string };
   cancelAgent: (id: string) => boolean;
   hydrateAgents: (items: Agent[]) => void;
   getAgent: (id: string) => Agent | undefined;
@@ -34,13 +41,24 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   const abortControllers = new Map<string, AbortController>();
   const conversationHistory = new Map<string, ModelMessage[]>();
   const pendingFlush = new Map<string, NodeJS.Timeout>();
+  const pendingQuestions = new Map<string, {
+    toolCallId: string;
+    request: AgentQuestionRequest;
+    resolve: (answers: AgentQuestionSelection[]) => void;
+    reject: (error: Error) => void;
+  }>();
 
   function buildHistoryFromSteps(agent: Agent): ModelMessage[] {
     const history: ModelMessage[] = [];
     if (agent.task.trim()) {
-      const taskPrompt = agent.taskContext?.trim()
-        ? `${agent.task}\n\nAdditional context:\n${agent.taskContext}`
-        : agent.task;
+      const taskPrompt = [
+        `Todo:\n${agent.task.trim()}`,
+        agent.taskContext?.trim()
+          ? `Context:\n${agent.taskContext.trim()}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
       history.push({ role: "user", content: taskPrompt });
     }
 
@@ -92,6 +110,100 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     }
   }
 
+  function rejectPendingQuestion(agentId: string, reason: string) {
+    const pending = pendingQuestions.get(agentId);
+    if (!pending) return;
+    pendingQuestions.delete(agentId);
+    pending.reject(new Error(reason));
+  }
+
+  function requestClarification(
+    agentId: string,
+    request: AgentQuestionRequest,
+    options: { toolCallId: string; abortSignal?: AbortSignal },
+  ): Promise<AgentQuestionSelection[]> {
+    const { toolCallId, abortSignal } = options;
+    rejectPendingQuestion(agentId, "Clarification request replaced by a newer request.");
+
+    return new Promise<AgentQuestionSelection[]>((resolve, reject) => {
+      const onAbort = () => {
+        pendingQuestions.delete(agentId);
+        reject(new Error("Cancelled"));
+      };
+
+      if (abortSignal?.aborted) {
+        onAbort();
+        return;
+      }
+
+      if (abortSignal) {
+        abortSignal.addEventListener("abort", onAbort, { once: true });
+      }
+
+      pendingQuestions.set(agentId, {
+        toolCallId,
+        request,
+        resolve: (answers) => {
+          if (abortSignal) {
+            abortSignal.removeEventListener("abort", onAbort);
+          }
+          pendingQuestions.delete(agentId);
+          resolve(answers);
+        },
+        reject: (error) => {
+          if (abortSignal) {
+            abortSignal.removeEventListener("abort", onAbort);
+          }
+          pendingQuestions.delete(agentId);
+          reject(error);
+        },
+      });
+    });
+  }
+
+  function validateQuestionAnswers(
+    request: AgentQuestionRequest,
+    answers: AgentQuestionSelection[],
+  ): string | null {
+    if (!Array.isArray(answers) || answers.length === 0) {
+      return "At least one answer is required";
+    }
+
+    const byQuestionId = new Map<string, AgentQuestionSelection>();
+    for (const answer of answers) {
+      const questionId = answer.questionId?.trim();
+      if (!questionId) return "Each answer must include a questionId";
+      if (!Array.isArray(answer.selectedOptionIds)) {
+        return `Missing selected options for question ${questionId}`;
+      }
+      byQuestionId.set(questionId, answer);
+    }
+
+    for (const question of request.questions) {
+      const answer = byQuestionId.get(question.id);
+      if (!answer) {
+        return `Missing answer for question ${question.id}`;
+      }
+      const selected = answer.selectedOptionIds
+        .map((id) => id.trim())
+        .filter(Boolean);
+      if (selected.length === 0) {
+        return `Select at least one option for question ${question.id}`;
+      }
+      if (!question.allow_multiple && selected.length > 1) {
+        return `Question ${question.id} allows only one option`;
+      }
+      const validOptions = new Set(question.options.map((opt) => opt.id));
+      for (const selectedId of selected) {
+        if (!validOptions.has(selectedId)) {
+          return `Invalid option ${selectedId} for question ${question.id}`;
+        }
+      }
+    }
+
+    return null;
+  }
+
   function makeAgentCallbacks(agent: Agent) {
     return {
       onStep: (step: AgentStep) => {
@@ -108,6 +220,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         agent.status = "completed" as const;
         agent.result = result;
         agent.completedAt = Date.now();
+        rejectPendingQuestion(agent.id, "Agent finished before clarification could be answered.");
         conversationHistory.set(agent.id, messages);
         abortControllers.delete(agent.id);
         cancelFlush(agent.id);
@@ -119,6 +232,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         agent.status = "failed" as const;
         agent.result = error;
         agent.completedAt = Date.now();
+        rejectPendingQuestion(agent.id, error || "Agent failed before clarification could be answered.");
         abortControllers.delete(agent.id);
         cancelFlush(agent.id);
         deps.db?.updateAgent(agent.id, { status: "failed", result: error, steps: agent.steps, completedAt: agent.completedAt });
@@ -168,6 +282,8 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       model: deps.model,
       exa,
       getTranscriptContext: deps.getTranscriptContext,
+      requestClarification: (request, options) =>
+        requestClarification(agent.id, request, options),
       abortSignal: controller.signal,
       ...callbacks,
     });
@@ -215,6 +331,8 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       model: deps.model,
       exa,
       getTranscriptContext: deps.getTranscriptContext,
+      requestClarification: (request, options) =>
+        requestClarification(agent.id, request, options),
       abortSignal: controller.signal,
       ...callbacks,
     });
@@ -241,6 +359,35 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     }
   }
 
+  function answerAgentQuestion(
+    agentId: string,
+    answers: AgentQuestionSelection[],
+  ): { ok: boolean; error?: string } {
+    const pending = pendingQuestions.get(agentId);
+    if (!pending) {
+      return { ok: false, error: "No pending question for this agent" };
+    }
+
+    const validationError = validateQuestionAnswers(pending.request, answers);
+    if (validationError) {
+      return { ok: false, error: validationError };
+    }
+
+    const normalizedAnswers: AgentQuestionSelection[] = pending.request.questions.map((question) => {
+      const answer = answers.find((item) => item.questionId === question.id);
+      const selectedOptionIds = Array.from(new Set((answer?.selectedOptionIds ?? [])
+        .map((id) => id.trim())
+        .filter(Boolean)));
+      return {
+        questionId: question.id,
+        selectedOptionIds,
+      };
+    });
+
+    pending.resolve(normalizedAnswers);
+    return { ok: true };
+  }
+
   function cancelAgent(id: string): boolean {
     const controller = abortControllers.get(id);
     if (!controller) return false;
@@ -251,6 +398,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   return {
     launchAgent,
     followUpAgent,
+    answerAgentQuestion,
     cancelAgent,
     hydrateAgents,
     getAgent: (id) => agents.get(id),

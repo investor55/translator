@@ -138,7 +138,7 @@ Task:
 - If no user intent is provided, decide whether the highlighted text contains a clear actionable commitment, follow-up, or planning intent.
 - Return both:
   - todoTitle: concise action title.
-  - todoDetails: full context and constraints needed by an autonomous agent.
+  - todoDetails: rich context and constraints needed by an autonomous agent, including relevant background, assumptions, scope boundaries, and success criteria.
 - Preserve critical details (names, places, dates, constraints).
 - Do not create a todo when the text is unclear, conversational filler, or non-actionable.
 - Do not duplicate an existing todo.

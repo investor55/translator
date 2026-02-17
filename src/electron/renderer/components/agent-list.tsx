@@ -52,6 +52,12 @@ function lastStepSummary(agent: Agent): string {
   return lastVisible.content.slice(0, 60);
 }
 
+function contextPreview(agent: Agent): string | null {
+  const contextText = agent.taskContext?.trim();
+  if (!contextText) return null;
+  return contextText.replace(/\s+/g, " ").slice(0, 140);
+}
+
 export function AgentList({ agents, selectedAgentId, onSelectAgent }: AgentListProps) {
   if (agents.length === 0) return null;
 
@@ -61,33 +67,41 @@ export function AgentList({ agents, selectedAgentId, onSelectAgent }: AgentListP
         Agents
       </span>
       <ul className="mt-1.5 space-y-1">
-        {agents.map((agent) => (
-          <li key={agent.id}>
-            <button
-              type="button"
-              onClick={() => onSelectAgent(agent.id)}
-              className={`w-full text-left rounded-none px-2 py-1.5 transition-colors ${
-                selectedAgentId === agent.id
-                  ? "bg-primary/10 border border-primary/20"
-                  : "hover:bg-muted/50 border border-transparent"
-              }`}
-            >
-              <div className="flex items-start gap-2">
-                <StatusIcon status={agent.status} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-foreground leading-relaxed line-clamp-2">
-                    {agent.task}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5 truncate font-mono">
-                    {agent.status === "running"
-                      ? lastStepSummary(agent)
-                      : relativeTime(agent.completedAt ?? agent.createdAt)}
-                  </p>
+        {agents.map((agent) => {
+          const preview = contextPreview(agent);
+          return (
+            <li key={agent.id}>
+              <button
+                type="button"
+                onClick={() => onSelectAgent(agent.id)}
+                className={`w-full text-left rounded-none px-2 py-1.5 transition-colors ${
+                  selectedAgentId === agent.id
+                    ? "bg-primary/10 border border-primary/20"
+                    : "hover:bg-muted/50 border border-transparent"
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  <StatusIcon status={agent.status} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-foreground leading-relaxed line-clamp-2">
+                      {agent.task}
+                    </p>
+                    {preview && (
+                      <p className="mt-0.5 text-[11px] text-muted-foreground leading-relaxed line-clamp-2">
+                        Context: {preview}
+                      </p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate font-mono">
+                      {agent.status === "running"
+                        ? lastStepSummary(agent)
+                        : relativeTime(agent.completedAt ?? agent.createdAt)}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </button>
-          </li>
-        ))}
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

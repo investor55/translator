@@ -28,9 +28,15 @@ import {
   ToolHeader,
 } from "@/components/ai-elements/tool";
 import { useStickToBottomContext } from "use-stick-to-bottom";
-import type { Agent, AgentStep } from "../../../core/types";
+import type {
+  Agent,
+  AgentStep,
+  AgentQuestionRequest,
+  AgentQuestionSelection,
+} from "../../../core/types";
 
 type FollowUpResult = { ok: boolean; error?: string };
+type AnswerQuestionResult = { ok: boolean; error?: string };
 
 type AgentDetailPanelProps = {
   agent: Agent;
@@ -38,6 +44,10 @@ type AgentDetailPanelProps = {
   onSelectAgent: (id: string) => void;
   onClose: () => void;
   onFollowUp?: (agent: Agent, question: string) => Promise<FollowUpResult> | FollowUpResult;
+  onAnswerQuestion?: (
+    agent: Agent,
+    answers: AgentQuestionSelection[],
+  ) => Promise<AnswerQuestionResult> | AnswerQuestionResult;
   onCancel?: (agentId: string) => void;
 };
 
@@ -67,11 +77,276 @@ function StatusBadge({ status }: { status: Agent["status"] }) {
   }
 }
 
-function StepItem({
-  step,
+type AskQuestionToolOutput = {
+  title?: string;
+  questions: AgentQuestionRequest["questions"];
+  answers: AgentQuestionSelection[];
+};
+
+function parseAskQuestionRequest(raw: string | undefined): AgentQuestionRequest | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<AgentQuestionRequest>;
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!Array.isArray(parsed.questions) || parsed.questions.length === 0) return null;
+    const questions = parsed.questions
+      .map((question) => {
+        if (!question || typeof question !== "object") return null;
+        if (typeof question.id !== "string" || !question.id.trim()) return null;
+        if (typeof question.prompt !== "string" || !question.prompt.trim()) return null;
+        if (!Array.isArray(question.options) || question.options.length === 0) return null;
+        const options = question.options
+          .map((option) => {
+            if (!option || typeof option !== "object") return null;
+            if (typeof option.id !== "string" || !option.id.trim()) return null;
+            if (typeof option.label !== "string" || !option.label.trim()) return null;
+            return { id: option.id, label: option.label };
+          })
+          .filter((option): option is { id: string; label: string } => !!option);
+        if (options.length === 0) return null;
+        return {
+          id: question.id,
+          prompt: question.prompt,
+          options,
+          allow_multiple: question.allow_multiple === true,
+        };
+      })
+      .filter(Boolean) as AgentQuestionRequest["questions"];
+    if (questions.length === 0) return null;
+    return {
+      title: typeof parsed.title === "string" ? parsed.title : undefined,
+      questions,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseAskQuestionOutput(raw: string | undefined): AskQuestionToolOutput | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<AskQuestionToolOutput>;
+    if (!parsed || typeof parsed !== "object") return null;
+    const questionRequest = parseAskQuestionRequest(JSON.stringify({
+      title: parsed.title,
+      questions: parsed.questions,
+    }));
+    if (!questionRequest) return null;
+    const answers = Array.isArray(parsed.answers)
+      ? parsed.answers
+          .map((answer) => {
+            if (!answer || typeof answer !== "object") return null;
+            if (typeof answer.questionId !== "string" || !answer.questionId.trim()) return null;
+            if (!Array.isArray(answer.selectedOptionIds)) return null;
+            const selectedOptionIds = answer.selectedOptionIds
+              .map((id) => (typeof id === "string" ? id.trim() : ""))
+              .filter(Boolean);
+            return { questionId: answer.questionId, selectedOptionIds };
+          })
+          .filter((answer): answer is AgentQuestionSelection => !!answer)
+      : [];
+
+    return {
+      title: questionRequest.title,
+      questions: questionRequest.questions,
+      answers,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isAskQuestionStep(step: AgentStep): boolean {
+  return step.toolName === "askQuestion"
+    && (step.kind === "tool-call" || step.kind === "tool-result");
+}
+
+function AskQuestionPendingCard({
+  agent,
+  request,
+  onAnswerQuestion,
 }: {
-  step: AgentStep;
+  agent: Agent;
+  request: AgentQuestionRequest;
+  onAnswerQuestion?: (
+    agent: Agent,
+    answers: AgentQuestionSelection[],
+  ) => Promise<AnswerQuestionResult> | AnswerQuestionResult;
 }) {
+  const [selectionByQuestion, setSelectionByQuestion] = useState<Record<string, string[]>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+
+  const toggleOption = useCallback((questionId: string, optionId: string, allowMultiple: boolean) => {
+    setSelectionByQuestion((current) => {
+      const existing = current[questionId] ?? [];
+      if (!allowMultiple) {
+        if (existing.length === 1 && existing[0] === optionId) {
+          return { ...current, [questionId]: [] };
+        }
+        return { ...current, [questionId]: [optionId] };
+      }
+
+      if (existing.includes(optionId)) {
+        return { ...current, [questionId]: existing.filter((id) => id !== optionId) };
+      }
+      return { ...current, [questionId]: [...existing, optionId] };
+    });
+  }, []);
+
+  const canSubmit = useMemo(
+    () =>
+      request.questions.every(
+        (question) => (selectionByQuestion[question.id]?.length ?? 0) > 0
+      ),
+    [request.questions, selectionByQuestion]
+  );
+
+  const handleSubmit = useCallback(async () => {
+    if (!onAnswerQuestion) return;
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setSubmitError("");
+    const answers: AgentQuestionSelection[] = request.questions.map((question) => ({
+      questionId: question.id,
+      selectedOptionIds: selectionByQuestion[question.id] ?? [],
+    }));
+    try {
+      const result = await onAnswerQuestion(agent, answers);
+      if (result.ok) return;
+      setSubmitError(result.error ?? "Could not submit answers.");
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : "Could not submit answers.";
+      setSubmitError(errorText);
+      setSubmitting(false);
+    }
+  }, [agent, canSubmit, onAnswerQuestion, request.questions, selectionByQuestion]);
+
+  return (
+    <div className="mt-1 border-t border-border pt-2">
+      <div className="rounded-none border border-border bg-muted/20 px-2 py-2">
+        <p className="text-[11px] font-semibold text-foreground">
+          {request.title || "Questions"}
+        </p>
+        <div className="mt-1.5 space-y-2">
+          {request.questions.map((question, index) => {
+            const selected = selectionByQuestion[question.id] ?? [];
+            return (
+              <div key={question.id}>
+                <p className="text-[11px] text-foreground font-medium">
+                  {index + 1}. {question.prompt}
+                </p>
+                <div className="mt-1 flex flex-col gap-1">
+                  {question.options.map((option) => {
+                    const isSelected = selected.includes(option.id);
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => toggleOption(question.id, option.id, !!question.allow_multiple)}
+                        className={[
+                          "flex items-center gap-2 rounded-none border px-2 py-1 text-left text-[11px] transition-colors",
+                          isSelected
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border/80 text-muted-foreground hover:border-border hover:text-foreground",
+                        ].join(" ")}
+                      >
+                        <span className="inline-flex h-4 min-w-4 items-center justify-center border border-current px-1 text-[10px] font-semibold uppercase">
+                          {option.id.slice(0, 1)}
+                        </span>
+                        <span className="leading-relaxed">{option.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-2 flex items-center justify-between">
+          {submitError ? (
+            <p className="text-[11px] text-destructive">{submitError}</p>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              Choose an option for each question.
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={!onAnswerQuestion || !canSubmit || submitting}
+            className="rounded-none border border-border px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-50"
+          >
+            {submitting ? "Submitting..." : "Continue"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AskQuestionResolvedCard({ output }: { output: AskQuestionToolOutput }) {
+  const answersByQuestionId = new Map(
+    output.answers.map((answer) => [answer.questionId, answer.selectedOptionIds])
+  );
+
+  return (
+    <div className="mt-1 border-t border-border pt-2">
+      <div className="rounded-none border border-border/70 bg-muted/10 px-2 py-2">
+        <p className="text-[11px] font-semibold text-foreground">
+          {output.title || "Clarification received"}
+        </p>
+        <div className="mt-1 space-y-1.5">
+          {output.questions.map((question) => {
+            const selectedIds = answersByQuestionId.get(question.id) ?? [];
+            const selectedLabels = question.options
+              .filter((option) => selectedIds.includes(option.id))
+              .map((option) => option.label);
+            return (
+              <div key={question.id}>
+                <p className="text-[11px] font-medium text-foreground">{question.prompt}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {selectedLabels.length > 0 ? selectedLabels.join(", ") : "No selection"}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StepItem({
+  agent,
+  step,
+  onAnswerQuestion,
+}: {
+  agent: Agent;
+  step: AgentStep;
+  onAnswerQuestion?: (
+    agent: Agent,
+    answers: AgentQuestionSelection[],
+  ) => Promise<AnswerQuestionResult> | AnswerQuestionResult;
+}) {
+  if (step.kind === "tool-call" && step.toolName === "askQuestion") {
+    const request = parseAskQuestionRequest(step.toolInput);
+    if (!request) return null;
+    return (
+      <AskQuestionPendingCard
+        agent={agent}
+        request={request}
+        onAnswerQuestion={onAnswerQuestion}
+      />
+    );
+  }
+
+  if (step.kind === "tool-result" && step.toolName === "askQuestion") {
+    const output = parseAskQuestionOutput(step.toolInput);
+    if (!output) return null;
+    return <AskQuestionResolvedCard output={output} />;
+  }
+
   switch (step.kind) {
     case "text":
       return (
@@ -162,12 +437,37 @@ function ActivitySummaryItem({
   );
 }
 
+function TaskContextCard({ task, taskContext }: { task: string; taskContext?: string }) {
+  const contextText = taskContext?.trim();
+  if (!contextText) return null;
+
+  return (
+    <div className="shrink-0 border-b border-border bg-muted/20 px-3 py-2">
+      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        Todo
+      </p>
+      <p className="mt-0.5 text-xs leading-relaxed text-foreground">{task}</p>
+      <details className="mt-1">
+        <summary className="cursor-pointer text-[11px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">
+          Context
+        </summary>
+        <div className="mt-1 max-h-40 overflow-y-auto rounded-none border border-border/60 bg-background px-2 py-1.5">
+          <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-muted-foreground">
+            {contextText}
+          </p>
+        </div>
+      </details>
+    </div>
+  );
+}
+
 export function AgentDetailPanel({
   agent,
   agents,
   onSelectAgent,
   onClose,
   onFollowUp,
+  onAnswerQuestion,
   onCancel,
 }: AgentDetailPanelProps) {
   const [followUpError, setFollowUpError] = useState("");
@@ -265,6 +565,11 @@ export function AgentDetailPanel({
     };
 
     for (const step of visibleSteps) {
+      if (isAskQuestionStep(step)) {
+        flushActivity();
+        items.push({ kind: "step", step });
+        continue;
+      }
       if (
         step.kind === "thinking" ||
         step.kind === "tool-call" ||
@@ -301,7 +606,7 @@ export function AgentDetailPanel({
   }, [agent.id, onCancel]);
 
   return (
-    <div className="w-[360px] shrink-0 border-l border-border flex flex-col min-h-0 bg-sidebar">
+    <div className="w-full h-full shrink-0 border-l border-border flex flex-col min-h-0 bg-sidebar">
       {/* Header */}
       <div className="shrink-0 border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
@@ -358,6 +663,8 @@ export function AgentDetailPanel({
         </div>
       </div>
 
+      <TaskContextCard task={agent.task} taskContext={agent.taskContext} />
+
       {/* Step timeline */}
       <Conversation className="flex-1 min-h-0">
         <ConversationContent className="px-3 py-2.5">
@@ -375,7 +682,12 @@ export function AgentDetailPanel({
                 title={item.title}
               />
             ) : (
-              <StepItem key={item.step.id} step={item.step} />
+              <StepItem
+                key={item.step.id}
+                agent={agent}
+                step={item.step}
+                onAnswerQuestion={onAnswerQuestion}
+              />
             )
           )}
           {showPlanning && (

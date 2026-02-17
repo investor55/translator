@@ -247,6 +247,28 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
 export type AgentStatus = "running" | "completed" | "failed";
 export type AgentStepKind = "thinking" | "tool-call" | "tool-result" | "text" | "user";
 
+export type AgentQuestionOption = Readonly<{
+  id: string;
+  label: string;
+}>;
+
+export type AgentQuestion = Readonly<{
+  id: string;
+  prompt: string;
+  options: AgentQuestionOption[];
+  allow_multiple?: boolean;
+}>;
+
+export type AgentQuestionRequest = Readonly<{
+  title?: string;
+  questions: AgentQuestion[];
+}>;
+
+export type AgentQuestionSelection = Readonly<{
+  questionId: string;
+  selectedOptionIds: string[];
+}>;
+
 export type AgentStep = Readonly<{
   id: string;
   kind: AgentStepKind;

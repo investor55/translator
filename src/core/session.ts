@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import type {
   Agent,
+  AgentQuestionSelection,
   AudioSource,
   SessionConfig,
   SessionEvents,
@@ -87,6 +88,14 @@ type AudioPipeline = {
   overlap: Buffer;
 };
 
+type WhisperPendingParagraph = {
+  transcript: string;
+  detectedLangHint: LanguageCode;
+  audioSource: AudioSource;
+  capturedAt: number;
+  lastUpdatedAt: number;
+};
+
 export class Session {
   readonly events: TypedEmitter = new EventEmitter() as TypedEmitter;
   readonly config: SessionConfig;
@@ -98,6 +107,7 @@ export class Session {
   private audioTranscriptionSchema: z.ZodObject<z.ZodRawShape>;
   private transcriptionOnlySchema: z.ZodObject<z.ZodRawShape>;
   private textPostProcessSchema: z.ZodObject<z.ZodRawShape>;
+  private whisperParagraphDecisionSchema: z.ZodObject<z.ZodRawShape>;
 
   private isRecording = false;
   private audioRecorder: AudioRecorder | null = null;
@@ -135,6 +145,10 @@ export class Session {
   private micConnection: RealtimeConnection | null = null;
   private systemReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private micReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private whisperPendingParagraphs = new Map<AudioSource, WhisperPendingParagraph>();
+  private whisperParagraphDecisionInFlight = false;
+  private whisperLastParagraphDecisionAt = 0;
+  private readonly whisperParagraphDecisionIntervalMs = 10_000;
 
   private contextState: ContextState = createContextState();
   private costAccumulator: CostAccumulator = createCostAccumulator();
@@ -260,6 +274,18 @@ export class Session {
         .describe("True if the transcript shifts to a new topic compared with provided context."),
     });
 
+    this.whisperParagraphDecisionSchema = z.object({
+      shouldCommit: z
+        .boolean()
+        .describe("True if the running transcript has reached a natural paragraph break and should be committed now."),
+      mergedTranscript: z
+        .string()
+        .describe("De-duplicated transcript text using only words already present in the input."),
+      isPartial: z
+        .boolean()
+        .describe("True when the running transcript still sounds incomplete."),
+    });
+
   }
 
   getUIState(status: UIState["status"]): UIState {
@@ -339,6 +365,9 @@ export class Session {
     this.chunkQueue = [];
     this.systemPipeline.overlap = Buffer.alloc(0);
     this.inFlight = 0;
+    this.whisperPendingParagraphs.clear();
+    this.whisperLastParagraphDecisionAt = 0;
+    this.events.emit("partial", "");
 
     if (!resume) {
       resetContextState(this.contextState);
@@ -433,7 +462,7 @@ export class Session {
     }
   }
 
-  stopRecording(): void {
+  stopRecording(flushRemaining = true, commitWhisperPending = true): void {
     if (!this.isRecording) return;
     this.isRecording = false;
 
@@ -448,12 +477,15 @@ export class Session {
     if (this.ffmpegProcess) { this.ffmpegProcess.kill("SIGTERM"); this.ffmpegProcess = null; }
 
     // VAD flush only needed for Google/Vertex/Whisper
-    if (this.config.transcriptionProvider !== "elevenlabs") {
+    if (flushRemaining && this.config.transcriptionProvider !== "elevenlabs") {
       const remaining = flushVad(this.systemPipeline.vadState);
       if (remaining) {
         this.enqueueChunk(this.systemPipeline, remaining);
         void this.processQueue();
       }
+    }
+    if (commitWhisperPending && this.config.transcriptionProvider === "whisper") {
+      void this.evaluateWhisperParagraphs(true);
     }
 
     if (this._micEnabled) this.stopMic();
@@ -590,6 +622,9 @@ export class Session {
         this.enqueueChunk(this.micPipeline, remaining);
         void this.processQueue();
       }
+      if (this.config.transcriptionProvider === "whisper") {
+        void this.evaluateWhisperParagraphs(true, ["microphone"]);
+      }
     }
 
     if (this.micProcess) {
@@ -701,7 +736,9 @@ export class Session {
   shutdown(): void {
     log("INFO", "Session shutdown");
     if (this._micEnabled) this.stopMic();
-    if (this.isRecording) this.stopRecording();
+    if (this.isRecording) this.stopRecording(false, false);
+    this.whisperPendingParagraphs.clear();
+    this.events.emit("partial", "");
     if (this.config.transcriptionProvider === "whisper") disposeWhisperPipeline();
     writeSummaryLog(this.contextState.allKeyPoints);
   }
@@ -792,6 +829,10 @@ export class Session {
     return this.agentManager?.followUpAgent(agentId, question) ?? false;
   }
 
+  answerAgentQuestion(agentId: string, answers: AgentQuestionSelection[]): { ok: boolean; error?: string } {
+    return this.agentManager?.answerAgentQuestion(agentId, answers) ?? { ok: false, error: "Agent system unavailable" };
+  }
+
   cancelAgent(agentId: string): boolean {
     return this.agentManager?.cancelAgent(agentId) ?? false;
   }
@@ -826,8 +867,11 @@ export class Session {
       return;
     }
 
-    // Google / Vertex path
-    const chunks = processAudioData(pipeline.vadState, data);
+    const vadOptions =
+      this.config.transcriptionProvider === "whisper"
+        ? { maxChunkMs: null } // Whisper: prefer natural-break chunks only.
+        : undefined;
+    const chunks = processAudioData(pipeline.vadState, data, vadOptions);
 
     // Periodic mic level reporting (~every 2s of audio = 20 × 100ms windows)
     if (pipeline.source === "microphone") {
@@ -982,6 +1026,151 @@ export class Session {
     this.scheduleAnalysis();
   }
 
+  private mergeWhisperTranscript(existing: string, incoming: string): string {
+    const a = existing.trim();
+    const b = incoming.trim();
+    if (!a) return b;
+    if (!b) return a;
+    if (a.endsWith(b)) return a;
+    if (b.startsWith(a)) return b;
+
+    const aWords = a.split(/\s+/);
+    const bWords = b.split(/\s+/);
+    const maxOverlap = Math.min(12, aWords.length, bWords.length);
+    for (let overlap = maxOverlap; overlap >= 3; overlap--) {
+      const aSuffix = aWords.slice(aWords.length - overlap).join(" ").toLowerCase();
+      const bPrefix = bWords.slice(0, overlap).join(" ").toLowerCase();
+      if (aSuffix === bPrefix) {
+        return `${aWords.join(" ")} ${bWords.slice(overlap).join(" ")}`.trim();
+      }
+    }
+
+    return `${a} ${b}`.replace(/\s+/g, " ").trim();
+  }
+
+  private updateWhisperPreview(): void {
+    const latest = [...this.whisperPendingParagraphs.values()]
+      .sort((left, right) => left.lastUpdatedAt - right.lastUpdatedAt)
+      .at(-1);
+    this.events.emit("partial", latest?.transcript ?? "");
+  }
+
+  private async evaluateWhisperParagraphs(forceCommit: boolean, sources?: AudioSource[]): Promise<void> {
+    if (this.config.transcriptionProvider !== "whisper") return;
+    if (this.whisperParagraphDecisionInFlight) return;
+    const sourceSet = sources ? new Set(sources) : null;
+    const candidates = [...this.whisperPendingParagraphs.values()].filter((entry) =>
+      sourceSet ? sourceSet.has(entry.audioSource) : true
+    );
+    if (candidates.length === 0) return;
+
+    this.whisperParagraphDecisionInFlight = true;
+    try {
+      for (const state of candidates) {
+        const pending = this.whisperPendingParagraphs.get(state.audioSource);
+        if (!pending) continue;
+        if (!forceCommit && pending.transcript.trim().length < 24) continue;
+
+        let transcriptForDecision = pending.transcript.trim();
+        let shouldCommit = forceCommit;
+        if (!forceCommit) {
+          const prompt = `You decide whether a live transcript should be committed as a paragraph now.
+Return mergedTranscript using only words already present in the input; never add new words.
+
+Commit when:
+- A complete thought has ended (natural sentence boundary or clear pause).
+- The text reads as a coherent paragraph segment.
+
+Do not commit when:
+- The speaker is clearly mid-thought.
+- The ending looks cut off.
+
+Transcript:
+"""${pending.transcript}"""`;
+
+          try {
+            const { object } = await generateObject({
+              model: this.todoModel,
+              schema: this.whisperParagraphDecisionSchema,
+              prompt,
+              temperature: 0,
+              abortSignal: AbortSignal.timeout(6000),
+            });
+            transcriptForDecision =
+              ((object as { mergedTranscript?: string }).mergedTranscript ?? "").trim() || transcriptForDecision;
+            shouldCommit = !!(object as { shouldCommit: boolean }).shouldCommit;
+          } catch (error) {
+            if (this.config.debug) {
+              log("WARN", `Whisper paragraph decision failed: ${toReadableError(error)}`);
+            }
+            // Fallback heuristic when model decision is unavailable.
+            shouldCommit = /[.!?\u3002\uFF01\uFF1F…]["')\]]?$/.test(transcriptForDecision);
+          }
+        }
+
+        if (!transcriptForDecision) {
+          this.whisperPendingParagraphs.delete(pending.audioSource);
+          this.updateWhisperPreview();
+          continue;
+        }
+
+        if (!shouldCommit) {
+          pending.transcript = transcriptForDecision;
+          pending.lastUpdatedAt = Date.now();
+          this.whisperPendingParagraphs.set(pending.audioSource, pending);
+          this.updateWhisperPreview();
+          continue;
+        }
+
+        this.whisperPendingParagraphs.delete(pending.audioSource);
+        this.updateWhisperPreview();
+        await this.handleElevenLabsCommit(
+          transcriptForDecision,
+          pending.detectedLangHint,
+          pending.audioSource,
+          pending.capturedAt,
+        );
+        this.updateWhisperPreview();
+      }
+    } finally {
+      this.whisperParagraphDecisionInFlight = false;
+    }
+  }
+
+  private queueWhisperParagraphChunk(
+    transcript: string,
+    detectedLangHint: LanguageCode,
+    audioSource: AudioSource,
+    capturedAt: number,
+  ): void {
+    const incoming = transcript.trim();
+    if (!incoming) return;
+
+    const existing = this.whisperPendingParagraphs.get(audioSource);
+    if (!existing) {
+      this.whisperPendingParagraphs.set(audioSource, {
+        transcript: incoming,
+        detectedLangHint,
+        audioSource,
+        capturedAt,
+        lastUpdatedAt: Date.now(),
+      });
+    } else {
+      existing.transcript = this.mergeWhisperTranscript(existing.transcript, incoming);
+      existing.detectedLangHint = detectedLangHint;
+      existing.lastUpdatedAt = Date.now();
+      this.whisperPendingParagraphs.set(audioSource, existing);
+    }
+
+    this.updateWhisperPreview();
+
+    const now = Date.now();
+    if (now - this.whisperLastParagraphDecisionAt >= this.whisperParagraphDecisionIntervalMs) {
+      this.whisperLastParagraphDecisionAt = now;
+      void this.evaluateWhisperParagraphs(false, [audioSource]);
+    }
+  }
+
   private closeElevenLabsConnection(source: AudioSource): void {
     const timerField = source === "system" ? "systemReconnectTimer" : "micReconnectTimer";
     const connField = source === "system" ? "systemConnection" : "micConnection";
@@ -1062,18 +1251,13 @@ export class Session {
 
       if (this.config.transcriptionProvider === "whisper") {
         const result = await transcribeWithWhisper(chunk, this.config.transcriptionModelId, this.config.sourceLang, this.config.targetLang);
-        transcript = result.transcript;
-        detectedLang = result.detectedLang;
-
-        if (transcript && this._translationEnabled) {
-          const post = await this.postProcessTranscriptText(transcript, detectedLang, true);
-          translation = post.translation;
-          detectedLang = post.sourceLanguage;
-          isPartial = post.isPartial;
-          isNewTopic = post.isNewTopic;
-        } else if (transcript) {
-          isPartial = this.isTranscriptLikelyPartial(transcript);
-        }
+        this.queueWhisperParagraphChunk(
+          result.transcript,
+          result.detectedLang,
+          audioSource,
+          capturedAt,
+        );
+        return;
       } else {
         const useTranslation = this._translationEnabled;
         const schema = useTranslation ? this.audioTranscriptionSchema : this.transcriptionOnlySchema;
@@ -1180,6 +1364,14 @@ export class Session {
       const fullError = error instanceof Error
         ? `${error.name}: ${error.message}${error.cause ? ` cause=${JSON.stringify(error.cause)}` : ""}`
         : toReadableError(error);
+      const whisperDisposedDuringStop =
+        this.config.transcriptionProvider === "whisper" &&
+        !this.isRecording &&
+        /Whisper process disposed/i.test(fullError);
+      if (whisperDisposedDuringStop) {
+        log("INFO", `Ignoring Whisper dispose error while stopping: ${fullError}`);
+        return;
+      }
       log("ERROR", `Transcription chunk failed after ${elapsed}ms (audio=${chunkDurationMs.toFixed(0)}ms): ${fullError}`);
       this.events.emit("status", `⚠ ${errorMsg}`);
       if (

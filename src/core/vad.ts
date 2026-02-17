@@ -7,6 +7,11 @@ const VAD_MAX_CHUNK_MS = 4000;
 const VAD_MIN_CHUNK_MS = 500;
 const DEFAULT_SILENCE_THRESHOLD = 200;
 
+export type VadProcessOptions = {
+  // When null, disable max-duration force flushing and only flush on silence.
+  maxChunkMs?: number | null;
+};
+
 export type VadState = {
   analysisBuffer: Buffer;
   speechBuffer: Buffer;
@@ -41,8 +46,9 @@ export function resetVadState(state: VadState) {
 }
 
 // Returns an array of speech chunks ready to be sent for transcription
-export function processAudioData(state: VadState, data: Buffer): Buffer[] {
+export function processAudioData(state: VadState, data: Buffer, options: VadProcessOptions = {}): Buffer[] {
   const chunks: Buffer[] = [];
+  const maxChunkMs = options.maxChunkMs ?? VAD_MAX_CHUNK_MS;
   state.analysisBuffer = Buffer.concat([state.analysisBuffer, data]);
 
   while (state.analysisBuffer.length >= VAD_WINDOW_BYTES) {
@@ -67,10 +73,12 @@ export function processAudioData(state: VadState, data: Buffer): Buffer[] {
       state.speechStarted = true;
       state.silenceMs = 0;
 
-      const speechDurationMs = (state.speechBuffer.length / (16000 * 2)) * 1000;
-      if (speechDurationMs >= VAD_MAX_CHUNK_MS) {
-        const flushed = flushVad(state);
-        if (flushed) chunks.push(flushed);
+      if (maxChunkMs !== null) {
+        const speechDurationMs = (state.speechBuffer.length / (16000 * 2)) * 1000;
+        if (speechDurationMs >= maxChunkMs) {
+          const flushed = flushVad(state);
+          if (flushed) chunks.push(flushed);
+        }
       }
     }
   }

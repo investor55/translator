@@ -101,7 +101,7 @@ function Paragraph({ blocks, isLast }: { blocks: TranscriptBlock[]; isLast: bool
         )}
         {formatTimestamp(first.createdAt)}
       </div>
-      <div className="text-sm font-mono">
+      <div className="text-[13px] font-mono">
         <span className="text-foreground">{sourceText}</span>
         {isNonEnglishSource && (
           <span className="text-[11px] text-muted-foreground/60 ml-1.5 font-mono">
@@ -110,7 +110,7 @@ function Paragraph({ blocks, isLast }: { blocks: TranscriptBlock[]; isLast: bool
         )}
       </div>
       {!isTranscriptionOnly && (
-        <div className="text-sm font-sans mt-0.5">
+        <div className="text-[13px] font-sans mt-0.5">
           {translationText ? (
             <span className="text-foreground">
               {translationText}
@@ -333,7 +333,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
             </div>
           )}
           {blocks.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic mt-2">
+            <p className="text-[13px] text-muted-foreground italic mt-2">
               Speak to see transcriptions here...
             </p>
           ) : (
@@ -346,7 +346,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
             ))
           )}
           {partialText && (
-            <p className="text-sm font-mono text-muted-foreground/50 italic animate-pulse">
+            <p className="text-[13px] font-mono text-muted-foreground/50 italic animate-pulse">
               {partialText}
             </p>
           )}

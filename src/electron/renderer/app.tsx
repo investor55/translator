@@ -1,6 +1,16 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocalStorage } from "usehooks-ts";
-import type { Agent, AppConfig, Language, LanguageCode, TodoItem, TodoSuggestion, Insight, SessionMeta } from "../../core/types";
+import type {
+  Agent,
+  AppConfig,
+  Language,
+  LanguageCode,
+  TodoItem,
+  TodoSuggestion,
+  Insight,
+  SessionMeta,
+  AgentQuestionSelection,
+} from "../../core/types";
 import { DEFAULT_APP_CONFIG, normalizeAppConfig } from "../../core/types";
 import { useSession } from "./hooks/use-session";
 import type { ResumeData } from "./hooks/use-session";
@@ -29,6 +39,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+type ResizeHandle = "left" | "agent" | "right";
+
+const MIN_TRANSCRIPT_WIDTH = 360;
+const LEFT_PANEL_MIN_WIDTH = 220;
+const LEFT_PANEL_MAX_WIDTH = 520;
+const RIGHT_PANEL_MIN_WIDTH = 240;
+const RIGHT_PANEL_MAX_WIDTH = 560;
+const AGENT_PANEL_MIN_WIDTH = 280;
+const AGENT_PANEL_MAX_WIDTH = 680;
+
+function clampWidth(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
 export function App() {
   const [languages, setLanguages] = useState<Language[]>([]);
   const [sourceLang, setSourceLang] = useLocalStorage<LanguageCode>("rosetta-source-lang", "ko");
@@ -42,6 +66,18 @@ export function App() {
   const [langError, setLangError] = useState("");
   const [routeNotice, setRouteNotice] = useState("");
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const panelLayoutRef = useRef<HTMLDivElement>(null);
+  const resizeStateRef = useRef<{
+    handle: ResizeHandle;
+    startX: number;
+    startLeft: number;
+    startRight: number;
+    startAgent: number;
+    hasAgent: boolean;
+  } | null>(null);
+  const [leftPanelWidth, setLeftPanelWidth] = useLocalStorage<number>("rosetta-left-panel-width", 280);
+  const [rightPanelWidth, setRightPanelWidth] = useLocalStorage<number>("rosetta-right-panel-width", 300);
+  const [agentPanelWidth, setAgentPanelWidth] = useLocalStorage<number>("rosetta-agent-panel-width", 360);
   const appConfig = useMemo(() => normalizeAppConfig(storedAppConfig), [storedAppConfig]);
 
   const [todos, setTodos] = useState<TodoItem[]>([]);
@@ -276,6 +312,132 @@ export function App() {
     transcriptRef.current?.scrollBy({ top: 60, behavior: "smooth" });
   }, []);
 
+  const startResize = useCallback((handle: ResizeHandle, clientX: number) => {
+    resizeStateRef.current = {
+      handle,
+      startX: clientX,
+      startLeft: leftPanelWidth,
+      startRight: rightPanelWidth,
+      startAgent: agentPanelWidth,
+      hasAgent: !!selectedAgent,
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [agentPanelWidth, leftPanelWidth, rightPanelWidth, selectedAgent]);
+
+  const endResize = useCallback(() => {
+    if (!resizeStateRef.current) return;
+    resizeStateRef.current = null;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  }, []);
+
+  const handleResizeMouseDown = useCallback((handle: ResizeHandle) => (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    startResize(handle, event.clientX);
+  }, [startResize]);
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      const activeResize = resizeStateRef.current;
+      const layoutEl = panelLayoutRef.current;
+      if (!activeResize || !layoutEl) return;
+
+      const totalWidth = layoutEl.getBoundingClientRect().width;
+      if (totalWidth <= 0) return;
+      const delta = event.clientX - activeResize.startX;
+
+      if (activeResize.handle === "left") {
+        const maxLeft = totalWidth
+          - activeResize.startRight
+          - (activeResize.hasAgent ? activeResize.startAgent : 0)
+          - MIN_TRANSCRIPT_WIDTH;
+        setLeftPanelWidth(Math.round(clampWidth(
+          activeResize.startLeft + delta,
+          LEFT_PANEL_MIN_WIDTH,
+          Math.min(LEFT_PANEL_MAX_WIDTH, maxLeft),
+        )));
+      } else if (activeResize.handle === "right") {
+        const maxRight = totalWidth
+          - activeResize.startLeft
+          - (activeResize.hasAgent ? activeResize.startAgent : 0)
+          - MIN_TRANSCRIPT_WIDTH;
+        setRightPanelWidth(Math.round(clampWidth(
+          activeResize.startRight - delta,
+          RIGHT_PANEL_MIN_WIDTH,
+          Math.min(RIGHT_PANEL_MAX_WIDTH, maxRight),
+        )));
+      } else if (activeResize.handle === "agent" && activeResize.hasAgent) {
+        const maxAgent = totalWidth
+          - activeResize.startLeft
+          - activeResize.startRight
+          - MIN_TRANSCRIPT_WIDTH;
+        setAgentPanelWidth(Math.round(clampWidth(
+          activeResize.startAgent - delta,
+          AGENT_PANEL_MIN_WIDTH,
+          Math.min(AGENT_PANEL_MAX_WIDTH, maxAgent),
+        )));
+      }
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", endResize);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", endResize);
+      endResize();
+    };
+  }, [endResize, setAgentPanelWidth, setLeftPanelWidth, setRightPanelWidth]);
+
+  useEffect(() => {
+    if (settingsOpen) return;
+
+    const clampPanelsToLayout = () => {
+      const layoutEl = panelLayoutRef.current;
+      if (!layoutEl) return;
+
+      const totalWidth = layoutEl.getBoundingClientRect().width;
+      if (totalWidth <= 0) return;
+
+      const hasAgent = !!selectedAgent;
+      let nextLeft = clampWidth(leftPanelWidth, LEFT_PANEL_MIN_WIDTH, LEFT_PANEL_MAX_WIDTH);
+      let nextRight = clampWidth(rightPanelWidth, RIGHT_PANEL_MIN_WIDTH, RIGHT_PANEL_MAX_WIDTH);
+      let nextAgent = clampWidth(agentPanelWidth, AGENT_PANEL_MIN_WIDTH, AGENT_PANEL_MAX_WIDTH);
+
+      let overflow = nextLeft + nextRight + (hasAgent ? nextAgent : 0) - (totalWidth - MIN_TRANSCRIPT_WIDTH);
+      if (overflow > 0) {
+        const consumeOverflow = (current: number, min: number) => {
+          const spare = Math.max(0, current - min);
+          const reduction = Math.min(spare, overflow);
+          overflow -= reduction;
+          return current - reduction;
+        };
+        nextRight = consumeOverflow(nextRight, RIGHT_PANEL_MIN_WIDTH);
+        if (hasAgent) {
+          nextAgent = consumeOverflow(nextAgent, AGENT_PANEL_MIN_WIDTH);
+        }
+        nextLeft = consumeOverflow(nextLeft, LEFT_PANEL_MIN_WIDTH);
+      }
+
+      if (nextLeft !== leftPanelWidth) setLeftPanelWidth(nextLeft);
+      if (nextRight !== rightPanelWidth) setRightPanelWidth(nextRight);
+      if (nextAgent !== agentPanelWidth) setAgentPanelWidth(nextAgent);
+    };
+
+    clampPanelsToLayout();
+    window.addEventListener("resize", clampPanelsToLayout);
+    return () => window.removeEventListener("resize", clampPanelsToLayout);
+  }, [
+    agentPanelWidth,
+    leftPanelWidth,
+    rightPanelWidth,
+    selectedAgent,
+    settingsOpen,
+    setAgentPanelWidth,
+    setLeftPanelWidth,
+    setRightPanelWidth,
+  ]);
+
   const persistTodo = useCallback(async ({
     targetSessionId,
     text,
@@ -387,7 +549,17 @@ export function App() {
       const persistResult = await persistTodo({
         targetSessionId,
         text: extractResult.todoTitle,
-        details: extractResult.todoDetails,
+        details: [
+          trimmedIntent
+            ? `Requested todo intent:\n${trimmedIntent}`
+            : "",
+          extractResult.todoDetails?.trim()
+            ? `Context summary:\n${extractResult.todoDetails.trim()}`
+            : "",
+          `Original transcript excerpt:\n${selectionText.trim()}`,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
         source: "manual",
       });
       if (!persistResult.ok) {
@@ -578,6 +750,19 @@ export function App() {
     return window.electronAPI.followUpAgentInSession(targetSessionId, agent.id, question, appConfig);
   }, [appConfig, selectedSessionId, session.sessionId]);
 
+  const handleAnswerAgentQuestion = useCallback(async (agent: Agent, answers: AgentQuestionSelection[]) => {
+    const targetSessionId = agent.sessionId ?? selectedSessionId ?? session.sessionId ?? null;
+    if (!targetSessionId) {
+      return { ok: false, error: "Missing session id for this agent" };
+    }
+    return window.electronAPI.answerAgentQuestionInSession(
+      targetSessionId,
+      agent.id,
+      answers,
+      appConfig,
+    );
+  }, [appConfig, selectedSessionId, session.sessionId]);
+
   const handleCancelAgent = useCallback(async (agentId: string) => {
     await window.electronAPI.cancelAgent(agentId);
   }, []);
@@ -627,7 +812,7 @@ export function App() {
         onToggleSettings={() => setSettingsOpen((prev) => !prev)}
       />
 
-      <div className="flex flex-1 min-h-0">
+      <div ref={panelLayoutRef} className="flex flex-1 min-h-0">
         {settingsOpen ? (
           <SettingsPage
             config={appConfig}
@@ -642,14 +827,25 @@ export function App() {
           />
         ) : (
           <>
-            <LeftSidebar
-              rollingKeyPoints={session.rollingKeyPoints}
-              insights={educationalInsights}
-              sessions={sessions}
-              activeSessionId={selectedSessionId}
-              onSelectSession={handleSelectSession}
-              onDeleteSession={handleDeleteSession}
-            />
+            <div className="shrink-0 min-h-0" style={{ width: leftPanelWidth }}>
+              <LeftSidebar
+                rollingKeyPoints={session.rollingKeyPoints}
+                insights={educationalInsights}
+                sessions={sessions}
+                activeSessionId={selectedSessionId}
+                onSelectSession={handleSelectSession}
+                onDeleteSession={handleDeleteSession}
+              />
+            </div>
+            <div
+              role="separator"
+              aria-label="Resize left panel"
+              aria-orientation="vertical"
+              className="group relative w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-border/50"
+              onMouseDown={handleResizeMouseDown("left")}
+            >
+              <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />
+            </div>
             <main className="flex-1 flex flex-col min-h-0 min-w-0 relative">
               <TranscriptArea
                 ref={transcriptRef}
@@ -659,29 +855,54 @@ export function App() {
               />
             </main>
             {selectedAgent && (
-              <AgentDetailPanel
-                agent={selectedAgent}
-                agents={agents}
-                onSelectAgent={selectAgent}
-                onClose={() => selectAgent(null)}
-                onFollowUp={handleFollowUp}
-                onCancel={handleCancelAgent}
-              />
+              <>
+                <div
+                  role="separator"
+                  aria-label="Resize transcript and agent panels"
+                  aria-orientation="vertical"
+                  className="group relative w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-border/50"
+                  onMouseDown={handleResizeMouseDown("agent")}
+                >
+                  <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />
+                </div>
+                <div className="shrink-0 min-h-0" style={{ width: agentPanelWidth }}>
+                  <AgentDetailPanel
+                    agent={selectedAgent}
+                    agents={agents}
+                    onSelectAgent={selectAgent}
+                    onClose={() => selectAgent(null)}
+                    onFollowUp={handleFollowUp}
+                    onAnswerQuestion={handleAnswerAgentQuestion}
+                    onCancel={handleCancelAgent}
+                  />
+                </div>
+              </>
             )}
-            <RightSidebar
-              todos={todos}
-              suggestions={suggestions}
-              agents={agents}
-              selectedAgentId={selectedAgentId}
-              onSelectAgent={selectAgent}
-              onLaunchAgent={handleLaunchAgent}
-              onAddTodo={handleAddTodo}
-              onToggleTodo={handleToggleTodo}
-              onDeleteTodo={handleDeleteTodo}
-              processingTodoIds={processingTodoIds}
-              onAcceptSuggestion={handleAcceptSuggestion}
-              onDismissSuggestion={handleDismissSuggestion}
-            />
+            <div
+              role="separator"
+              aria-label="Resize right panel"
+              aria-orientation="vertical"
+              className="group relative w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-border/50"
+              onMouseDown={handleResizeMouseDown("right")}
+            >
+              <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />
+            </div>
+            <div className="shrink-0 min-h-0" style={{ width: rightPanelWidth }}>
+              <RightSidebar
+                todos={todos}
+                suggestions={suggestions}
+                agents={agents}
+                selectedAgentId={selectedAgentId}
+                onSelectAgent={selectAgent}
+                onLaunchAgent={handleLaunchAgent}
+                onAddTodo={handleAddTodo}
+                onToggleTodo={handleToggleTodo}
+                onDeleteTodo={handleDeleteTodo}
+                processingTodoIds={processingTodoIds}
+                onAcceptSuggestion={handleAcceptSuggestion}
+                onDismissSuggestion={handleDismissSuggestion}
+              />
+            </div>
           </>
         )}
       </div>

@@ -120,7 +120,16 @@ function spawnChild(): ChildProcess {
 
   c.stderr?.on("data", (data: Buffer) => {
     const line = data.toString().trim();
-    if (line) log("WARN", `Whisper child stderr: ${line}`);
+    if (!line) return;
+    const intentionalTeardown = terminatingChildPid !== null && c.pid === terminatingChildPid;
+    const knownTeardownNoise =
+      line.includes("mutex lock failed: Invalid argument") ||
+      line.includes("terminating due to uncaught exception of type std::__1::system_error");
+    if (intentionalTeardown && knownTeardownNoise) {
+      log("INFO", `Whisper child teardown note: ${line}`);
+      return;
+    }
+    log("WARN", `Whisper child stderr: ${line}`);
   });
 
   c.on("error", (err: Error) => {

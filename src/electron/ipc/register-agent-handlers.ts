@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import type { AppConfigOverrides } from "../../core/types";
+import type { AppConfigOverrides, AgentQuestionSelection } from "../../core/types";
 import type { EnsureSession, IpcDeps } from "./types";
 
 type AgentDeps = IpcDeps & {
@@ -122,6 +122,27 @@ export function registerAgentHandlers({
       const started = sessionRef.current.followUpAgent(agentId, question);
       if (!started) return { ok: false, error: "Agent not found or still running" };
       return { ok: true };
+    },
+  );
+
+  ipcMain.handle("answer-agent-question", (_event, agentId: string, answers: AgentQuestionSelection[]) => {
+    if (!sessionRef.current) return { ok: false, error: "No active session" };
+    return sessionRef.current.answerAgentQuestion(agentId, answers);
+  });
+
+  ipcMain.handle(
+    "answer-agent-question-in-session",
+    async (
+      _event,
+      sessionId: string,
+      agentId: string,
+      answers: AgentQuestionSelection[],
+      appConfig?: AppConfigOverrides,
+    ) => {
+      const ensured = await ensureSession(sessionId, appConfig);
+      if (!ensured.ok) return ensured;
+      if (!sessionRef.current) return { ok: false, error: "Could not load session" };
+      return sessionRef.current.answerAgentQuestion(agentId, answers);
     },
   );
 

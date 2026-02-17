@@ -12,6 +12,7 @@ import type {
   SessionMeta,
   Agent,
   AgentStep,
+  AgentQuestionSelection,
   AppConfigOverrides,
 } from "../core/types";
 
@@ -58,6 +59,13 @@ export type ElectronAPI = {
   ) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
   followUpAgent: (agentId: string, question: string) => Promise<{ ok: boolean; error?: string }>;
   followUpAgentInSession: (sessionId: string, agentId: string, question: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; error?: string }>;
+  answerAgentQuestion: (agentId: string, answers: AgentQuestionSelection[]) => Promise<{ ok: boolean; error?: string }>;
+  answerAgentQuestionInSession: (
+    sessionId: string,
+    agentId: string,
+    answers: AgentQuestionSelection[],
+    appConfig?: AppConfigOverrides,
+  ) => Promise<{ ok: boolean; error?: string }>;
   cancelAgent: (agentId: string) => Promise<{ ok: boolean; error?: string }>;
   getAgents: () => Promise<Agent[]>;
   getSessionAgents: (sessionId: string) => Promise<Agent[]>;
@@ -128,6 +136,9 @@ const api: ElectronAPI = {
     ipcRenderer.invoke("launch-agent-in-session", sessionId, todoId, task, taskContext, appConfig, approvalToken),
   followUpAgent: (agentId, question) => ipcRenderer.invoke("follow-up-agent", agentId, question),
   followUpAgentInSession: (sessionId, agentId, question, appConfig) => ipcRenderer.invoke("follow-up-agent-in-session", sessionId, agentId, question, appConfig),
+  answerAgentQuestion: (agentId, answers) => ipcRenderer.invoke("answer-agent-question", agentId, answers),
+  answerAgentQuestionInSession: (sessionId, agentId, answers, appConfig) =>
+    ipcRenderer.invoke("answer-agent-question-in-session", sessionId, agentId, answers, appConfig),
   cancelAgent: (agentId) => ipcRenderer.invoke("cancel-agent", agentId),
   getAgents: () => ipcRenderer.invoke("get-agents"),
   getSessionAgents: (sessionId) => ipcRenderer.invoke("get-session-agents", sessionId),

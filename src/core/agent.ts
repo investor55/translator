@@ -1,6 +1,11 @@
 import { streamText, tool, stepCountIs, type ModelMessage } from "ai";
 import { z } from "zod";
-import type { AgentStep, Agent } from "./types";
+import type {
+  AgentStep,
+  Agent,
+  AgentQuestionRequest,
+  AgentQuestionSelection,
+} from "./types";
 import { log } from "./logger";
 
 type ExaClient = {
@@ -13,29 +18,72 @@ type AgentDeps = {
   model: Parameters<typeof streamText>[0]["model"];
   exa: ExaClient;
   getTranscriptContext: () => string;
+  requestClarification: (
+    request: AgentQuestionRequest,
+    options: { toolCallId: string; abortSignal?: AbortSignal },
+  ) => Promise<AgentQuestionSelection[]>;
   onStep: (step: AgentStep) => void;
   onComplete: (result: string, messages: ModelMessage[]) => void;
   onFail: (error: string) => void;
   abortSignal?: AbortSignal;
 };
 
+const FORCE_ASK_QUESTION_TEST = process.env.AGENT_FORCE_QUESTION_TEST !== "0";
+const FORCED_QUESTION_MARKER = "[forced-ask-question-test-v1]";
+
+const askQuestionInputSchema = z.object({
+  title: z.string().trim().min(1).max(120).optional(),
+  questions: z.array(
+    z.object({
+      id: z.string().trim().min(1),
+      prompt: z.string().trim().min(1),
+      options: z.array(
+        z.object({
+          id: z.string().trim().min(1),
+          label: z.string().trim().min(1),
+        })
+      ).min(2).max(8),
+      allow_multiple: z.boolean().optional(),
+    })
+  ).min(1).max(3),
+});
+
+function formatCurrentDateForPrompt(now: Date): string {
+  const longDate = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(now);
+  return `${longDate} (ISO: ${now.toISOString().slice(0, 10)})`;
+}
+
 const buildSystemPrompt = (transcriptContext: string) =>
-  `You are a helpful research agent. Your task is to research the following and provide a concise, actionable answer.
+  `You are a practical research assistant.
+
+Today is ${formatCurrentDateForPrompt(new Date())}.
 
 Conversation context from the current session:
 ${transcriptContext}
 
 Instructions:
-- Use the searchWeb tool to find relevant information
-- Use the getTranscriptContext tool if you need more conversation context
-- Be concise — aim for 2-4 sentences in your final answer
-- Cite sources with URLs when possible
-- Focus on actionable, specific results (e.g., specific restaurant names, addresses, hours)`;
+- If the task is ambiguous, under-specified, or has multiple plausible interpretations, call askQuestion before researching or answering.
+- Prefer asking 1-3 focused multiple-choice clarification questions.
+- In askQuestion options, provide concrete suggested paths and mark the best default with "(Recommended)" when appropriate.
+- Use searchWeb only when external facts are required (especially if the user asks for latest/current/today/recent information). Do not search for simple reasoning or writing tasks.
+- For time-sensitive information, verify with search and include concrete dates in the final answer.
+- Use getTranscriptContext when you need more local conversation context.
+- Keep the final answer concise and actionable.`;
 
-function buildTools(exa: ExaClient, getTranscriptContext: () => string) {
+function buildTools(
+  exa: ExaClient,
+  getTranscriptContext: () => string,
+  requestClarification: AgentDeps["requestClarification"],
+) {
   return {
     searchWeb: tool({
-      description: "Search the web for information. Use specific, targeted queries.",
+      description:
+        "Search the web for information when external facts are required. Use specific, targeted queries.",
       inputSchema: z.object({
         query: z.string().describe("The search query"),
       }),
@@ -60,6 +108,19 @@ function buildTools(exa: ExaClient, getTranscriptContext: () => string) {
         return getTranscriptContext();
       },
     }),
+    askQuestion: tool({
+      description:
+        "Ask the user one or more multiple-choice clarification questions when intent is ambiguous. Wait for human responses before continuing.",
+      inputSchema: askQuestionInputSchema,
+      execute: async (input, { toolCallId, abortSignal }) => {
+        const answers = await requestClarification(input, { toolCallId, abortSignal });
+        return {
+          title: input.title,
+          questions: input.questions,
+          answers,
+        };
+      },
+    }),
   };
 }
 
@@ -77,6 +138,114 @@ function getSearchQuery(input: unknown): string | null {
   return typeof query === "string" ? query.trim() || null : null;
 }
 
+function parseAskQuestionInput(input: unknown): AgentQuestionRequest | null {
+  const parsed = askQuestionInputSchema.safeParse(input);
+  if (!parsed.success) return null;
+  return parsed.data;
+}
+
+function getAskQuestionAnswerCount(output: unknown): number {
+  if (!output || typeof output !== "object") return 0;
+  const answers = (output as Record<string, unknown>).answers;
+  if (!Array.isArray(answers)) return 0;
+  return answers.length;
+}
+
+function hasForcedQuestionMarker(messages: ModelMessage[]): boolean {
+  return messages.some((message) => {
+    if (message.role !== "user") return false;
+    const content = message.content;
+    if (typeof content === "string") {
+      return content.includes(FORCED_QUESTION_MARKER);
+    }
+    try {
+      return JSON.stringify(content).includes(FORCED_QUESTION_MARKER);
+    } catch {
+      return false;
+    }
+  });
+}
+
+function buildForcedQuestionRequest(agent: Agent): AgentQuestionRequest {
+  const taskSummary = agent.task.trim().slice(0, 120);
+  return {
+    title: "Quick Clarification",
+    questions: [
+      {
+        id: "approach",
+        prompt: taskSummary
+          ? `For this task: "${taskSummary}", how should I proceed first?`
+          : "How should I proceed first?",
+        options: [
+          { id: "web-first", label: "Use web research first (Recommended)" },
+          { id: "transcript-first", label: "Use transcript/context first, then web only if needed" },
+          { id: "ask-more", label: "Ask more follow-up questions before researching" },
+        ],
+      },
+    ],
+  };
+}
+
+function formatForcedQuestionAnswers(
+  request: AgentQuestionRequest,
+  answers: AgentQuestionSelection[],
+): string {
+  const selectedByQuestionId = new Map(
+    answers.map((answer) => [answer.questionId, new Set(answer.selectedOptionIds)])
+  );
+  const lines = request.questions.map((question) => {
+    const selected = selectedByQuestionId.get(question.id) ?? new Set<string>();
+    const labels = question.options
+      .filter((option) => selected.has(option.id))
+      .map((option) => option.label);
+    return `- ${question.prompt}\n  Answer: ${labels.length > 0 ? labels.join(", ") : "No selection"}`;
+  });
+  return `${FORCED_QUESTION_MARKER}\nClarification answers:\n${lines.join("\n")}`;
+}
+
+async function applyForcedClarificationStep(
+  agent: Agent,
+  inputMessages: ModelMessage[],
+  deps: Pick<AgentDeps, "requestClarification" | "onStep" | "abortSignal">,
+): Promise<ModelMessage[]> {
+  if (!FORCE_ASK_QUESTION_TEST) return inputMessages;
+  if (hasForcedQuestionMarker(inputMessages)) return inputMessages;
+
+  const request = buildForcedQuestionRequest(agent);
+  const toolCallId = `forced-ask:${crypto.randomUUID()}`;
+  const createdAt = Date.now();
+
+  deps.onStep({
+    id: `tool:${toolCallId}`,
+    kind: "tool-call",
+    content: "Needs clarification (1 question)",
+    toolName: "askQuestion",
+    toolInput: safeJson(request),
+    createdAt,
+  });
+
+  const answers = await deps.requestClarification(request, {
+    toolCallId,
+    abortSignal: deps.abortSignal,
+  });
+  const output = {
+    title: request.title,
+    questions: request.questions,
+    answers,
+  };
+  deps.onStep({
+    id: `tool:${toolCallId}`,
+    kind: "tool-result",
+    content: `Clarification received (${answers.length} answered)`,
+    toolName: "askQuestion",
+    toolInput: safeJson(output),
+    createdAt: Date.now(),
+  });
+
+  const answerSummary = formatForcedQuestionAnswers(request, answers);
+  return [...inputMessages, { role: "user", content: answerSummary }];
+}
+
 function summarizeToolCall(toolName: string, input: unknown): {
   content: string;
   toolInput?: string;
@@ -91,6 +260,18 @@ function summarizeToolCall(toolName: string, input: unknown): {
 
   if (toolName === "getTranscriptContext") {
     return { content: "Reading transcript context" };
+  }
+
+  if (toolName === "askQuestion") {
+    const request = parseAskQuestionInput(input);
+    if (request) {
+      const count = request.questions.length;
+      return {
+        content: `Needs clarification (${count} question${count === 1 ? "" : "s"})`,
+        toolInput: safeJson(request),
+      };
+    }
+    return { content: "Needs clarification", toolInput: safeJson(input) };
   }
 
   return {
@@ -119,6 +300,17 @@ function summarizeToolResult(
     return { content: "Loaded transcript context" };
   }
 
+  if (toolName === "askQuestion") {
+    const count = getAskQuestionAnswerCount(output);
+    return {
+      content:
+        count > 0
+          ? `Clarification received (${count} answered)`
+          : "Clarification received",
+      toolInput: safeJson(output),
+    };
+  }
+
   return {
     content: `${toolName} complete`,
     toolInput: safeJson(output),
@@ -129,9 +321,14 @@ function summarizeToolResult(
  * Run agent with an initial prompt (first turn).
  */
 export async function runAgent(agent: Agent, deps: AgentDeps): Promise<void> {
-  const initialPrompt = agent.taskContext?.trim()
-    ? `${agent.task}\n\nAdditional context:\n${agent.taskContext}`
-    : agent.task;
+  const initialPrompt = [
+    `Todo:\n${agent.task.trim()}`,
+    agent.taskContext?.trim()
+      ? `Context:\n${agent.taskContext.trim()}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const inputMessages: ModelMessage[] = [{ role: "user", content: initialPrompt }];
   await runAgentWithMessages(agent, inputMessages, deps);
 }
@@ -157,17 +354,31 @@ async function runAgentWithMessages(
   inputMessages: ModelMessage[],
   deps: AgentDeps,
 ): Promise<void> {
-  const { model, exa, getTranscriptContext, onStep, onComplete, onFail, abortSignal } = deps;
-
-  const systemPrompt = buildSystemPrompt(getTranscriptContext());
-  const tools = buildTools(exa, getTranscriptContext);
+  const {
+    model,
+    exa,
+    getTranscriptContext,
+    requestClarification,
+    onStep,
+    onComplete,
+    onFail,
+    abortSignal,
+  } = deps;
 
   try {
+    const effectiveInputMessages = await applyForcedClarificationStep(agent, inputMessages, {
+      requestClarification,
+      onStep,
+      abortSignal,
+    });
+    const systemPrompt = buildSystemPrompt(getTranscriptContext());
+    const tools = buildTools(exa, getTranscriptContext, requestClarification);
+
     const result = streamText({
       model,
       system: systemPrompt,
-      messages: inputMessages,
-      stopWhen: stepCountIs(5),
+      messages: effectiveInputMessages,
+      stopWhen: stepCountIs(8),
       abortSignal,
       tools,
     });
@@ -278,7 +489,7 @@ async function runAgentWithMessages(
 
     // Build full conversation history for future follow-ups
     const response = await result.response;
-    const fullHistory = [...inputMessages, ...response.messages];
+    const fullHistory = [...effectiveInputMessages, ...response.messages];
     log(
       "INFO",
       `Agent stream ${agent.id}: deltas=${deltaCount}, firstDeltaMs=${firstDeltaAfterMs ?? -1}, totalMs=${Date.now() - streamedAt}`
