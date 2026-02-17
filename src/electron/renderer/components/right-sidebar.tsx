@@ -16,6 +16,9 @@ type RightSidebarProps = {
   onLaunchAgent?: (todoId: string, task: string) => void;
   onAddTodo?: (text: string) => void;
   onToggleTodo?: (id: string) => void;
+  onScanTodos?: () => void;
+  scanningTodos?: boolean;
+  scanFeedback?: string;
   onAcceptSuggestion?: (suggestion: TodoSuggestion) => void;
   onDismissSuggestion?: (id: string) => void;
 };
@@ -93,7 +96,21 @@ function SuggestionItem({
   );
 }
 
-export function RightSidebar({ todos, suggestions, agents, selectedAgentId, onSelectAgent, onLaunchAgent, onAddTodo, onToggleTodo, onAcceptSuggestion, onDismissSuggestion }: RightSidebarProps) {
+export function RightSidebar({
+  todos,
+  suggestions,
+  agents,
+  selectedAgentId,
+  onSelectAgent,
+  onLaunchAgent,
+  onAddTodo,
+  onToggleTodo,
+  onScanTodos,
+  scanningTodos = false,
+  scanFeedback,
+  onAcceptSuggestion,
+  onDismissSuggestion,
+}: RightSidebarProps) {
   const [input, setInput] = useState("");
   const [completedOpen, setCompletedOpen] = useState(false);
 
@@ -127,21 +144,41 @@ export function RightSidebar({ todos, suggestions, agents, selectedAgentId, onSe
         </h2>
 
         {onAddTodo && (
-          <form onSubmit={handleSubmit} className="flex gap-1.5 mb-3">
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Add a todo..."
-              className="flex-1 h-7"
-            />
-            <Button
-              type="submit"
-              size="icon-sm"
-              disabled={!input.trim()}
-            >
-              <PlusIcon className="size-3.5" />
-            </Button>
-          </form>
+          <div className="mb-3">
+            <form onSubmit={handleSubmit} className="flex gap-1.5">
+              <Input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Add a todo..."
+                className="flex-1 h-7"
+              />
+              <Button
+                type="submit"
+                size="icon-sm"
+                disabled={!input.trim()}
+              >
+                <PlusIcon className="size-3.5" />
+              </Button>
+              {onScanTodos && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                  onClick={onScanTodos}
+                  disabled={scanningTodos}
+                >
+                  {scanningTodos ? (
+                    <LoaderCircleIcon className="size-3.5 animate-spin" />
+                  ) : (
+                    "Scan"
+                  )}
+                </Button>
+              )}
+            </form>
+            {scanFeedback && (
+              <p className="mt-1 text-[11px] text-muted-foreground">{scanFeedback}</p>
+            )}
+          </div>
         )}
       </div>
 

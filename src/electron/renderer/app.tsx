@@ -51,6 +51,8 @@ export function App() {
 
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [suggestions, setSuggestions] = useState<TodoSuggestion[]>([]);
+  const [scanningTodos, setScanningTodos] = useState(false);
+  const [scanFeedback, setScanFeedback] = useState("");
   const [insights, setInsights] = useState<Insight[]>([]);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
@@ -104,9 +106,24 @@ export function App() {
     return () => media.removeListener(applyTheme);
   }, [appConfig.themeMode]);
 
-  // Listen for AI-generated suggestions and insights during active session
   useEffect(() => {
-    if (!sessionActive) return;
+    const status = session.statusText?.trim();
+    if (!status) return;
+    if (status.toLowerCase().startsWith("todo scan")) {
+      setScanFeedback(status);
+      if (
+        status.toLowerCase().includes("complete")
+        || status.toLowerCase().includes("failed")
+        || status.toLowerCase().includes("skipped")
+      ) {
+        setScanningTodos(false);
+      }
+    }
+  }, [session.statusText]);
+
+  // Listen for AI-generated suggestions and insights.
+  // Keep these listeners active so manual scans in viewed sessions also surface results.
+  useEffect(() => {
     const cleanups = [
       window.electronAPI.onTodoSuggested((suggestion) => {
         setSuggestions((prev) => [suggestion, ...prev]);
@@ -116,7 +133,7 @@ export function App() {
       }),
     ];
     return () => cleanups.forEach((fn) => fn());
-  }, [sessionActive]);
+  }, []);
 
   const handleToggleMic = useCallback(async () => {
     const result = await window.electronAPI.toggleMic();
@@ -218,6 +235,30 @@ export function App() {
   const handleDismissSuggestion = useCallback((id: string) => {
     setSuggestions((prev) => prev.filter((s) => s.id !== id));
   }, []);
+
+  const handleScanTodos = useCallback(async () => {
+    const targetSessionId = session.sessionId;
+    if (!targetSessionId) {
+      setScanFeedback("No session selected.");
+      console.warn("Todo scan failed: No selected session");
+      return;
+    }
+    setScanFeedback("Scanning todos...");
+    setScanningTodos(true);
+    try {
+      const result = await window.electronAPI.scanTodosInSession(targetSessionId, appConfig);
+      if (!result.ok) {
+        setScanFeedback(`Scan failed: ${result.error ?? "Unknown error"}`);
+        console.warn(`Todo scan failed: ${result.error ?? "Unknown error"}`);
+      } else if (result.queued) {
+        setScanFeedback("Scan queued...");
+      }
+    } finally {
+      setTimeout(() => {
+        setScanningTodos(false);
+      }, 500);
+    }
+  }, [appConfig, session.sessionId]);
 
   const handleLaunchAgent = useCallback(async (todoId: string, task: string) => {
     const sessionId = session.sessionId;
@@ -367,6 +408,9 @@ export function App() {
               onLaunchAgent={handleLaunchAgent}
               onAddTodo={handleAddTodo}
               onToggleTodo={handleToggleTodo}
+              onScanTodos={handleScanTodos}
+              scanningTodos={scanningTodos}
+              scanFeedback={scanFeedback}
               onAcceptSuggestion={handleAcceptSuggestion}
               onDismissSuggestion={handleDismissSuggestion}
             />

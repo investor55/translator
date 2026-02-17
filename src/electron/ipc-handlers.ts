@@ -341,6 +341,18 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     return { ok: true };
   });
 
+  ipcMain.handle("scan-todos", async () => {
+    if (!session) return { ok: false, error: "No active session" };
+    return session.requestTodoScan();
+  });
+
+  ipcMain.handle("scan-todos-in-session", async (_event, sessionId: string, appConfig?: AppConfigOverrides) => {
+    const ensured = await ensureSession(sessionId, appConfig);
+    if (!ensured.ok) return ensured;
+    if (!session) return { ok: false, error: "Could not load session" };
+    return session.requestTodoScan();
+  });
+
   // Persistence: Sessions
   ipcMain.handle("get-sessions", (_event, limit?: number) => {
     return db.getSessions(limit);

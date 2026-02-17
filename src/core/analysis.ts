@@ -21,7 +21,7 @@ export const analysisSchema = z.object({
 export const todoAnalysisSchema = z.object({
   suggestedTodos: z
     .array(z.string())
-    .describe("Clear action items explicitly stated in the conversation. Only include concrete tasks someone committed to doing or requested to track."),
+    .describe("Clear action items from the conversation. Include explicit tasks and concrete planning intents, but skip vague chatter."),
 });
 
 export type AnalysisResult = z.infer<typeof analysisSchema>;
@@ -85,8 +85,8 @@ ${transcript}${todosSection}
 
 Task:
 - Extract only clear tasks, action items, or follow-ups.
-- Suggest todos only when there is explicit intent or commitment (for example: "I need to", "we should", "add a todo", "remind me to", "don't forget to").
-- Skip vague brainstorming, open-ended discussion, and informational statements without a clear next action.
+- Suggest todos when there is explicit intent, commitment, or concrete planning (for example: "I need to", "we should", "add a todo", "remind me to", "don't forget to", "I'm planning to").
+- Skip vague brainstorming and informational statements without a clear next action.
 - Preserve details exactly: names, places, dates, times, constraints.
 - Merge fragments across neighboring lines into one complete todo.
 - Do NOT duplicate existing todos.

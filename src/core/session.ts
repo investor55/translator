@@ -131,6 +131,7 @@ export class Session {
   private readonly analysisRetryDelayMs = 2000;
   private readonly todoAnalysisIntervalMs = 10_000;
   private recentSuggestedTodoTexts: string[] = [];
+  private todoScanRequested = false;
   private lastTodoAnalysisAt = 0;
   private lastTodoAnalysisBlockCount = 0;
   private lastSummary: Summary | null = null;
@@ -322,7 +323,7 @@ export class Session {
       this.lastSummary = null;
       this.lastAnalysisBlockCount = 0;
       this.lastTodoAnalysisBlockCount = 0;
-      this.lastTodoAnalysisAt = Date.now();
+      this.lastTodoAnalysisAt = 0;
       this.recentSuggestedTodoTexts = [];
       this.events.emit("blocks-cleared");
       this.events.emit("summary-updated", null);
@@ -568,6 +569,86 @@ export class Session {
     ));
     log("INFO", `Translation ${this._translationEnabled ? "enabled" : "disabled"}`);
     return this._translationEnabled;
+  }
+
+  requestTodoScan(): {
+    ok: boolean;
+    queued: boolean;
+    todoAnalysisRan: boolean;
+    todoSuggestionsEmitted: number;
+    error?: string;
+  } {
+    if (this.contextState.transcriptBlocks.size === 0) {
+      this.hydrateTranscriptContextFromDb();
+    }
+    if (this.contextState.transcriptBlocks.size === 0) {
+      this.events.emit("status", "Todo scan: no transcript available yet.");
+      return {
+        ok: false,
+        queued: false,
+        todoAnalysisRan: false,
+        todoSuggestionsEmitted: 0,
+        error: "No transcript available to scan yet",
+      };
+    }
+
+    this.todoScanRequested = true;
+    if (this.analysisInFlight) {
+      this.analysisRequested = true;
+      this.events.emit("status", "Todo scan queued...");
+      return {
+        ok: true,
+        queued: true,
+        todoAnalysisRan: false,
+        todoSuggestionsEmitted: 0,
+      };
+    }
+
+    this.events.emit("status", "Todo scan queued...");
+    if (this.isRecording) {
+      this.scheduleAnalysis(0);
+    } else {
+      void this.generateAnalysis();
+    }
+    return {
+      ok: true,
+      queued: true,
+      todoAnalysisRan: false,
+      todoSuggestionsEmitted: 0,
+    };
+  }
+
+  private hydrateTranscriptContextFromDb() {
+    if (!this.db) return;
+    if (this.contextState.transcriptBlocks.size > 0) return;
+
+    const persistedBlocks = this.db
+      .getBlocksForSession(this.sessionId)
+      .sort((a, b) => {
+        if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+        return a.id - b.id;
+      });
+
+    if (persistedBlocks.length === 0) return;
+
+    this.contextState.contextBuffer.length = 0;
+    this.contextState.transcriptBlocks.clear();
+
+    let maxBlockId = 0;
+    for (const block of persistedBlocks) {
+      this.contextState.transcriptBlocks.set(block.id, block);
+      if (block.id > maxBlockId) maxBlockId = block.id;
+
+      if (block.sourceText && hasTranslatableContent(block.sourceText)) {
+        recordContext(this.contextState, block.sourceText);
+      } else if (block.translation && hasTranslatableContent(block.translation)) {
+        recordContext(this.contextState, block.translation);
+      }
+    }
+
+    this.contextState.nextBlockId = Math.max(this.contextState.nextBlockId, maxBlockId + 1);
+    // Prevent backfilling summary/insights when the user only requests a todo scan.
+    this.lastAnalysisBlockCount = this.contextState.transcriptBlocks.size;
   }
 
   shutdown(): void {
@@ -975,26 +1056,50 @@ Return:
     this.analysisRequested = false;
   }
 
-  private async generateAnalysis(): Promise<void> {
+  private async generateAnalysis(): Promise<{
+    todoAnalysisRan: boolean;
+    todoSuggestionsEmitted: number;
+  }> {
     if (this.analysisInFlight) {
       this.analysisRequested = true;
-      return;
+      return {
+        todoAnalysisRan: false,
+        todoSuggestionsEmitted: 0,
+      };
     }
 
     const allBlocks = [...this.contextState.transcriptBlocks.values()];
-    if (allBlocks.length <= this.lastAnalysisBlockCount) return;
+    const now = Date.now();
+    const forceTodoAnalysis = this.todoScanRequested;
+    this.todoScanRequested = false;
+    const hasNewAnalysisBlocks = allBlocks.length > this.lastAnalysisBlockCount;
+    const shouldRunTodoAnalysis =
+      (forceTodoAnalysis && allBlocks.length > 0)
+      || (
+        allBlocks.length > this.lastTodoAnalysisBlockCount
+        && now - this.lastTodoAnalysisAt >= this.todoAnalysisIntervalMs
+      );
+    if (!hasNewAnalysisBlocks && !shouldRunTodoAnalysis) {
+      return {
+        todoAnalysisRan: false,
+        todoSuggestionsEmitted: 0,
+      };
+    }
 
     // Send all blocks since last analysis, plus up to 10 earlier blocks for context continuity
-    const newBlocks = allBlocks.slice(this.lastAnalysisBlockCount);
-    if (newBlocks.length < 1) return;
     const analysisTargetBlockCount = allBlocks.length;
     const contextStart = Math.max(0, this.lastAnalysisBlockCount - 10);
-    const recentBlocks = allBlocks.slice(contextStart);
+    const recentBlocks = hasNewAnalysisBlocks ? allBlocks.slice(contextStart) : [];
 
     this.analysisInFlight = true;
     this.analysisRequested = false;
     let analysisSucceeded = false;
     const startTime = Date.now();
+    let analysisElapsedMs = 0;
+    let analysisKeyPointsCount = 0;
+    let analysisInsightsCount = 0;
+    let todoAnalysisRan = false;
+    let todoSuggestionsEmitted = 0;
 
     try {
       const existingTodos = this.db
@@ -1002,72 +1107,73 @@ Return:
         : [];
       const previousKeyPoints = this.contextState.allKeyPoints.slice(-20);
 
-      const analysisPrompt = buildAnalysisPrompt(recentBlocks, previousKeyPoints);
+      if (hasNewAnalysisBlocks) {
+        const analysisPrompt = buildAnalysisPrompt(recentBlocks, previousKeyPoints);
 
-      const analysisProvider = this.config.analysisProvider;
-      const providerOptions = analysisProvider === "google" || analysisProvider === "vertex"
-        ? { google: { thinkingConfig: { includeThoughts: false, thinkingBudget: 2048 } } }
-        : undefined;
+        const analysisProvider = this.config.analysisProvider;
+        const providerOptions = analysisProvider === "google" || analysisProvider === "vertex"
+          ? { google: { thinkingConfig: { includeThoughts: false, thinkingBudget: 2048 } } }
+          : undefined;
 
-      const { object: analysisResult, usage } = await generateObject({
-        model: this.analysisModel,
-        schema: analysisSchema,
-        prompt: analysisPrompt,
-        abortSignal: AbortSignal.timeout(30000),
-        temperature: 0,
-        providerOptions,
-      });
+        const { object: analysisResult, usage } = await generateObject({
+          model: this.analysisModel,
+          schema: analysisSchema,
+          prompt: analysisPrompt,
+          abortSignal: AbortSignal.timeout(30000),
+          temperature: 0,
+          providerOptions,
+        });
 
-      const elapsed = Date.now() - startTime;
-      const totalCost = addCostToAcc(
-        this.costAccumulator,
-        usage?.inputTokens ?? 0,
-        usage?.outputTokens ?? 0,
-        "text",
-        this.config.analysisProvider
-      );
-      this.events.emit("cost-updated", totalCost);
-      this.lastAnalysisBlockCount = analysisTargetBlockCount;
-      analysisSucceeded = true;
+        analysisElapsedMs = Date.now() - startTime;
+        const totalCost = addCostToAcc(
+          this.costAccumulator,
+          usage?.inputTokens ?? 0,
+          usage?.outputTokens ?? 0,
+          "text",
+          this.config.analysisProvider
+        );
+        this.events.emit("cost-updated", totalCost);
+        this.lastAnalysisBlockCount = analysisTargetBlockCount;
+        analysisSucceeded = true;
 
-      // Update key points / summary — persist each as an insight so history survives
-      this.contextState.allKeyPoints.push(...analysisResult.keyPoints);
-      for (const text of analysisResult.keyPoints) {
-        const kpInsight: Insight = {
-          id: crypto.randomUUID(),
-          kind: "key-point",
-          text,
-          sessionId: this.sessionId,
-          createdAt: Date.now(),
-        };
-        this.db?.insertInsight(kpInsight);
-      }
-      this.lastSummary = { keyPoints: analysisResult.keyPoints, updatedAt: Date.now() };
-      this.events.emit("summary-updated", this.lastSummary);
+        // Update key points / summary — persist each as an insight so history survives
+        this.contextState.allKeyPoints.push(...analysisResult.keyPoints);
+        analysisKeyPointsCount = analysisResult.keyPoints.length;
+        for (const text of analysisResult.keyPoints) {
+          const kpInsight: Insight = {
+            id: crypto.randomUUID(),
+            kind: "key-point",
+            text,
+            sessionId: this.sessionId,
+            createdAt: Date.now(),
+          };
+          this.db?.insertInsight(kpInsight);
+        }
+        this.lastSummary = { keyPoints: analysisResult.keyPoints, updatedAt: Date.now() };
+        this.events.emit("summary-updated", this.lastSummary);
 
-      // Emit educational insights
-      for (const item of analysisResult.educationalInsights) {
-        const insight: Insight = {
-          id: crypto.randomUUID(),
-          kind: item.kind,
-          text: item.text,
-          sessionId: this.sessionId,
-          createdAt: Date.now(),
-        };
-        this.db?.insertInsight(insight);
-        this.events.emit("insight-added", insight);
+        // Emit educational insights
+        analysisInsightsCount = analysisResult.educationalInsights.length;
+        for (const item of analysisResult.educationalInsights) {
+          const insight: Insight = {
+            id: crypto.randomUUID(),
+            kind: item.kind,
+            text: item.text,
+            sessionId: this.sessionId,
+            createdAt: Date.now(),
+          };
+          this.db?.insertInsight(insight);
+          this.events.emit("insight-added", insight);
+        }
       }
 
       let todoSuggestions: string[] = [];
-      const shouldRunTodoAnalysis =
-        analysisTargetBlockCount > this.lastTodoAnalysisBlockCount
-        && Date.now() - this.lastTodoAnalysisAt >= this.todoAnalysisIntervalMs;
 
       if (shouldRunTodoAnalysis) {
+        todoAnalysisRan = true;
         const todoContextStart = Math.max(0, this.lastTodoAnalysisBlockCount - 10);
         const todoBlocks = allBlocks.slice(todoContextStart, analysisTargetBlockCount);
-        this.lastTodoAnalysisAt = Date.now();
-        this.lastTodoAnalysisBlockCount = analysisTargetBlockCount;
+        this.lastTodoAnalysisAt = now;
 
         try {
           const todoPrompt = buildTodoPrompt(todoBlocks, existingTodos);
@@ -1088,6 +1194,7 @@ Return:
           );
           this.events.emit("cost-updated", totalWithTodo);
           todoSuggestions = todoResult.suggestedTodos;
+          this.lastTodoAnalysisBlockCount = analysisTargetBlockCount;
         } catch (todoError) {
           if (this.config.debug) {
             log("WARN", `Todo extraction failed: ${toReadableError(todoError)}`);
@@ -1096,7 +1203,7 @@ Return:
       }
 
       if (this.config.debug) {
-        log("INFO", `Analysis response: ${elapsed}ms, keyPoints=${analysisResult.keyPoints.length}, insights=${analysisResult.educationalInsights.length}, todos=${todoSuggestions.length}`);
+        log("INFO", `Analysis response: ${analysisElapsedMs}ms, keyPoints=${analysisKeyPointsCount}, insights=${analysisInsightsCount}, todos=${todoSuggestions.length}`);
       }
 
       // Emit todo suggestions (not auto-added — user must accept)
@@ -1109,10 +1216,24 @@ Return:
           continue;
         }
         emittedTodoSuggestions.push(candidate);
+        todoSuggestionsEmitted += 1;
+      }
+
+      if (forceTodoAnalysis) {
+        const suffix = todoSuggestionsEmitted === 1 ? "" : "s";
+        this.events.emit(
+          "status",
+          todoAnalysisRan
+            ? `Todo scan complete: ${todoSuggestionsEmitted} suggestion${suffix}.`
+            : "Todo scan skipped."
+        );
       }
     } catch (error) {
       if (this.config.debug) {
         log("WARN", `Analysis failed: ${toReadableError(error)}`);
+      }
+      if (forceTodoAnalysis) {
+        this.events.emit("status", `Todo scan failed: ${toReadableError(error)}`);
       }
     } finally {
       this.analysisInFlight = false;
@@ -1120,8 +1241,15 @@ Return:
       if (this.isRecording && (this.analysisRequested || hasUnanalyzedBlocks)) {
         this.analysisRequested = false;
         this.scheduleAnalysis(analysisSucceeded ? 0 : this.analysisRetryDelayMs);
+      } else if (!this.isRecording && this.analysisRequested) {
+        this.analysisRequested = false;
+        void this.generateAnalysis();
       }
     }
+    return {
+      todoAnalysisRan,
+      todoSuggestionsEmitted,
+    };
   }
 
   private isDuplicateTodoSuggestion(
