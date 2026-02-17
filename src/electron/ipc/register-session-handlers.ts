@@ -22,7 +22,7 @@ export function registerSessionHandlers({ db, getWindow, sessionRef }: IpcDeps) 
       targetLang: LanguageCode,
       appConfig?: AppConfigOverrides,
     ) => {
-      shutdownCurrentSession(sessionRef, db);
+      await shutdownCurrentSession(sessionRef, db);
 
       const config = buildSessionConfig(sourceLang, targetLang, appConfig);
       try {
@@ -59,7 +59,7 @@ export function registerSessionHandlers({ db, getWindow, sessionRef }: IpcDeps) 
   ipcMain.handle(
     "resume-session",
     async (_event, sessionId: string, appConfig?: AppConfigOverrides) => {
-      shutdownCurrentSession(sessionRef, db);
+      await shutdownCurrentSession(sessionRef, db);
 
       const meta = db.getSession(sessionId);
       if (!meta) {
@@ -168,8 +168,8 @@ export function registerSessionHandlers({ db, getWindow, sessionRef }: IpcDeps) 
     }
   });
 
-  ipcMain.handle("shutdown-session", () => {
-    shutdownCurrentSession(sessionRef, db);
+  ipcMain.handle("shutdown-session", async () => {
+    await shutdownCurrentSession(sessionRef, db);
     return { ok: true };
   });
 }

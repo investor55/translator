@@ -76,6 +76,11 @@ import {
   type RealtimeConnection,
 } from "./elevenlabs";
 import { preloadWhisperPipeline, disposeWhisperPipeline, transcribeWithWhisper } from "./whisper-local";
+import {
+  getParagraphDecisionPromptTemplate,
+  getTranscriptPostProcessPromptTemplate,
+  renderPromptTemplate,
+} from "./prompt-loader";
 
 type TypedEmitter = EventEmitter & {
   emit<K extends keyof SessionEvents>(event: K, ...args: SessionEvents[K]): boolean;
@@ -278,9 +283,6 @@ export class Session {
       shouldCommit: z
         .boolean()
         .describe("True if the running transcript has reached a natural paragraph break and should be committed now."),
-      mergedTranscript: z
-        .string()
-        .describe("De-duplicated transcript text using only words already present in the input."),
       isPartial: z
         .boolean()
         .describe("True when the running transcript still sounds incomplete."),
@@ -462,7 +464,7 @@ export class Session {
     }
   }
 
-  stopRecording(flushRemaining = true, commitWhisperPending = true): void {
+  stopRecording(flushRemaining = true, commitWhisperPending = true, clearQueue = true): void {
     if (!this.isRecording) return;
     this.isRecording = false;
 
@@ -488,11 +490,15 @@ export class Session {
       void this.evaluateWhisperParagraphs(true);
     }
 
-    if (this._micEnabled) this.stopMic();
+    if (this._micEnabled) this.stopMic(commitWhisperPending);
 
-    this.chunkQueue = [];
+    if (clearQueue) {
+      this.chunkQueue = [];
+      this.inFlight = 0;
+    } else if (this.chunkQueue.length && this.inFlight < this.maxConcurrency) {
+      void this.processQueue();
+    }
     this.systemPipeline.overlap = Buffer.alloc(0);
-    this.inFlight = 0;
     resetVadState(this.systemPipeline.vadState);
 
     this.events.emit("state-change", this.getUIState("paused"));
@@ -611,7 +617,7 @@ export class Session {
     this.handleAudioData(this.micPipeline, data);
   }
 
-  stopMic(): void {
+  stopMic(commitWhisperPending = true): void {
     if (!this._micEnabled) return;
 
     if (this.config.transcriptionProvider === "elevenlabs") {
@@ -622,7 +628,7 @@ export class Session {
         this.enqueueChunk(this.micPipeline, remaining);
         void this.processQueue();
       }
-      if (this.config.transcriptionProvider === "whisper") {
+      if (commitWhisperPending && this.config.transcriptionProvider === "whisper") {
         void this.evaluateWhisperParagraphs(true, ["microphone"]);
       }
     }
@@ -733,13 +739,29 @@ export class Session {
     this.lastAnalysisBlockCount = this.contextState.transcriptBlocks.size;
   }
 
-  shutdown(): void {
+  async shutdown(): Promise<void> {
     log("INFO", "Session shutdown");
-    if (this._micEnabled) this.stopMic();
-    if (this.isRecording) this.stopRecording(false, false);
-    this.whisperPendingParagraphs.clear();
+    if (this.config.transcriptionProvider === "whisper") {
+      log(
+        "INFO",
+        `Whisper shutdown flush start: queue=${this.chunkQueue.length} inflight=${this.inFlight} pendingParagraphs=${this.whisperPendingParagraphs.size}`,
+      );
+    }
+    if (this._micEnabled) this.stopMic(false);
+    if (this.isRecording) this.stopRecording(true, false, false);
+    if (this.config.transcriptionProvider !== "elevenlabs") {
+      await this.waitForTranscriptionDrain();
+    }
+    if (this.config.transcriptionProvider === "whisper") {
+      await this.waitForWhisperParagraphDecisionIdle();
+      await this.evaluateWhisperParagraphs(true);
+      log("INFO", `Whisper shutdown flush done: pendingParagraphs=${this.whisperPendingParagraphs.size}`);
+      this.whisperPendingParagraphs.clear();
+      disposeWhisperPipeline();
+    } else {
+      this.whisperPendingParagraphs.clear();
+    }
     this.events.emit("partial", "");
-    if (this.config.transcriptionProvider === "whisper") disposeWhisperPipeline();
     writeSummaryLog(this.contextState.allKeyPoints);
   }
 
@@ -1033,18 +1055,8 @@ export class Session {
     if (!b) return a;
     if (a.endsWith(b)) return a;
     if (b.startsWith(a)) return b;
-
-    const aWords = a.split(/\s+/);
-    const bWords = b.split(/\s+/);
-    const maxOverlap = Math.min(12, aWords.length, bWords.length);
-    for (let overlap = maxOverlap; overlap >= 3; overlap--) {
-      const aSuffix = aWords.slice(aWords.length - overlap).join(" ").toLowerCase();
-      const bPrefix = bWords.slice(0, overlap).join(" ").toLowerCase();
-      if (aSuffix === bPrefix) {
-        return `${aWords.join(" ")} ${bWords.slice(overlap).join(" ")}`.trim();
-      }
-    }
-
+    // Conservative merge to avoid losing words in preview mode.
+    // Prefer duplicates over dropping potentially new content.
     return `${a} ${b}`.replace(/\s+/g, " ").trim();
   }
 
@@ -1074,19 +1086,9 @@ export class Session {
         let transcriptForDecision = pending.transcript.trim();
         let shouldCommit = forceCommit;
         if (!forceCommit) {
-          const prompt = `You decide whether a live transcript should be committed as a paragraph now.
-Return mergedTranscript using only words already present in the input; never add new words.
-
-Commit when:
-- A complete thought has ended (natural sentence boundary or clear pause).
-- The text reads as a coherent paragraph segment.
-
-Do not commit when:
-- The speaker is clearly mid-thought.
-- The ending looks cut off.
-
-Transcript:
-"""${pending.transcript}"""`;
+          const prompt = renderPromptTemplate(getParagraphDecisionPromptTemplate(), {
+            transcript: pending.transcript,
+          });
 
           try {
             const { object } = await generateObject({
@@ -1096,9 +1098,10 @@ Transcript:
               temperature: 0,
               abortSignal: AbortSignal.timeout(6000),
             });
-            transcriptForDecision =
-              ((object as { mergedTranscript?: string }).mergedTranscript ?? "").trim() || transcriptForDecision;
             shouldCommit = !!(object as { shouldCommit: boolean }).shouldCommit;
+            if ((object as { isPartial: boolean }).isPartial) {
+              shouldCommit = false;
+            }
           } catch (error) {
             if (this.config.debug) {
               log("WARN", `Whisper paragraph decision failed: ${toReadableError(error)}`);
@@ -1221,6 +1224,35 @@ Transcript:
       this.events.emit("status", `Processing ${this.inFlight} chunk${this.inFlight > 1 ? "s" : ""}...`);
     } else if (this.isRecording) {
       this.events.emit("status", "Listening...");
+    }
+  }
+
+  private async waitForTranscriptionDrain(timeoutMs = 8000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (this.inFlight > 0 || this.chunkQueue.length > 0) {
+      if (this.inFlight < this.maxConcurrency && this.chunkQueue.length > 0) {
+        void this.processQueue();
+      }
+      if (Date.now() >= deadline) {
+        log(
+          "WARN",
+          `Timed out waiting for transcription drain: queue=${this.chunkQueue.length} inflight=${this.inFlight}`,
+        );
+        return;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
+  private async waitForWhisperParagraphDecisionIdle(timeoutMs = 3000): Promise<void> {
+    if (!this.whisperParagraphDecisionInFlight) return;
+    const deadline = Date.now() + timeoutMs;
+    while (this.whisperParagraphDecisionInFlight) {
+      if (Date.now() >= deadline) {
+        log("WARN", "Timed out waiting for Whisper paragraph decision to finish");
+        return;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
     }
   }
 
@@ -1441,20 +1473,13 @@ Transcript:
 - If sourceLanguage is "en" and neither configured language is English, translation may be empty.
 - Translation must never be in the same language as transcript.`;
 
-    const prompt = `${summaryBlock}${contextBlock}You are post-processing a speech transcript from a dedicated STT model.
-Do not rewrite the transcript text.
-
-Transcript:
-"""${transcript}"""
-
-Detected language hint: "${detectedLangHint}"
-${translationRule}
-
-Return:
-1) sourceLanguage
-2) translation
-3) isPartial
-4) isNewTopic`;
+    const prompt = renderPromptTemplate(getTranscriptPostProcessPromptTemplate(), {
+      summary_block: summaryBlock,
+      context_block: contextBlock,
+      transcript,
+      detected_lang_hint: detectedLangHint,
+      translation_rule: translationRule,
+    });
 
     try {
       const { object, usage } = await generateObject({

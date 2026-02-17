@@ -16,7 +16,7 @@ let registeredDb: AppDatabase | null = null;
 
 export function shutdownSessionOnAppQuit() {
   if (!registeredDb) return;
-  shutdownCurrentSession(sessionRef, registeredDb);
+  void shutdownCurrentSession(sessionRef, registeredDb);
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: AppDatabase) {
@@ -30,7 +30,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
       return { ok: true };
     }
 
-    shutdownCurrentSession(sessionRef, db);
+    await shutdownCurrentSession(sessionRef, db);
 
     const meta = db.getSession(sessionId);
     if (!meta) {

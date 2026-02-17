@@ -7,6 +7,11 @@ import type {
   AgentQuestionSelection,
 } from "./types";
 import { log } from "./logger";
+import {
+  getAgentInitialUserPromptTemplate,
+  getAgentSystemPromptTemplate,
+  renderPromptTemplate,
+} from "./prompt-loader";
 
 type ExaClient = {
   searchAndContents: (query: string, options: Record<string, unknown>) => Promise<{
@@ -59,21 +64,19 @@ function formatCurrentDateForPrompt(now: Date): string {
 }
 
 const buildSystemPrompt = (transcriptContext: string) =>
-  `You are a practical research assistant.
+  renderPromptTemplate(getAgentSystemPromptTemplate(), {
+    today: formatCurrentDateForPrompt(new Date()),
+    transcript_context: transcriptContext,
+  });
 
-Today is ${formatCurrentDateForPrompt(new Date())}.
-
-Conversation context from the current session:
-${transcriptContext}
-
-Instructions:
-- If the task is ambiguous, under-specified, or has multiple plausible interpretations, call askQuestion before researching or answering.
-- Prefer asking 1-3 focused multiple-choice clarification questions.
-- In askQuestion options, provide concrete suggested paths and mark the best default with "(Recommended)" when appropriate.
-- Use searchWeb only when external facts are required (especially if the user asks for latest/current/today/recent information). Do not search for simple reasoning or writing tasks.
-- For time-sensitive information, verify with search and include concrete dates in the final answer.
-- Use getTranscriptContext when you need more local conversation context.
-- Keep the final answer concise and actionable.`;
+export function buildAgentInitialUserPrompt(task: string, taskContext?: string): string {
+  const contextText = taskContext?.trim();
+  const contextSection = contextText ? `\n\nContext:\n${contextText}` : "";
+  return renderPromptTemplate(getAgentInitialUserPromptTemplate(), {
+    todo: task.trim(),
+    context_section: contextSection,
+  });
+}
 
 function buildTools(
   exa: ExaClient,
@@ -321,14 +324,7 @@ function summarizeToolResult(
  * Run agent with an initial prompt (first turn).
  */
 export async function runAgent(agent: Agent, deps: AgentDeps): Promise<void> {
-  const initialPrompt = [
-    `Todo:\n${agent.task.trim()}`,
-    agent.taskContext?.trim()
-      ? `Context:\n${agent.taskContext.trim()}`
-      : "",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  const initialPrompt = buildAgentInitialUserPrompt(agent.task, agent.taskContext);
   const inputMessages: ModelMessage[] = [{ role: "user", content: initialPrompt }];
   await runAgentWithMessages(agent, inputMessages, deps);
 }

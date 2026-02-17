@@ -1,5 +1,10 @@
 import type { Direction, LanguageCode } from "./types";
 import { SUPPORTED_LANGUAGES } from "./types";
+import {
+  getAudioAutoPromptTemplate,
+  getAudioSourceTargetPromptTemplate,
+  renderPromptTemplate,
+} from "./prompt-loader";
 
 export const LANG_NAMES: Record<LanguageCode, string> = {
   en: "English",
@@ -124,35 +129,26 @@ export function buildAudioPromptForStructured(
       translateRule = `If the speech is ${sourceLangName}, the translation MUST be in ${targetLangName}. If the speech is ${targetLangName}, the translation MUST be in ${sourceLangName}. If English, leave translation empty. The translation must NEVER be in the same language as the transcript.`;
     }
 
-    return `${summaryBlock}${contextBlock}Listen to the audio clip. The speaker may be speaking ${langList}. The speaker may occasionally use English words or phrases even when primarily speaking another language \u2014 treat code-switching as part of the primary language, not as a language change.
-1. Detect the primary spoken language (${codeList})
-2. Transcribe the audio in its original language
-3. ${translateRule}
-
-IMPORTANT: The transcript field must be in the detected source language. The translation field must ALWAYS be in a DIFFERENT language than the transcript. If you hear ${sourceLangName}, the translation must be ${targetLangName}, not ${sourceLangName}.
-IMPORTANT: Never translate or paraphrase the transcript into English. Keep transcript in the spoken language exactly as heard.
-
-You are a strict transcriber. Output ONLY the exact words spoken \u2014 never add, infer, or complete words or sentences beyond what is audible.
-
-If the audio is cut off mid-sentence, transcribe only what was actually spoken. Set isPartial to true.
-
-If there is no speech, silence, or unintelligible audio, return an empty transcript and empty translation.
-
-Return sourceLanguage (${codeList}), transcript, isPartial, and translation.`;
+    return renderPromptTemplate(getAudioAutoPromptTemplate(), {
+      summary_block: summaryBlock,
+      context_block: contextBlock,
+      lang_list: langList,
+      code_list: codeList,
+      translate_rule: translateRule,
+      source_lang_name: sourceLangName,
+      target_lang_name: targetLangName,
+    });
   }
 
   const englishNote = sourceLang !== "en"
     ? ` The speaker may occasionally use English words/phrases \u2014 treat this as code-switching within ${sourceLangName}, not a language change.`
     : "";
 
-  return `${summaryBlock}${contextBlock}Listen to the audio clip spoken in ${sourceLangName}. Transcribe it in ${sourceLangName} and translate it into ${targetLangName}.${englishNote}
-
-IMPORTANT: The translation MUST be in ${targetLangName}. Never return a translation in the same language as the transcript.
-IMPORTANT: Transcript must stay in ${sourceLangName}. Do not translate transcript into English.
-
-You are a strict transcriber. Output ONLY the exact words spoken \u2014 never add, infer, or complete words or sentences beyond what is audible.
-
-If the audio is cut off mid-sentence, transcribe only what was actually spoken. Set isPartial to true.
-
-If there is no speech, silence, or unintelligible audio, return an empty transcript and empty translation.`;
+  return renderPromptTemplate(getAudioSourceTargetPromptTemplate(), {
+    summary_block: summaryBlock,
+    context_block: contextBlock,
+    source_lang_name: sourceLangName,
+    target_lang_name: targetLangName,
+    english_note: englishNote,
+  });
 }

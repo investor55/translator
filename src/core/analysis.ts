@@ -1,6 +1,13 @@
 import { z } from "zod";
 import type { TranscriptBlock, TodoItem } from "./types";
-import { getInsightsSystemPrompt, getSummarySystemPrompt } from "./prompt-loader";
+import {
+  getAnalysisRequestPromptTemplate,
+  getInsightsSystemPrompt,
+  getSummarySystemPrompt,
+  getTodoExtractPromptTemplate,
+  getTodoFromSelectionPromptTemplate,
+  renderPromptTemplate,
+} from "./prompt-loader";
 
 export const analysisSchema = z.object({
   keyPoints: z
@@ -63,18 +70,12 @@ export function buildAnalysisPrompt(
       ? `\n\nPrevious key points from this session:\n${previousKeyPoints.map((p) => `- ${p}`).join("\n")}`
       : "";
 
-  return `${summarySystemPrompt}
-
-${insightsSystemPrompt}
-
-Recent transcript:
-${transcript}${keyPointsSection}
-
-Grounding requirements:
-- Use only information from the transcript and previous key points from THIS session.
-- Do not use memory from prior sessions.
-- If transcript details are sparse, return fewer items rather than inventing details.
-`;
+  return renderPromptTemplate(getAnalysisRequestPromptTemplate(), {
+    summary_system_prompt: summarySystemPrompt,
+    insights_system_prompt: insightsSystemPrompt,
+    transcript,
+    previous_key_points_section: keyPointsSection,
+  });
 }
 
 export function buildTodoPrompt(
@@ -94,23 +95,10 @@ export function buildTodoPrompt(
       ? `\n\nExisting todos:\n${existingTodos.map((t) => `- [${t.completed ? "x" : " "}] ${t.text}`).join("\n")}`
       : "";
 
-  return `You extract TODOs from live conversation transcripts.
-
-Recent transcript:
-${transcript}${todosSection}
-
-Task:
-- Extract only clear tasks, action items, or follow-ups.
-- Suggest todos when there is explicit intent, commitment, or concrete planning (for example: "I need to", "we should", "add a todo", "remind me to", "don't forget to", "I'm planning to", "I'm going to", "I'm looking to", "I want to", "I wanna").
-- Treat first-person planning statements as actionable TODOs even when dates are not fixed yet.
-- Treat travel planning and scheduling intent as TODOs (for example: "I'm planning to visit X", "we should decide where else to go", "need to book X").
-- Skip vague brainstorming and informational statements without a clear next action.
-- Ignore bracketed non-speech tags like [silence], [music], [noise], [laughs].
-- Preserve details exactly: names, places, dates, times, constraints.
-- Merge fragments across neighboring lines into one complete todo.
-- Rewrite each todo as a short imperative action phrase.
-- Do NOT duplicate existing todos.
-- Return an empty list when no clear actionable todo was discussed.`;
+  return renderPromptTemplate(getTodoExtractPromptTemplate(), {
+    transcript,
+    existing_todos_section: todosSection,
+  });
 }
 
 export function buildTodoFromSelectionPrompt(
@@ -127,20 +115,9 @@ export function buildTodoFromSelectionPrompt(
     ? `\n\nUser intent for todo creation:\n${intent}`
     : "";
 
-  return `You convert highlighted transcript text into one concrete TODO.
-
-Highlighted transcript:
-${selectedText}${userIntentSection}${todosSection}
-
-Task:
-- Treat the highlighted transcript as grounding context.
-- If user intent is provided, prioritize it and convert it into one short imperative todo that is consistent with context.
-- If no user intent is provided, decide whether the highlighted text contains a clear actionable commitment, follow-up, or planning intent.
-- Return both:
-  - todoTitle: concise action title.
-  - todoDetails: rich context and constraints needed by an autonomous agent, including relevant background, assumptions, scope boundaries, and success criteria.
-- Preserve critical details (names, places, dates, constraints).
-- Do not create a todo when the text is unclear, conversational filler, or non-actionable.
-- Do not duplicate an existing todo.
-- Return empty todoTitle and todoDetails when shouldCreateTodo is false.`;
+  return renderPromptTemplate(getTodoFromSelectionPromptTemplate(), {
+    selected_text: selectedText,
+    user_intent_section: userIntentSection,
+    existing_todos_section: todosSection,
+  });
 }

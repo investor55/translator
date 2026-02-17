@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { ModelMessage } from "ai";
-import { runAgent, continueAgent } from "./agent";
+import { buildAgentInitialUserPrompt, runAgent, continueAgent } from "./agent";
 import { log } from "./logger";
 import type { AppDatabase } from "./db";
 import type {
@@ -51,14 +51,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   function buildHistoryFromSteps(agent: Agent): ModelMessage[] {
     const history: ModelMessage[] = [];
     if (agent.task.trim()) {
-      const taskPrompt = [
-        `Todo:\n${agent.task.trim()}`,
-        agent.taskContext?.trim()
-          ? `Context:\n${agent.taskContext.trim()}`
-          : "",
-      ]
-        .filter(Boolean)
-        .join("\n\n");
+      const taskPrompt = buildAgentInitialUserPrompt(agent.task, agent.taskContext);
       history.push({ role: "user", content: taskPrompt });
     }
 

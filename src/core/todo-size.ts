@@ -2,6 +2,7 @@ import { generateObject, type LanguageModel } from "ai";
 import { z } from "zod";
 import type { TodoSize } from "./types";
 import { toReadableError } from "./text-utils";
+import { getTodoSizeClassifierPromptTemplate, renderPromptTemplate } from "./prompt-loader";
 
 const TODO_SIZE_TIMEOUT_MS = 12_000;
 const DEFAULT_MIN_CONFIDENCE = 0.65;
@@ -28,18 +29,9 @@ function normalizeReason(reason: string): string {
 }
 
 function buildTodoSizePrompt(text: string): string {
-  return `Classify this todo for autonomous execution risk.
-
-Todo:
-${text}
-
-Rules:
-- small: single, low-risk, straightforward action that can be run automatically.
-- large: multi-step, ambiguous, high-impact, risky, or likely to need human judgment.
-- Prefer large when uncertain.
-- Confidence must be between 0 and 1.
-- Reason must be concise (one short sentence).
-`;
+  return renderPromptTemplate(getTodoSizeClassifierPromptTemplate(), {
+    todo_text: text,
+  });
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
