@@ -169,6 +169,7 @@ export function App() {
       setSuggestions([]);
       setInsights([]);
       seedAgents([]);
+      setFinalSummaryState({ kind: "idle" });
       session.clearSession();
       return;
     }
@@ -186,6 +187,7 @@ export function App() {
       setSuggestions([]);
       setInsights([]);
       seedAgents([]);
+      setFinalSummaryState({ kind: "idle" });
       session.clearSession();
       return;
     }
@@ -198,6 +200,7 @@ export function App() {
     setProcessingTodoIds([]);
     setInsights([]);
     seedAgents([]);
+    setFinalSummaryState({ kind: "idle" });
     setSelectedSessionId(parsed.sessionId);
     setResumeSessionId(parsed.sessionId);
     setSessionActive(true);
@@ -429,6 +432,7 @@ export function App() {
     setProcessingTodoIds([]);
     setInsights([]);
     seedAgents([]);
+    setFinalSummaryState({ kind: "idle" });
     setSessionActive(true);
   }, [seedAgents, selectedSessionId]);
 
@@ -456,6 +460,7 @@ export function App() {
     setSuggestions([]);
     setInsights([]);
     seedAgents([]);
+    setFinalSummaryState({ kind: "idle" });
     session.clearSession();
     setSessionRestartKey((prev) => prev + 1);
     setSessionActive(true);
@@ -1150,6 +1155,7 @@ export function App() {
                 ref={transcriptRef}
                 blocks={session.blocks}
                 partialText={session.partialText}
+                canTranslate={session.uiState?.canTranslate ?? false}
                 onCreateTodoFromSelection={handleCreateTodoFromSelection}
               />
               <SessionSummaryPanel

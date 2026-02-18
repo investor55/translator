@@ -42,7 +42,9 @@ export function createTranscriptionModel(config: SessionConfig): LanguageModel {
   switch (config.transcriptionProvider) {
     case "google": {
       const google = createGoogleGenerativeAI({
-        apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? process.env.GEMINI_API_KEY,
+        apiKey:
+          process.env.GOOGLE_GENERATIVE_AI_API_KEY ??
+          process.env.GEMINI_API_KEY,
       });
       return google(config.transcriptionModelId);
     }
@@ -54,13 +56,17 @@ export function createTranscriptionModel(config: SessionConfig): LanguageModel {
       return vertex(config.transcriptionModelId);
     }
     case "elevenlabs": {
-      throw new Error("ElevenLabs transcription does not use an AI SDK language model.");
+      throw new Error(
+        "ElevenLabs transcription does not use an AI SDK language model."
+      );
     }
     case "whisper": {
       throw new Error("Whisper runs locally and does not use an AI SDK model.");
     }
   }
-  throw new Error(`Unsupported transcription provider: ${String(config.transcriptionProvider)}`);
+  throw new Error(
+    `Unsupported transcription provider: ${String(config.transcriptionProvider)}`
+  );
 }
 
 export function createAnalysisModel(config: SessionConfig): LanguageModel {
@@ -69,15 +75,18 @@ export function createAnalysisModel(config: SessionConfig): LanguageModel {
       const openrouter = createOpenRouter({
         apiKey: process.env.OPENROUTER_API_KEY,
       });
-      const providerSort = getOpenRouterProviderSort();
+      // const providerSort = getOpenRouterProviderSort();
       return openrouter(config.analysisModelId, {
         reasoning: { max_tokens: 4096, exclude: false },
-        provider: providerSort ? { sort: providerSort } : undefined,
+        // provider: providerSort ? { sort: providerSort } : undefined,
+        provider: { sort: "throughput" },
       });
     }
     case "google": {
       const google = createGoogleGenerativeAI({
-        apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? process.env.GEMINI_API_KEY,
+        apiKey:
+          process.env.GOOGLE_GENERATIVE_AI_API_KEY ??
+          process.env.GEMINI_API_KEY,
       });
       return google(config.analysisModelId);
     }
@@ -89,18 +98,22 @@ export function createAnalysisModel(config: SessionConfig): LanguageModel {
       return vertex(config.analysisModelId);
     }
   }
-  throw new Error(`Unsupported analysis provider: ${String(config.analysisProvider)}`);
+  throw new Error(
+    `Unsupported analysis provider: ${String(config.analysisProvider)}`
+  );
 }
 
 export function createTodoModel(config: SessionConfig): LanguageModel {
   const openrouter = createOpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY,
   });
-  const providerSort = getOpenRouterTodoProviderSort();
+  // const providerSort = getOpenRouterTodoProviderSort();
   const reasoningTokens = getOpenRouterTodoReasoningTokens();
-  const todoModelId = config.todoModelId ?? process.env.TODO_MODEL_ID ?? "openai/gpt-oss-120b";
+  const todoModelId =
+    config.todoModelId ?? process.env.TODO_MODEL_ID ?? "openai/gpt-oss-120b";
   return openrouter(todoModelId, {
     reasoning: { max_tokens: reasoningTokens, exclude: false },
-    provider: providerSort ? { sort: providerSort } : undefined,
+    // provider: providerSort ? { sort: providerSort } : undefined,
+    provider: { sort: "throughput" },
   });
 }

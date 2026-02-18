@@ -20,6 +20,7 @@ export type SelectionTodoResult = {
 type TranscriptAreaProps = {
   blocks: TranscriptBlock[];
   partialText?: string;
+  canTranslate?: boolean;
   onCreateTodoFromSelection?: (
     highlightedText: string,
     userIntentText?: string,
@@ -41,7 +42,7 @@ function groupIntoParagraphs(blocks: readonly TranscriptBlock[]): TranscriptBloc
       continue;
     }
 
-    if (block.newTopic || block.createdAt - windowStart > PARAGRAPH_MAX_MS) {
+    if (block.newTopic || block.createdAt - windowStart > PARAGRAPH_MAX_MS || block.audioSource !== current[0].audioSource) {
       paragraphs.push(current);
       current = [block];
       windowStart = block.createdAt;
@@ -82,14 +83,14 @@ function joinTexts(
     .join(" ");
 }
 
-function Paragraph({ blocks, isLast }: { blocks: TranscriptBlock[]; isLast: boolean }) {
+function Paragraph({ blocks, isLast, canTranslate }: { blocks: TranscriptBlock[]; isLast: boolean; canTranslate: boolean }) {
   const first = blocks[0];
   const isTranscriptionOnly = first.sourceLabel === first.targetLabel;
   const isNonEnglishSource = first.sourceLabel !== "EN";
 
   const sourceText = joinTexts(blocks, (b) => b.sourceText);
   const translationText = joinTexts(blocks, (b) => b.translation);
-  const hasPending = blocks.some((b) => !b.translation);
+  const hasPending = canTranslate && blocks.some((b) => !b.translation);
 
   return (
     <div className={`pb-3 ${isLast ? "" : "mb-3 border-b border-border/50"}`}>
@@ -109,7 +110,7 @@ function Paragraph({ blocks, isLast }: { blocks: TranscriptBlock[]; isLast: bool
           </span>
         )}
       </div>
-      {!isTranscriptionOnly && (
+      {!isTranscriptionOnly && canTranslate && (
         <div className="text-[13px] font-sans mt-0.5">
           {translationText ? (
             <span className="text-foreground">
@@ -132,7 +133,7 @@ function Paragraph({ blocks, isLast }: { blocks: TranscriptBlock[]; isLast: bool
 }
 
 export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
-  function TranscriptArea({ blocks, partialText, onCreateTodoFromSelection }, ref) {
+  function TranscriptArea({ blocks, partialText, canTranslate, onCreateTodoFromSelection }, ref) {
     const bottomRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const selectionMenuRef = useRef<HTMLDivElement>(null);
@@ -342,6 +343,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
                 key={para[0].id}
                 blocks={para}
                 isLast={i === paragraphs.length - 1}
+                canTranslate={canTranslate ?? false}
               />
             ))
           )}

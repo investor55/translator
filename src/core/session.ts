@@ -140,14 +140,13 @@ export class Session {
   private micProcess: ChildProcess | null = null;
   private _micEnabled = false;
 
-  // Shared transcription queue for both pipelines. Keep sequential to preserve speech order.
-  private chunkQueue: Array<{
-    chunk: Buffer;
-    audioSource: AudioSource;
-    capturedAt: number;
-  }> = [];
-  private inFlight = 0;
-  private maxConcurrency = 1;
+  // Per-source transcription queues (Vertex/Whisper). Each source runs its own sequential worker.
+  private chunkQueues = new Map<AudioSource, Array<{ chunk: Buffer; capturedAt: number }>>([
+    ["system", []],
+    ["microphone", []],
+  ]);
+  private inFlight = new Map<AudioSource, number>([["system", 0], ["microphone", 0]]);
+  private readonly maxConcurrency = 1;
   private readonly maxQueueSize = 20;
 
   // Per-pipeline state
@@ -398,9 +397,11 @@ export class Session {
     this.isRecording = true;
 
     resetVadState(this.systemPipeline.vadState);
-    this.chunkQueue = [];
+    this.chunkQueues.set("system", []);
+    this.chunkQueues.set("microphone", []);
     this.systemPipeline.overlap = Buffer.alloc(0);
-    this.inFlight = 0;
+    this.inFlight.set("system", 0);
+    this.inFlight.set("microphone", 0);
     this.whisperPendingParagraphs.clear();
     this.whisperLastParagraphDecisionAt = 0;
     this.events.emit("partial", "");
@@ -517,7 +518,7 @@ export class Session {
       const remaining = flushVad(this.systemPipeline.vadState);
       if (remaining) {
         this.enqueueChunk(this.systemPipeline, remaining);
-        void this.processQueue();
+        void this.processQueue("system");
       }
     }
     if (commitWhisperPending && this.config.transcriptionProvider === "whisper") {
@@ -527,10 +528,16 @@ export class Session {
     if (this._micEnabled) this.stopMic(commitWhisperPending);
 
     if (clearQueue) {
-      this.chunkQueue = [];
-      this.inFlight = 0;
-    } else if (this.chunkQueue.length && this.inFlight < this.maxConcurrency) {
-      void this.processQueue();
+      this.chunkQueues.set("system", []);
+      this.chunkQueues.set("microphone", []);
+      this.inFlight.set("system", 0);
+      this.inFlight.set("microphone", 0);
+    } else {
+      for (const src of (["system", "microphone"] as AudioSource[])) {
+        if (this.chunkQueues.get(src)!.length && this.inFlight.get(src)! < this.maxConcurrency) {
+          void this.processQueue(src);
+        }
+      }
     }
     this.systemPipeline.overlap = Buffer.alloc(0);
     resetVadState(this.systemPipeline.vadState);
@@ -550,9 +557,6 @@ export class Session {
       this._micEnabled = true;
       resetVadState(this.micPipeline.vadState);
       this.micPipeline.overlap = Buffer.alloc(0);
-
-      // Keep sequential processing so transcript order matches speech order.
-      this.maxConcurrency = 1;
 
       if (this.config.transcriptionProvider === "elevenlabs") {
         void this.openElevenLabsConnection("microphone");
@@ -606,7 +610,6 @@ export class Session {
       this.micProcess.on("close", (code) => {
         if (this._micEnabled) {
           this._micEnabled = false;
-          this.maxConcurrency = 1;
           if (code !== 0 && code !== null) {
             const detail = micStderrBuffer.trim().slice(-200) || `exit code ${code}`;
             log("ERROR", `Mic ffmpeg exited: code=${code}, stderr: ${micStderrBuffer.trim()}`);
@@ -633,7 +636,6 @@ export class Session {
     this._micEnabled = true;
     resetVadState(this.micPipeline.vadState);
     this.micPipeline.overlap = Buffer.alloc(0);
-    this.maxConcurrency = 1;
     this.micDebugWindowCount = 0;
 
     if (this.config.transcriptionProvider === "elevenlabs") {
@@ -660,7 +662,7 @@ export class Session {
       const remaining = flushVad(this.micPipeline.vadState);
       if (remaining) {
         this.enqueueChunk(this.micPipeline, remaining);
-        void this.processQueue();
+        void this.processQueue("microphone");
       }
       if (commitWhisperPending && this.config.transcriptionProvider === "whisper") {
         void this.evaluateWhisperParagraphs(true, ["microphone"]);
@@ -673,7 +675,6 @@ export class Session {
     }
 
     this._micEnabled = false;
-    this.maxConcurrency = 1;
     resetVadState(this.micPipeline.vadState);
     this.micPipeline.overlap = Buffer.alloc(0);
 
@@ -824,7 +825,7 @@ export class Session {
     if (this.config.transcriptionProvider === "whisper") {
       log(
         "INFO",
-        `Whisper shutdown flush start: queue=${this.chunkQueue.length} inflight=${this.inFlight} pendingParagraphs=${this.whisperPendingParagraphs.size}`,
+        `Whisper shutdown flush start: queue=${this.chunkQueues.get("system")!.length + this.chunkQueues.get("microphone")!.length} inflight=${this.inFlight.get("system")! + this.inFlight.get("microphone")!} pendingParagraphs=${this.whisperPendingParagraphs.size}`,
       );
     }
     if (this._micEnabled) this.stopMic(false);
@@ -978,6 +979,13 @@ export class Session {
     }
 
     if (this.config.transcriptionProvider === "elevenlabs") {
+      // Update mic-priority timestamp from audio energy (VAD path is skipped for ElevenLabs)
+      if (pipeline.source === "microphone") {
+        const rms = computeRms(data);
+        if (rms > pipeline.vadState.silenceThreshold) {
+          this.micSpeechLastDetectedAt = Date.now();
+        }
+      }
       // Realtime path: stream raw PCM directly, no local VAD or queue
       const connection = pipeline.source === "system"
         ? this.systemConnection
@@ -1005,7 +1013,7 @@ export class Session {
       if (Math.floor(this.micDebugWindowCount / 20) > Math.floor(prev / 20)) {
         const { peakRms, silenceThreshold, speechStarted } = pipeline.vadState;
         const speechBufMs = (pipeline.vadState.speechBuffer.length / (16000 * 2)) * 1000;
-        log("INFO", `Mic levels: peakRms=${peakRms.toFixed(0)} threshold=${silenceThreshold} speechStarted=${speechStarted} speechBuf=${speechBufMs.toFixed(0)}ms queue=${this.chunkQueue.length}`);
+        log("INFO", `Mic levels: peakRms=${peakRms.toFixed(0)} threshold=${silenceThreshold} speechStarted=${speechStarted} speechBuf=${speechBufMs.toFixed(0)}ms queue=${this.chunkQueues.get("microphone")!.length}`);
         this.events.emit("status", `Mic: peak=${peakRms.toFixed(0)} thr=${silenceThreshold}${speechStarted ? ` speaking ${speechBufMs.toFixed(0)}ms` : ""}`);
         pipeline.vadState.peakRms = 0;
       }
@@ -1018,12 +1026,12 @@ export class Session {
       const durationMs = (chunk.length / (16000 * 2)) * 1000;
 
       if (pipeline.source === "microphone") {
-        log("INFO", `Mic VAD: speech chunk ${durationMs.toFixed(0)}ms rms=${computeRms(chunk).toFixed(0)}, queue=${this.chunkQueue.length}`);
+        log("INFO", `Mic VAD: speech chunk ${durationMs.toFixed(0)}ms rms=${computeRms(chunk).toFixed(0)}, queue=${this.chunkQueues.get("microphone")!.length}`);
         this.micSpeechLastDetectedAt = Date.now();
       }
 
       this.enqueueChunk(pipeline, chunk);
-      void this.processQueue();
+      void this.processQueue(pipeline.source);
     }
   }
 
@@ -1312,14 +1320,14 @@ export class Session {
     const overlap = pipeline.overlap.subarray(0, overlapBytes);
     const combined = overlap.length ? Buffer.concat([overlap, chunk]) : chunk;
 
-    while (this.chunkQueue.length >= this.maxQueueSize) {
-      this.chunkQueue.shift();
+    const queue = this.chunkQueues.get(pipeline.source)!;
+    while (queue.length >= this.maxQueueSize) {
+      queue.shift();
       log("WARN", `Dropped oldest chunk, queue was at ${this.maxQueueSize}`);
     }
 
-    this.chunkQueue.push({
+    queue.push({
       chunk: combined,
-      audioSource: pipeline.source,
       capturedAt: Date.now(),
     });
     pipeline.overlap = Buffer.from(
@@ -1328,8 +1336,9 @@ export class Session {
   }
 
   private updateInFlightDisplay() {
-    if (this.inFlight > 0) {
-      this.events.emit("status", `Processing ${this.inFlight} chunk${this.inFlight > 1 ? "s" : ""}...`);
+    const total = this.inFlight.get("system")! + this.inFlight.get("microphone")!;
+    if (total > 0) {
+      this.events.emit("status", `Processing ${total} chunk${total > 1 ? "s" : ""}...`);
     } else if (this.isRecording) {
       this.events.emit("status", "Listening...");
     }
@@ -1337,15 +1346,17 @@ export class Session {
 
   private async waitForTranscriptionDrain(timeoutMs = 8000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
-    while (this.inFlight > 0 || this.chunkQueue.length > 0) {
-      if (this.inFlight < this.maxConcurrency && this.chunkQueue.length > 0) {
-        void this.processQueue();
+    const sources: AudioSource[] = ["system", "microphone"];
+    while (sources.some((s) => this.inFlight.get(s)! > 0 || this.chunkQueues.get(s)!.length > 0)) {
+      for (const src of sources) {
+        if (this.inFlight.get(src)! < this.maxConcurrency && this.chunkQueues.get(src)!.length > 0) {
+          void this.processQueue(src);
+        }
       }
       if (Date.now() >= deadline) {
-        log(
-          "WARN",
-          `Timed out waiting for transcription drain: queue=${this.chunkQueue.length} inflight=${this.inFlight}`,
-        );
+        const totalQueue = this.chunkQueues.get("system")!.length + this.chunkQueues.get("microphone")!.length;
+        const totalInFlight = this.inFlight.get("system")! + this.inFlight.get("microphone")!;
+        log("WARN", `Timed out waiting for transcription drain: queue=${totalQueue} inflight=${totalInFlight}`);
         return;
       }
       await new Promise<void>((resolve) => setTimeout(resolve, 25));
@@ -1364,14 +1375,16 @@ export class Session {
     }
   }
 
-  private async processQueue(): Promise<void> {
+  private async processQueue(source: AudioSource): Promise<void> {
     // ElevenLabs uses persistent WS; this queue is for Google/Vertex/Whisper.
     if (this.config.transcriptionProvider === "elevenlabs") return;
-    if (this.inFlight >= this.maxConcurrency || this.chunkQueue.length === 0) return;
-    const item = this.chunkQueue.shift();
+    const queue = this.chunkQueues.get(source)!;
+    if (this.inFlight.get(source)! >= this.maxConcurrency || queue.length === 0) return;
+    const item = queue.shift();
     if (!item) return;
-    const { chunk, audioSource, capturedAt } = item;
-    this.inFlight++;
+    const { chunk, capturedAt } = item;
+    const audioSource = source;
+    this.inFlight.set(source, this.inFlight.get(source)! + 1);
 
     const startTime = Date.now();
     const chunkDurationMs = (chunk.length / (16000 * 2)) * 1000;
@@ -1386,7 +1399,7 @@ export class Session {
       let isNewTopic = false;
 
       if (this.config.debug) {
-        log("INFO", `Transcription request [${this.config.transcriptionProvider}]: src=${audioSource} chunk=${chunkDurationMs.toFixed(0)}ms, queue=${this.chunkQueue.length}, inflight=${this.inFlight}`);
+        log("INFO", `Transcription request [${this.config.transcriptionProvider}]: src=${audioSource} chunk=${chunkDurationMs.toFixed(0)}ms, queue=${queue.length}, inflight=${this.inFlight.get(source)}`);
       }
 
       if (this.config.transcriptionProvider === "whisper") {
@@ -1446,7 +1459,7 @@ export class Session {
         this.events.emit("cost-updated", totalCost);
 
         if (this.config.debug) {
-          log("INFO", `Transcription response [${this.config.transcriptionProvider}]: ${Date.now() - startTime}ms, tokens: ${inTok}→${outTok}, queue: ${this.chunkQueue.length}`);
+          log("INFO", `Transcription response [${this.config.transcriptionProvider}]: ${Date.now() - startTime}ms, tokens: ${inTok}→${outTok}, queue: ${queue.length}`);
           this.events.emit("status", `Response: ${Date.now() - startTime}ms | T: ${inTok}→${outTok}`);
         }
 
@@ -1519,18 +1532,18 @@ export class Session {
         /Whisper process exited unexpectedly|Whisper worker exited unexpectedly|SIGTRAP|SIGABRT/i.test(fullError)
       ) {
         this.events.emit("error", `Whisper transcription failed: ${errorMsg}`);
-        this.chunkQueue = [];
+        queue.length = 0;
         stopRecordingOnFatalWhisperError = true;
       }
     } finally {
-      this.inFlight--;
+      this.inFlight.set(source, this.inFlight.get(source)! - 1);
       this.updateInFlightDisplay();
       if (stopRecordingOnFatalWhisperError && this.isRecording) {
         this.stopRecording();
         return;
       }
-      if (this.chunkQueue.length && this.inFlight < this.maxConcurrency) {
-        void this.processQueue();
+      if (queue.length && this.inFlight.get(source)! < this.maxConcurrency) {
+        void this.processQueue(source);
       }
     }
   }
