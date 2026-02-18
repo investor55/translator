@@ -31,6 +31,7 @@ type AgentDeps = {
   getTranscriptContext: () => string;
   projectInstructions?: string;
   getExternalTools?: () => Promise<AgentExternalToolSet>;
+  allowAutoApprove: boolean;
   requestClarification: (
     request: AgentQuestionRequest,
     options: { toolCallId: string; abortSignal?: AbortSignal }
@@ -114,12 +115,29 @@ function summarizeApprovalInput(input: unknown): string {
   }
 }
 
+function injectAutoApproveField(schema: unknown): unknown {
+  if (!schema || typeof schema !== "object") return schema;
+  const s = schema as Record<string, unknown>;
+  return {
+    ...s,
+    properties: {
+      ...(s.properties as Record<string, unknown> ?? {}),
+      _autoApprove: {
+        type: "boolean",
+        description:
+          "Set to true only when creating brand-new content that does not overwrite or delete anything existing, and the action can be easily undone. Leave false or omit for updates, deletes, archives, or any irreversible change.",
+      },
+    },
+  };
+}
+
 async function buildTools(
   exa: ExaClient,
   getTranscriptContext: () => string,
   requestClarification: AgentDeps["requestClarification"],
   requestToolApproval: AgentDeps["requestToolApproval"],
   onStep: AgentDeps["onStep"],
+  allowAutoApprove: boolean,
   getExternalTools?: AgentDeps["getExternalTools"],
 ) {
   const baseTools: Record<string, unknown> = {
@@ -193,17 +211,24 @@ async function buildTools(
   for (const [toolName, external] of Object.entries(externalTools)) {
     baseTools[toolName] = dynamicTool({
       description: external.description ?? `External MCP tool: ${toolName}`,
-      inputSchema: external.inputSchema as Parameters<typeof dynamicTool>[0]["inputSchema"],
+      inputSchema: (
+        external.isMutating && allowAutoApprove
+          ? injectAutoApproveField(external.inputSchema)
+          : external.inputSchema
+      ) as Parameters<typeof dynamicTool>[0]["inputSchema"],
       execute: async (input, { toolCallId, abortSignal }) => {
         const approvalId = `approval:${toolCallId}`;
-        if (external.isMutating) {
+        const { _autoApprove: autoApprove, ...cleanInput } =
+          input as Record<string, unknown> & { _autoApprove?: boolean };
+
+        if (external.isMutating && !autoApprove) {
           const request: AgentToolApprovalRequest = {
             id: approvalId,
             toolName,
             provider: external.provider,
             title: buildApprovalTitle(toolName, external.provider),
             summary: "This tool can create, update, or delete external data.",
-            input: summarizeApprovalInput(input),
+            input: summarizeApprovalInput(cleanInput),
           };
 
           onStep({
@@ -253,8 +278,9 @@ async function buildTools(
           }
         }
 
-        const output = await external.execute(input, { toolCallId, abortSignal });
-        if (external.isMutating) {
+        const output = await external.execute(cleanInput, { toolCallId, abortSignal });
+
+        if (external.isMutating && !autoApprove) {
           onStep({
             id: `${approvalId}:completed`,
             kind: "tool-result",
@@ -267,6 +293,7 @@ async function buildTools(
             createdAt: Date.now(),
           });
         }
+
         return output;
       },
     });
@@ -417,6 +444,7 @@ async function runAgentWithMessages(
     getTranscriptContext,
     projectInstructions,
     getExternalTools,
+    allowAutoApprove,
     requestClarification,
     requestToolApproval,
     onStep,
@@ -433,6 +461,7 @@ async function runAgentWithMessages(
       requestClarification,
       requestToolApproval,
       onStep,
+      allowAutoApprove,
       getExternalTools,
     );
 

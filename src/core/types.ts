@@ -135,6 +135,7 @@ export type SessionConfig = {
   debug: boolean;
   legacyAudio: boolean;
   translationEnabled: boolean;
+  agentAutoApprove: boolean;
   micDevice?: string;
 };
 
@@ -156,6 +157,7 @@ export type AppConfig = {
   debug: boolean;
   legacyAudio: boolean;
   translationEnabled: boolean;
+  agentAutoApprove: boolean;
 };
 
 export type AppConfigOverrides = Partial<AppConfig>;
@@ -209,6 +211,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   debug: !!ENV?.DEBUG,
   legacyAudio: false,
   translationEnabled: true,
+  agentAutoApprove: false,
 };
 
 export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig {
@@ -268,6 +271,7 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     debug: !!merged.debug,
     legacyAudio: !!merged.legacyAudio,
     translationEnabled: !!merged.translationEnabled,
+    agentAutoApprove: !!merged.agentAutoApprove,
   };
 }
 

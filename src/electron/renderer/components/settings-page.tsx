@@ -345,6 +345,11 @@ export function SettingsPage({
                 description="Use the legacy ffmpeg loopback capture flow."
                 control={<Switch checked={config.legacyAudio} onCheckedChange={(v) => set("legacyAudio", v)} />}
               />
+              <SettingRow
+                label="Agent Auto-Approve"
+                description="Allow agents to skip approval for safe creates (new content, easily undone). Updates, deletes, and archives still require approval."
+                control={<Switch checked={config.agentAutoApprove} onCheckedChange={(v) => set("agentAutoApprove", v)} />}
+              />
             </div>
           </section>
 

@@ -25,6 +25,7 @@ type AgentManagerDeps = {
   getTranscriptContext: () => string;
   getProjectInstructions?: () => string | undefined;
   getExternalTools?: () => Promise<AgentExternalToolSet>;
+  allowAutoApprove: boolean;
   db?: AppDatabase;
 };
 
@@ -342,6 +343,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       getTranscriptContext: deps.getTranscriptContext,
       projectInstructions: deps.getProjectInstructions?.(),
       getExternalTools: deps.getExternalTools,
+      allowAutoApprove: deps.allowAutoApprove,
       requestClarification: (request, options) =>
         requestClarification(agent.id, request, options),
       requestToolApproval: (request, options) =>
@@ -395,6 +397,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       getTranscriptContext: deps.getTranscriptContext,
       projectInstructions: deps.getProjectInstructions?.(),
       getExternalTools: deps.getExternalTools,
+      allowAutoApprove: deps.allowAutoApprove,
       requestClarification: (request, options) =>
         requestClarification(agent.id, request, options),
       requestToolApproval: (request, options) =>

@@ -52,6 +52,7 @@ export function buildSessionConfig(
     debug: config.debug,
     legacyAudio: config.legacyAudio,
     translationEnabled: config.translationEnabled,
+    agentAutoApprove: config.agentAutoApprove,
   };
 }
 

@@ -7,7 +7,6 @@ import {
   XCircleIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  SquareIcon,
   SearchIcon,
 } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
@@ -717,7 +716,6 @@ export function AgentDetailPanel({
   const hasPrev = currentIndex < agents.length - 1;
   const hasNext = currentIndex > 0;
   const isRunning = agent.status === "running";
-  const canFollowUp = !isRunning && !!onFollowUp;
   const activeTurnStartAt = useMemo(() => {
     const lastUserStep = [...agent.steps]
       .reverse()
@@ -874,17 +872,6 @@ export function AgentDetailPanel({
             Agent
           </span>
           <div className="flex shrink-0 items-center gap-0.5">
-            {isRunning && onCancel && (
-              <button
-                type="button"
-                onClick={handleCancel}
-                className="inline-flex items-center gap-1 rounded-none px-1.5 py-0.5 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/10"
-                aria-label="Cancel agent"
-              >
-                <SquareIcon className="size-3" />
-                Stop
-              </button>
-            )}
             {agents.length > 1 && (
               <>
                 <button
@@ -961,17 +948,21 @@ export function AgentDetailPanel({
         <ConversationScrollButton />
       </Conversation>
 
-      {/* Follow-up input — shown when agent is done */}
-      {!isRunning && onFollowUp && (
+      {/* Follow-up input */}
+      {onFollowUp && (
         <div className="shrink-0 border-t border-border p-2">
           <PromptInput onSubmit={handleFollowUpSubmit}>
             <PromptInputTextarea
               placeholder="Ask a follow-up..."
               className="min-h-8 max-h-24 text-xs"
+              disabled={isRunning}
             />
             <PromptInputFooter>
               <div />
-              <PromptInputSubmit disabled={!canFollowUp} />
+              <PromptInputSubmit
+                status={isRunning && onCancel ? "streaming" : undefined}
+                onStop={handleCancel}
+              />
             </PromptInputFooter>
           </PromptInput>
           {followUpError && (

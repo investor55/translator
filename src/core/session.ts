@@ -228,6 +228,7 @@ export class Session {
           return this.db?.getProject(meta.projectId)?.instructions ?? undefined;
         },
         getExternalTools: this.getExternalTools,
+        allowAutoApprove: config.agentAutoApprove,
         db: this.db ?? undefined,
       });
       if (this.db) {
