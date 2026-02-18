@@ -50,7 +50,7 @@ export const todoAnalysisSchema = z.object({
 export const todoFromSelectionSchema = z.object({
   shouldCreateTodo: z
     .boolean()
-    .describe("Whether the selected text contains a clear, actionable todo."),
+    .describe("Whether a todo should be created. Always true when user intent is provided. When no intent is given, true only if the selected text itself contains a clear actionable commitment."),
   todoTitle: z
     .string()
     .describe("Short actionable todo title (3-10 words). Empty when shouldCreateTodo is false."),
