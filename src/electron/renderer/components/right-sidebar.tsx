@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { TodoItem, TodoSuggestion, Agent } from "../../../core/types";
 import {
-  PlusIcon,
   ChevronDownIcon,
   CheckIcon,
   XIcon,
@@ -12,8 +11,13 @@ import {
 } from "lucide-react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { WorkoutRunIcon } from "@hugeicons/core-free-icons";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import {
+  PromptInput,
+  PromptInputTextarea,
+  PromptInputFooter,
+  PromptInputSubmit,
+  PromptInputHeader,
+} from "@/components/ai-elements/prompt-input";
 import { AgentList } from "./agent-list";
 import { AgentDebriefPanel } from "./agent-debrief-panel";
 import { useAgentsSummary } from "../hooks/use-agents-summary";
@@ -37,6 +41,9 @@ type RightSidebarProps = {
   onAcceptSuggestion?: (suggestion: TodoSuggestion) => void;
   onDismissSuggestion?: (id: string) => void;
   sessionId?: string;
+  transcriptRefs?: string[];
+  onRemoveTranscriptRef?: (index: number) => void;
+  onSubmitTodoInput?: (text: string, refs: string[]) => void;
 };
 
 function SuggestionItem({
@@ -55,10 +62,8 @@ function SuggestionItem({
     const age = Date.now() - suggestion.createdAt;
     const remaining = Math.max(0, SUGGESTION_TTL_MS - age);
 
-    // Start progress from current remaining fraction
     setProgress((remaining / SUGGESTION_TTL_MS) * 100);
 
-    // Tick the progress bar down every 100ms
     const interval = setInterval(() => {
       const elapsed = Date.now() - suggestion.createdAt;
       const pct = Math.max(0, 1 - elapsed / SUGGESTION_TTL_MS) * 100;
@@ -105,16 +110,6 @@ function SuggestionItem({
         <div className="h-full bg-primary/30 transition-none" style={{ width: `${progress}%` }} />
       </div>
     </li>
-  );
-}
-
-function ContextDot({ details }: { details?: string }) {
-  if (!details?.trim()) return null;
-  return (
-    <span
-      className="shrink-0 size-1 rounded-full bg-muted-foreground/40"
-      title={details.trim()}
-    />
   );
 }
 
@@ -250,15 +245,16 @@ export function RightSidebar({
   onAcceptSuggestion,
   onDismissSuggestion,
   sessionId,
+  transcriptRefs = [],
+  onRemoveTranscriptRef,
+  onSubmitTodoInput,
 }: RightSidebarProps) {
-  const [input, setInput] = useState("");
   const [completedOpen, setCompletedOpen] = useState(false);
   const processingTodoIdSet = new Set(processingTodoIds);
 
   const { state: debriefState, generate: generateDebrief, canGenerate: canGenerateDebrief, preload: preloadDebrief } =
     useAgentsSummary(agents ?? []);
 
-  // Pre-populate debrief from DB for past sessions
   useEffect(() => {
     if (!sessionId) return;
     void window.electronAPI.getAgentsSummary(sessionId).then((res) => {
@@ -288,43 +284,57 @@ export function RightSidebar({
     activeTodos.push(todo);
   }
 
-  // Auto-expand completed section when viewing past sessions with agent results
-  const isViewingPast = !onAddTodo;
+  const isViewingPast = !onSubmitTodoInput;
   const completedHaveAgents = completedTodos.some((t) => agentByTodoId.has(t.id));
   useEffect(() => {
     if (isViewingPast && completedHaveAgents) setCompletedOpen(true);
   }, [isViewingPast, completedHaveAgents]);
 
   const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
-      const text = input.trim();
-      if (!text) return;
-      onAddTodo?.(text);
-      setInput("");
+    ({ text }: { text: string }) => {
+      const refs = transcriptRefs;
+      if (!text.trim() && refs.length === 0) return;
+      onSubmitTodoInput?.(text.trim(), refs);
     },
-    [input, onAddTodo]
+    [transcriptRefs, onSubmitTodoInput]
   );
+
+  const hasRefs = transcriptRefs.length > 0;
 
   return (
     <div className="w-full h-full shrink-0 border-l border-border flex flex-col min-h-0 bg-sidebar">
-      {onAddTodo && (
-        <div className="px-3 pt-2.5 pb-2 shrink-0">
-          <form onSubmit={handleSubmit} className="flex gap-1.5">
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Add a todo..."
-              className="flex-1 h-7"
+      {onSubmitTodoInput && (
+        <div className="px-2 pt-2 pb-2 shrink-0">
+          <PromptInput onSubmit={handleSubmit}>
+            {hasRefs && (
+              <PromptInputHeader className="px-2 pt-1.5 pb-1 gap-1">
+                {transcriptRefs.map((ref, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className="flex items-center gap-1 pl-1.5 pr-1 py-0.5 text-2xs bg-muted/50 border border-border/60 text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors max-w-full"
+                    onClick={() => onRemoveTranscriptRef?.(i)}
+                    title={ref}
+                  >
+                    <span className="truncate max-w-[160px]">
+                      {ref.length > 50 ? `${ref.slice(0, 50)}…` : ref}
+                    </span>
+                    <XIcon className="size-2.5 shrink-0 opacity-50" />
+                  </button>
+                ))}
+              </PromptInputHeader>
+            )}
+            <PromptInputTextarea
+              placeholder={hasRefs ? "What should these become?" : "Add a todo..."}
+              className="min-h-0 text-xs"
             />
-            <Button
-              type="submit"
-              size="icon-sm"
-              disabled={!input.trim()}
-            >
-              <PlusIcon className="size-3.5" />
-            </Button>
-          </form>
+            <PromptInputFooter className="px-1 py-1">
+              <span className="text-2xs text-muted-foreground/35 font-mono select-none pl-1">
+                {hasRefs ? `${transcriptRefs.length} snippet${transcriptRefs.length > 1 ? "s" : ""}` : ""}
+              </span>
+              <PromptInputSubmit size="icon-sm" />
+            </PromptInputFooter>
+          </PromptInput>
         </div>
       )}
 

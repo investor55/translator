@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import type { TranscriptBlock } from "../../../core/types";
-import { ChevronDownIcon, ChevronUpIcon, LoaderCircleIcon, MicIcon, PencilIcon, Volume2Icon } from "lucide-react";
+import { ChevronDownIcon, ChevronUpIcon, MicIcon, PencilIcon, Volume2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SectionLabel } from "@/components/ui/section-label";
@@ -23,20 +23,12 @@ type TranscriptEntry =
   | { kind: "paragraph"; blocks: TranscriptBlock[]; key: string }
   | { kind: "note"; note: UserNote; key: string };
 
-export type SelectionTodoResult = {
-  ok: boolean;
-  message?: string;
-};
-
 type TranscriptAreaProps = {
   blocks: TranscriptBlock[];
   systemPartial?: string;
   micPartial?: string;
   canTranslate?: boolean;
-  onCreateTodoFromSelection?: (
-    highlightedText: string,
-    userIntentText?: string,
-  ) => Promise<SelectionTodoResult>;
+  onAddTranscriptRef?: (text: string) => void;
 };
 
 const PARAGRAPH_MAX_MS = 30_000;
@@ -182,17 +174,14 @@ function NoteBlock({ note, isLast }: { note: UserNote; isLast: boolean }) {
 }
 
 export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
-  function TranscriptArea({ blocks, systemPartial, micPartial, canTranslate, onCreateTodoFromSelection }, ref) {
+  function TranscriptArea({ blocks, systemPartial, micPartial, canTranslate, onAddTranscriptRef }, ref) {
     const bottomRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const selectionMenuRef = useRef<HTMLDivElement>(null);
     const selectionMenuTimerRef = useRef<number | null>(null);
     const paragraphs = useMemo(() => groupIntoParagraphs(blocks), [blocks]);
     const [selectionText, setSelectionText] = useState("");
     const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
-    const [submittingSelection, setSubmittingSelection] = useState(false);
-    const [selectionFeedback, setSelectionFeedback] = useState("");
-    const [todoIntentInput, setTodoIntentInput] = useState("");
+    const [addedFeedback, setAddedFeedback] = useState(false);
     const [userNotes, setUserNotes] = useState<UserNote[]>([]);
     const [noteInput, setNoteInput] = useState("");
 
@@ -244,9 +233,6 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
       clearSelectionMenuTimer();
       setSelectionText("");
       setMenuPosition(null);
-      setSubmittingSelection(false);
-      setSelectionFeedback("");
-      setTodoIntentInput("");
       if (!clearNativeSelection) return;
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed) {
@@ -255,14 +241,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
     }, [clearSelectionMenuTimer]);
 
     const handleSelectionChange = useCallback((event?: SyntheticEvent) => {
-      if (!onCreateTodoFromSelection) return;
-      if (
-        selectionMenuRef.current
-        && event?.target instanceof Node
-        && selectionMenuRef.current.contains(event.target)
-      ) {
-        return;
-      }
+      if (!onAddTranscriptRef) return;
       const container = containerRef.current;
       const selection = window.getSelection();
       if (!container || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
@@ -273,14 +252,19 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
       const range = selection.getRangeAt(0);
       const anchor = range.commonAncestorContainer;
       const anchorElement = anchor.nodeType === Node.TEXT_NODE ? anchor.parentElement : anchor;
-      const isInsideTranscript = !!anchorElement && container.contains(anchorElement);
-      if (!isInsideTranscript) {
+      if (!anchorElement || !container.contains(anchorElement)) {
         clearSelectionMenu();
         return;
       }
 
       const selected = selection.toString().trim();
       if (!selected) {
+        clearSelectionMenu();
+        return;
+      }
+
+      // Ignore if the event came from outside the transcript (e.g. note input)
+      if (event?.target instanceof Node && !container.contains(event.target)) {
         clearSelectionMenu();
         return;
       }
@@ -299,8 +283,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
 
       setSelectionText(selected);
       setMenuPosition({ top, left });
-      setSelectionFeedback("");
-    }, [clearSelectionMenu, onCreateTodoFromSelection]);
+    }, [clearSelectionMenu, onAddTranscriptRef]);
 
     const handleMouseSelectionChange = useCallback(() => {
       clearSelectionMenuTimer();
@@ -310,25 +293,35 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
       }, SELECTION_MENU_DEBOUNCE_MS);
     }, [clearSelectionMenuTimer, handleSelectionChange]);
 
-    const handleCreateTodo = useCallback(async () => {
-      if (!onCreateTodoFromSelection || !selectionText.trim() || submittingSelection) return;
-      setSubmittingSelection(true);
-      setSelectionFeedback("");
-      const result = await onCreateTodoFromSelection(selectionText, todoIntentInput.trim() || undefined);
-      if (result.ok) {
-        clearSelectionMenu(true);
-        return;
-      }
-      setSubmittingSelection(false);
-      setSelectionFeedback(result.message || "Could not create todo from selection.");
-    }, [
-      clearSelectionMenu,
-      onCreateTodoFromSelection,
-      selectionText,
-      submittingSelection,
-      todoIntentInput,
-    ]);
+    const addRef = useCallback((text: string) => {
+      onAddTranscriptRef?.(text);
+      setAddedFeedback(true);
+      clearSelectionMenu(true);
+    }, [onAddTranscriptRef, clearSelectionMenu]);
 
+    // Auto-hide the "Added" feedback toast
+    useEffect(() => {
+      if (!addedFeedback) return;
+      const timer = window.setTimeout(() => setAddedFeedback(false), 1500);
+      return () => window.clearTimeout(timer);
+    }, [addedFeedback]);
+
+    // ⌘L adds the current selection as a transcript ref
+    useEffect(() => {
+      if (!onAddTranscriptRef) return;
+      const handleKeyDown = (event: KeyboardEvent) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "l") {
+          const text = selectionText || window.getSelection()?.toString().trim();
+          if (!text) return;
+          event.preventDefault();
+          addRef(text);
+        }
+      };
+      document.addEventListener("keydown", handleKeyDown);
+      return () => document.removeEventListener("keydown", handleKeyDown);
+    }, [selectionText, onAddTranscriptRef, addRef]);
+
+    // Close hint chip on outside click
     useEffect(() => {
       if (!menuPosition) return;
       const closeOnOutsidePointer = (event: MouseEvent) => {
@@ -358,55 +351,33 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
             if (menuPosition) clearSelectionMenu();
           }}
         >
-          {menuPosition && onCreateTodoFromSelection && (
+          {/* "Added" confirmation toast */}
+          {addedFeedback && (
+            <div className="sticky top-2 z-20 float-right mr-0 mb-0 flex items-center gap-1 px-2 py-1 text-2xs bg-background border border-border shadow-sm text-muted-foreground">
+              Added to todo input
+            </div>
+          )}
+
+          {/* Hint chip near selection */}
+          {menuPosition && onAddTranscriptRef && selectionText && (
             <div
               className="absolute z-20"
               style={{ top: menuPosition.top, left: menuPosition.left }}
             >
-              <div
-                ref={selectionMenuRef}
-                className="w-64 rounded-none border border-border bg-background px-1 py-1 shadow-sm"
-                onMouseDown={(event) => event.stopPropagation()}
-                onMouseUp={(event) => event.stopPropagation()}
-                onTouchEnd={(event) => event.stopPropagation()}
-                onKeyUp={(event) => event.stopPropagation()}
+              <button
+                type="button"
+                className="flex items-center gap-1.5 px-2 py-1 text-2xs bg-background border border-border shadow-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+                onClick={() => addRef(selectionText)}
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onMouseUp={(e) => e.stopPropagation()}
+                onKeyUp={(e) => e.stopPropagation()}
               >
-                <Input
-                  value={todoIntentInput}
-                  onChange={(event) => setTodoIntentInput(event.target.value)}
-                  placeholder="Optional: what todo should this create?"
-                  className="h-7 text-xs"
-                  onMouseDown={(event) => event.stopPropagation()}
-                  onMouseUp={(event) => event.stopPropagation()}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void handleCreateTodo();
-                    }
-                  }}
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  className="mt-1 h-6 w-full px-2 text-2xs"
-                  disabled={submittingSelection}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => { void handleCreateTodo(); }}
-                >
-                  {submittingSelection ? (
-                    <LoaderCircleIcon className="size-3 animate-spin" />
-                  ) : (
-                    "Create todo"
-                  )}
-                </Button>
-                {selectionFeedback && (
-                  <p className="px-1 pt-1 text-2xs text-muted-foreground max-w-56">
-                    {selectionFeedback}
-                  </p>
-                )}
-              </div>
+                <span className="font-mono opacity-60">⌘L</span>
+                <span>Add to todo</span>
+              </button>
             </div>
           )}
+
           {entries.length === 0 ? (
             <p className="text-sm text-muted-foreground italic mt-2">
               Speak to see transcriptions here...

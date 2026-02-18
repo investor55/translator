@@ -777,6 +777,27 @@ export function App() {
     return { ok: true };
   }, [appConfig, persistTodo, selectedSessionId, session.sessionId]);
 
+  const [transcriptRefs, setTranscriptRefs] = useState<string[]>([]);
+
+  const handleAddTranscriptRef = useCallback((text: string) => {
+    setTranscriptRefs((prev) => [...prev, text]);
+  }, []);
+
+  const handleRemoveTranscriptRef = useCallback((index: number) => {
+    setTranscriptRefs((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const handleSubmitTodoInput = useCallback(async (intentText: string, refs: string[]) => {
+    const trimmedIntent = intentText.trim();
+    if (!trimmedIntent && refs.length === 0) return;
+    // Always route through AI extraction so todos get a proper title + context summary.
+    // When refs exist, they are the "selection" and intentText is the user's framing.
+    // When there are no refs, the typed text itself becomes the selection to extract from.
+    const selectionText = refs.length > 0 ? refs.join("\n\n---\n\n") : trimmedIntent;
+    await handleCreateTodoFromSelection(selectionText, refs.length > 0 ? (trimmedIntent || undefined) : undefined);
+    setTranscriptRefs([]);
+  }, [handleCreateTodoFromSelection]);
+
   const handleToggleTodo = useCallback((id: string) => {
     if (processingTodoIds.includes(id)) {
       return;
@@ -1174,7 +1195,7 @@ export function App() {
                 systemPartial={session.systemPartial}
                 micPartial={session.micPartial}
                 canTranslate={session.uiState?.canTranslate ?? false}
-                onCreateTodoFromSelection={handleCreateTodoFromSelection}
+                onAddTranscriptRef={handleAddTranscriptRef}
               />
               <SessionSummaryPanel
                 state={finalSummaryState}
@@ -1235,6 +1256,9 @@ export function App() {
                 onAcceptSuggestion={handleAcceptSuggestion}
                 onDismissSuggestion={handleDismissSuggestion}
                 sessionId={selectedSessionId ?? session.sessionId ?? undefined}
+                transcriptRefs={transcriptRefs}
+                onRemoveTranscriptRef={handleRemoveTranscriptRef}
+                onSubmitTodoInput={handleSubmitTodoInput}
               />
             </div>
           </>

@@ -222,26 +222,24 @@ export function LeftSidebar({
 
       <Separator />
 
-      {/* Summary section — scrollable, takes remaining space */}
-      <div className="px-3 py-2.5 flex-1 min-h-0 flex flex-col">
-        <SectionLabel className="mb-2 shrink-0">Summary</SectionLabel>
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {rollingKeyPoints.length > 0 ? (
-            <ul className="space-y-1">
-              {rollingKeyPoints.map((point, i) => (
-                <li key={i} className="text-xs text-foreground leading-relaxed">
-                  <span className="text-muted-foreground mr-1">•</span>
-                  {point}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-xs text-muted-foreground italic">
-              Summary will appear during recording...
-            </p>
-          )}
-          <div ref={summaryBottomRef} />
-        </div>
+      {/* Summary section — fixed small height */}
+      <div className="px-3 py-2.5 shrink-0 max-h-28 overflow-y-auto">
+        <SectionLabel className="mb-2">Summary</SectionLabel>
+        {rollingKeyPoints.length > 0 ? (
+          <ul className="space-y-1">
+            {rollingKeyPoints.map((point, i) => (
+              <li key={i} className="text-xs text-foreground leading-relaxed">
+                <span className="text-muted-foreground mr-1">•</span>
+                {point}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground italic">
+            Summary will appear during recording...
+          </p>
+        )}
+        <div ref={summaryBottomRef} />
       </div>
 
       <Separator />
@@ -252,7 +250,7 @@ export function LeftSidebar({
         {insights.length > 0 ? (
           <ul className="space-y-1.5">
             {insights.map((insight) => (
-              <li key={insight.id} className="text-xs leading-relaxed flex gap-1.5 items-center">
+              <li key={insight.id} className="text-xs leading-relaxed flex gap-1.5 items-start">
                 <span className="text-muted-foreground shrink-0">
                   <InsightIcon kind={insight.kind} />
                 </span>
@@ -270,9 +268,10 @@ export function LeftSidebar({
 
       <Separator />
 
-      {/* Session timeline */}
-      <div className="px-3 py-2.5 shrink-0 max-h-40 overflow-y-auto">
-        <SectionLabel className="mb-2">Sessions</SectionLabel>
+      {/* Session timeline — takes remaining space */}
+      <div className="px-3 py-2.5 flex-1 min-h-0 flex flex-col">
+        <SectionLabel className="mb-2 shrink-0">Sessions</SectionLabel>
+        <div className="flex-1 min-h-0 overflow-y-auto">
         {sessions.length > 0 ? (
           <ul className="space-y-1">
             {sessions.map((session) => (
@@ -321,6 +320,7 @@ export function LeftSidebar({
             No previous sessions
           </p>
         )}
+        </div>
       </div>
     </div>
   );
