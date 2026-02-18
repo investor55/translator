@@ -3,13 +3,22 @@ import { MakerDMG } from "@electron-forge/maker-dmg";
 import { MakerZIP } from "@electron-forge/maker-zip";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
+import * as path from "path";
+import * as fs from "fs";
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
+    asar: { unpackDir: "node_modules/audiotee" },
     icon: "./assets/icon",
     appBundleId: "com.ambient.app",
-    extraResource: ["./node_modules/audiotee"],
+    afterCopy: [
+      (buildPath, _electronVersion, _platform, _arch, callback) => {
+        const src = path.resolve(__dirname, "node_modules", "audiotee");
+        const dst = path.resolve(buildPath, "node_modules", "audiotee");
+        fs.cpSync(src, dst, { recursive: true });
+        callback();
+      },
+    ],
     osxSign: {
       optionsForFile: () => ({
         entitlements: "./assets/entitlements.plist",

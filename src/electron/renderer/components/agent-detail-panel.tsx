@@ -32,14 +32,6 @@ import {
   ChainOfThoughtSearchResults,
   ChainOfThoughtStep,
 } from "@/components/ai-elements/chain-of-thought";
-import {
-  Confirmation,
-  ConfirmationAccepted,
-  ConfirmationAction,
-  ConfirmationActions,
-  ConfirmationRejected,
-  ConfirmationRequest,
-} from "@/components/ai-elements/confirmation";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import type {
   Agent,
@@ -47,6 +39,7 @@ import type {
   AgentQuestionRequest,
   AgentQuestionSelection,
   AgentToolApprovalResponse,
+  AgentToolApprovalState,
 } from "../../../core/types";
 
 type FollowUpResult = { ok: boolean; error?: string };
@@ -182,6 +175,15 @@ function isAskQuestionStep(step: AgentStep): boolean {
 
 function isToolApprovalStep(step: AgentStep): boolean {
   return !!step.approvalState && !!step.approvalId;
+}
+
+function getApprovalStateOrder(state: AgentToolApprovalState): number {
+  switch (state) {
+    case "approval-requested": return 0;
+    case "approval-responded": return 1;
+    case "output-denied": return 2;
+    case "output-available": return 2;
+  }
 }
 
 function formatToolName(toolName?: string): string {
@@ -365,6 +367,8 @@ function ToolApprovalCard({
   const approvalState = step.approvalState;
   if (!approvalId || !approvalState) return null;
 
+  const toolLabel = formatToolName(step.toolName);
+
   const submitApproval = async (approved: boolean) => {
     if (!onAnswerToolApproval || approvalState !== "approval-requested") return;
     setSubmitError("");
@@ -376,47 +380,59 @@ function ToolApprovalCard({
     }
   };
 
+  const isDenied =
+    approvalState === "output-denied" ||
+    (approvalState === "approval-responded" && step.approvalApproved === false);
+  const isApproved =
+    approvalState === "output-available" ||
+    (approvalState === "approval-responded" && step.approvalApproved !== false);
+
+  if (isApproved && approvalState !== "approval-requested") {
+    return (
+      <div className="flex items-center gap-1.5 border-t border-border mt-1 py-1">
+        <CheckIcon className="size-3 text-primary/60 shrink-0" />
+        <span className="text-[11px] text-muted-foreground">{toolLabel}</span>
+      </div>
+    );
+  }
+
+  if (isDenied) {
+    return (
+      <div className="flex items-center gap-1.5 border-t border-border mt-1 py-1">
+        <XIcon className="size-3 text-muted-foreground/40 shrink-0" />
+        <span className="text-[11px] text-muted-foreground/50 line-through">{toolLabel}</span>
+      </div>
+    );
+  }
+
+  // approval-requested
   return (
-    <div className="mt-1 border-t border-border pt-2">
-      <Confirmation state={approvalState} approved={step.approvalApproved}>
-        <ConfirmationRequest>
-          <p className="text-[11px] font-semibold">{formatToolName(step.toolName)}</p>
-          <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
-            {step.content}
-          </p>
-          {step.toolInput && (
-            <pre className="mt-1 overflow-x-auto whitespace-pre-wrap border border-border/70 bg-background px-2 py-1 text-[10px] text-muted-foreground">
-              {step.toolInput}
-            </pre>
-          )}
-        </ConfirmationRequest>
-        <ConfirmationAccepted>
-          <CheckIcon className="size-3.5" />
-          <span>{step.content}</span>
-        </ConfirmationAccepted>
-        <ConfirmationRejected>
-          <XIcon className="size-3.5" />
-          <span>{step.content}</span>
-        </ConfirmationRejected>
-        <ConfirmationActions>
-          <ConfirmationAction
-            variant="outline"
-            disabled={!onAnswerToolApproval || submitting !== null}
-            onClick={() => void submitApproval(false)}
-          >
-            Reject
-          </ConfirmationAction>
-          <ConfirmationAction
-            disabled={!onAnswerToolApproval || submitting !== null}
-            onClick={() => void submitApproval(true)}
-          >
-            Approve
-          </ConfirmationAction>
-        </ConfirmationActions>
-        {submitError && (
-          <p className="mt-1 text-[11px] text-destructive">{submitError}</p>
-        )}
-      </Confirmation>
+    <div className="border-t border-border mt-1 py-1.5">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 text-[11px] text-foreground truncate">{toolLabel}</span>
+        <button
+          type="button"
+          onClick={() => void submitApproval(false)}
+          disabled={submitting !== null}
+          className="shrink-0 text-[11px] text-muted-foreground hover:text-destructive disabled:opacity-40 transition-colors"
+        >
+          Reject
+        </button>
+        <button
+          type="button"
+          onClick={() => void submitApproval(true)}
+          disabled={submitting !== null}
+          className="shrink-0 text-[11px] font-medium text-foreground hover:text-primary disabled:opacity-40 transition-colors"
+        >
+          Allow
+        </button>
+      </div>
+      {step.content && (
+        <p className="mt-0.5 text-[11px] text-muted-foreground/60 leading-relaxed">{step.content}</p>
+      )}
+      {submitError && (
+        <p className="mt-1 text-[11px] text-destructive">{submitError}</p>
+      )}
     </div>
   );
 }
@@ -527,6 +543,15 @@ function getToolCallCount(steps: AgentStep[]): number {
   return toolCallIds.size;
 }
 
+function getThinkingDurationSecs(steps: AgentStep[]): number | null {
+  const thinkingStart = steps.find((s) => s.kind === "thinking")?.createdAt;
+  if (thinkingStart == null) return null;
+  const firstAfterThinking = steps.find((s) => s.kind !== "thinking");
+  const endTime = firstAfterThinking?.createdAt ?? steps[steps.length - 1]?.createdAt;
+  if (endTime == null || endTime <= thinkingStart) return null;
+  return Math.max(1, Math.round((endTime - thinkingStart) / 1000));
+}
+
 function getSearchQuery(step: AgentStep): string | null {
   if (step.toolName !== "searchWeb") return null;
   const match = step.content.match(/^Searched:\s*(.+)$/i);
@@ -552,25 +577,41 @@ function ActivitySummaryItem({
 }) {
   const { stopScroll } = useStickToBottomContext();
   const toolCallCount = getToolCallCount(steps);
-  const toolCallSummary = `${toolCallCount} tool${toolCallCount === 1 ? "" : "s"} called`;
+  const hasThought = steps.some((s) => s.kind === "thinking");
+  const thinkingDuration = getThinkingDurationSecs(steps);
+
+  let headerLabel: string;
+  if (hasThought) {
+    const thoughtPart = thinkingDuration ? `Thought for ${thinkingDuration}s` : "Thought";
+    headerLabel = toolCallCount > 0
+      ? `${thoughtPart} · ${toolCallCount} tool${toolCallCount === 1 ? "" : "s"}`
+      : thoughtPart;
+  } else {
+    headerLabel = `${toolCallCount} tool${toolCallCount === 1 ? "" : "s"} called`;
+  }
 
   return (
     <div className="py-0.5 border-t border-border mt-1">
-      <ChainOfThought defaultOpen={false} isStreaming={isStreaming}>
+      <ChainOfThought defaultOpen={isStreaming} isStreaming={isStreaming}>
         <ChainOfThoughtHeader onClickCapture={() => stopScroll()}>
-          {toolCallSummary}
+          {headerLabel}
         </ChainOfThoughtHeader>
         <ChainOfThoughtContent>
-          <p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">
-            {title}
-          </p>
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             {steps.map((step, index) => {
-              const searchQuery = getSearchQuery(step);
               const isActive = isStreaming && index === steps.length - 1;
+              if (step.kind === "thinking") {
+                return (
+                  <div key={`${step.id}:${step.kind}`} className="py-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                    <MessageResponse>{step.content}</MessageResponse>
+                  </div>
+                );
+              }
+              const searchQuery = getSearchQuery(step);
               return (
                 <ChainOfThoughtStep
                   key={`${step.id}:${step.kind}`}
+                  className="border-0 px-0 py-0.5"
                   description={getActivityStepSummary(step)}
                   icon={searchQuery ? SearchIcon : undefined}
                   label={<MessageResponse>{step.content}</MessageResponse>}
@@ -699,9 +740,24 @@ export function AgentDetailPanel({
   );
   const showPlanning = isRunning && !hasCurrentTurnActivity;
   const timelineItems = useMemo(() => {
+    // Pre-pass: track the latest approval state per approvalId
+    const latestApprovalStep = new Map<string, AgentStep>();
+    for (const step of visibleSteps) {
+      if (step.approvalId && step.approvalState) {
+        const existing = latestApprovalStep.get(step.approvalId);
+        if (
+          !existing ||
+          getApprovalStateOrder(step.approvalState) > getApprovalStateOrder(existing.approvalState!)
+        ) {
+          latestApprovalStep.set(step.approvalId, step);
+        }
+      }
+    }
+
     const items: TimelineItem[] = [];
     let pendingActivity: AgentStep[] = [];
     let activityIndex = 0;
+    const seenApprovalIds = new Set<string>();
 
     const flushActivity = () => {
       if (pendingActivity.length === 0) return;
@@ -728,8 +784,11 @@ export function AgentDetailPanel({
         continue;
       }
       if (isToolApprovalStep(step)) {
+        const id = step.approvalId!;
+        if (seenApprovalIds.has(id)) continue;
+        seenApprovalIds.add(id);
         flushActivity();
-        items.push({ kind: "step", step });
+        items.push({ kind: "step", step: latestApprovalStep.get(id) ?? step });
         continue;
       }
       if (
