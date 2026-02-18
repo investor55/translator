@@ -203,9 +203,13 @@ export function useSession(
         }
       });
     } else {
-      api.startSession(sourceLang, targetLang, appConfigRef.current).then((result) => {
+      api.startSession(sourceLang, targetLang, appConfigRef.current).then(async (result) => {
         if (result.ok && result.sessionId) {
           dispatch({ kind: "session-started", sessionId: result.sessionId });
+          const recResult = await api.startRecording();
+          if (!recResult.ok) {
+            dispatch({ kind: "error", text: recResult.error ?? "Failed to start recording" });
+          }
         } else {
           dispatch({ kind: "error", text: result.error ?? "Failed to start session" });
         }
