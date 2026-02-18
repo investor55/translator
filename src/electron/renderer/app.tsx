@@ -75,9 +75,9 @@ export function App() {
   }, []);
 
   const [languages, setLanguages] = useState<Language[]>([]);
-  const [sourceLang, setSourceLang] = useLocalStorage<LanguageCode>("rosetta-source-lang", "ko");
-  const [targetLang, setTargetLang] = useLocalStorage<LanguageCode>("rosetta-target-lang", "en");
-  const [storedAppConfig, setStoredAppConfig] = useLocalStorage<AppConfig>("rosetta-app-config", DEFAULT_APP_CONFIG);
+  const [sourceLang, setSourceLang] = useLocalStorage<LanguageCode>("ambient-source-lang", "ko");
+  const [targetLang, setTargetLang] = useLocalStorage<LanguageCode>("ambient-target-lang", "en");
+  const [storedAppConfig, setStoredAppConfig] = useLocalStorage<AppConfig>("ambient-app-config", DEFAULT_APP_CONFIG);
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionRestartKey, setSessionRestartKey] = useState(0);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -95,9 +95,9 @@ export function App() {
     startAgent: number;
     hasAgent: boolean;
   } | null>(null);
-  const [leftPanelWidth, setLeftPanelWidth] = useLocalStorage<number>("rosetta-left-panel-width", 280);
-  const [rightPanelWidth, setRightPanelWidth] = useLocalStorage<number>("rosetta-right-panel-width", 300);
-  const [agentPanelWidth, setAgentPanelWidth] = useLocalStorage<number>("rosetta-agent-panel-width", 360);
+  const [leftPanelWidth, setLeftPanelWidth] = useLocalStorage<number>("ambient-left-panel-width", 280);
+  const [rightPanelWidth, setRightPanelWidth] = useLocalStorage<number>("ambient-right-panel-width", 300);
+  const [agentPanelWidth, setAgentPanelWidth] = useLocalStorage<number>("ambient-agent-panel-width", 360);
   const appConfig = useMemo(() => normalizeAppConfig(storedAppConfig), [storedAppConfig]);
 
   const [todos, setTodos] = useState<TodoItem[]>([]);

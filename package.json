@@ -1,6 +1,6 @@
 {
-  "name": "rosetta",
-  "productName": "Rosetta",
+  "name": "ambient",
+  "productName": "Ambient",
   "private": true,
   "version": "1.0.0",
   "main": ".vite/build/main.js",

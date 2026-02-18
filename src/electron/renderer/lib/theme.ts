@@ -1,6 +1,6 @@
 import type { LightVariant, ThemeMode } from "../../../core/types";
 
-const APP_CONFIG_STORAGE_KEY = "rosetta-app-config";
+const APP_CONFIG_STORAGE_KEY = "ambient-app-config";
 const LIGHT_BACKGROUND = "oklch(0.985 0.002 90)";
 const LINEN_BACKGROUND = "#EEEEEE";
 const DARK_BACKGROUND = "oklch(0.145 0 0)";

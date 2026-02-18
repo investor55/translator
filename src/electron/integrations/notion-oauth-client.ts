@@ -24,7 +24,7 @@ function randomState(): string {
 }
 
 function htmlPage(title: string, body: string): string {
-  return `<!doctype html><html><head><meta charset=\"utf-8\"><title>${title}</title></head><body><h2>${title}</h2><p>${body}</p><p>You can close this window and return to Rosetta.</p></body></html>`;
+  return `<!doctype html><html><head><meta charset=\"utf-8\"><title>${title}</title></head><body><h2>${title}</h2><p>${body}</p><p>You can close this window and return to Ambient.</p></body></html>`;
 }
 
 export function createNotionOAuthProvider({
@@ -42,7 +42,7 @@ export function createNotionOAuthProvider({
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
         token_endpoint_auth_method: "none",
-        client_name: "Rosetta Desktop MCP Client",
+        client_name: "Ambient Desktop MCP Client",
       };
     },
 

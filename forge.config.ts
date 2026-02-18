@@ -8,7 +8,7 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     icon: "./assets/icon",
-    appBundleId: "com.rosetta.translator",
+    appBundleId: "com.ambient.app",
     extraResource: ["./node_modules/audiotee"],
     osxSign: {
       optionsForFile: () => ({

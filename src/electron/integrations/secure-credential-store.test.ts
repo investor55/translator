@@ -30,7 +30,7 @@ describe("SecureCredentialStore", () => {
   });
 
   it("round-trips encrypted Notion tokens", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "rosetta-store-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ambient-store-"));
     tempDirs.push(tempDir);
     const store = new SecureCredentialStore(path.join(tempDir, "integrations.credentials.json"));
 
@@ -46,7 +46,7 @@ describe("SecureCredentialStore", () => {
   });
 
   it("fails writes when encryption is unavailable", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "rosetta-store-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ambient-store-"));
     tempDirs.push(tempDir);
     const store = new SecureCredentialStore(path.join(tempDir, "integrations.credentials.json"));
 

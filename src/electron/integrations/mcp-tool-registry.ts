@@ -16,7 +16,7 @@ import { SecureCredentialStore } from "./secure-credential-store";
 
 const LINEAR_MCP_URL = "https://mcp.linear.app/mcp";
 const CLIENT_INFO = {
-  name: "rosetta-mcp-client",
+  name: "ambient-mcp-client",
   version: "1.0.0",
 };
 

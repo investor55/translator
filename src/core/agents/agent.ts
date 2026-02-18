@@ -189,7 +189,7 @@ async function buildTools(
   for (const [toolName, external] of Object.entries(externalTools)) {
     baseTools[toolName] = dynamicTool({
       description: external.description ?? `External MCP tool: ${toolName}`,
-      inputSchema: external.inputSchema as never,
+      inputSchema: external.inputSchema as Parameters<typeof dynamicTool>[0]["inputSchema"],
       execute: async (input, { toolCallId, abortSignal }) => {
         const approvalId = `approval:${toolCallId}`;
         if (external.isMutating) {
