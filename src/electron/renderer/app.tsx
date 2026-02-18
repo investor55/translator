@@ -216,7 +216,7 @@ export function App() {
     void refreshSessions();
   }, [refreshSessions, session.sessionId]);
 
-  useThemeMode(appConfig.themeMode);
+  useThemeMode(appConfig.themeMode, appConfig.lightVariant);
 
   const appendSuggestions = useCallback((incoming: TodoSuggestion[]) => {
     if (incoming.length === 0) return;

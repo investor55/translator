@@ -1,8 +1,8 @@
 import { useEffect } from "react";
-import type { ThemeMode } from "../../../core/types";
+import type { LightVariant, ThemeMode } from "../../../core/types";
 import { applyThemeClass } from "../lib/theme";
 
-export function useThemeMode(themeMode: ThemeMode) {
+export function useThemeMode(themeMode: ThemeMode, lightVariant: LightVariant = "warm") {
   useEffect(() => {
     const media =
       typeof window.matchMedia === "function"
@@ -12,7 +12,7 @@ export function useThemeMode(themeMode: ThemeMode) {
     const applyTheme = () => {
       const shouldUseDark =
         themeMode === "dark" || (themeMode === "system" && !!media?.matches);
-      applyThemeClass(shouldUseDark);
+      applyThemeClass(shouldUseDark, lightVariant);
     };
 
     applyTheme();
@@ -25,5 +25,5 @@ export function useThemeMode(themeMode: ThemeMode) {
 
     media.addListener(applyTheme);
     return () => media.removeListener(applyTheme);
-  }, [themeMode]);
+  }, [themeMode, lightVariant]);
 }

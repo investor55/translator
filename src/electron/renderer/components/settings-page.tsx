@@ -4,6 +4,7 @@ import type {
   Direction,
   Language,
   LanguageCode,
+  LightVariant,
   ThemeMode,
   TranscriptionProvider,
 } from "../../../core/types";
@@ -36,6 +37,11 @@ const THEME_OPTIONS: Array<{ value: ThemeMode; label: string; icon: ReactNode }>
   { value: "system", label: "System", icon: <Laptop2Icon className="size-3.5" /> },
   { value: "light", label: "Light", icon: <SunIcon className="size-3.5" /> },
   { value: "dark", label: "Dark", icon: <MoonIcon className="size-3.5" /> },
+];
+
+const LIGHT_VARIANT_OPTIONS: Array<{ value: LightVariant; label: string; swatch: string }> = [
+  { value: "warm", label: "Warm", swatch: "oklch(0.985 0.002 90)" },
+  { value: "linen", label: "Linen", swatch: "#EEEEEE" },
 ];
 
 const DIRECTION_OPTIONS: Array<{ value: Direction; label: string }> = [
@@ -159,6 +165,34 @@ export function SettingsPage({
                 </div>
               }
             />
+            {config.themeMode !== "dark" && (
+              <SettingRow
+                label="Light Style"
+                description="Color palette used in light mode."
+                control={
+                  <div className="inline-flex items-center border border-border rounded-none overflow-hidden">
+                    {LIGHT_VARIANT_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={`h-8 px-2.5 text-xs inline-flex items-center gap-1.5 transition-colors ${
+                          config.lightVariant === option.value
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-background text-muted-foreground hover:text-foreground"
+                        }`}
+                        onClick={() => set("lightVariant", option.value)}
+                      >
+                        <span
+                          className="size-3 rounded-sm border border-border/50 shrink-0"
+                          style={{ backgroundColor: option.swatch }}
+                        />
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                }
+              />
+            )}
           </section>
 
           <section className="border border-border bg-card px-4 py-3 rounded-none">
