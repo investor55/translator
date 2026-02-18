@@ -59,6 +59,23 @@ export type FinalSummary = {
   generatedAt: number;
 };
 
+export type AgentsSummary = {
+  overallNarrative: string;
+  agentHighlights: Array<{
+    agentId: string;
+    task: string;
+    status: "completed" | "failed";
+    keyFinding: string;
+  }>;
+  coverageGaps: string[];
+  nextSteps: string[];
+  generatedAt: number;
+  totalAgents: number;
+  succeededAgents: number;
+  failedAgents: number;
+  totalDurationSecs: number;
+};
+
 export type TodoItem = Readonly<{
   id: string;
   text: string;
@@ -390,4 +407,6 @@ export type SessionEvents = {
   "agent-completed": [agentId: string, result: string];
   "agent-failed": [agentId: string, error: string];
   "agent-archived": [agentId: string];
+  "agents-summary-ready": [summary: AgentsSummary];
+  "agents-summary-error": [error: string];
 };

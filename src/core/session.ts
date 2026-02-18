@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import type {
   Agent,
+  AgentsSummary,
   AgentQuestionSelection,
   AgentToolApprovalResponse,
   AudioSource,
@@ -28,10 +29,12 @@ import {
   type TodoExtractSuggestion,
   todoFromSelectionSchema,
   finalSummarySchema,
+  agentsSummarySchema,
   buildAnalysisPrompt,
   buildTodoPrompt,
   buildTodoFromSelectionPrompt,
   buildFinalSummaryPrompt,
+  buildAgentsSummaryPrompt,
 } from "./analysis/analysis";
 import { classifyTodoSize as classifyTodoSizeWithModel, type TodoSizeClassification } from "./analysis/todo-size";
 import type { AppDatabase } from "./db/db";
@@ -783,6 +786,67 @@ export class Session {
         this.events.emit("final-summary-ready", summary);
       } catch (error) {
         this.events.emit("final-summary-error", toReadableError(error));
+      }
+    })();
+  }
+
+  generateAgentsSummary(): void {
+    const allAgents = this.agentManager?.getAllAgents() ?? [];
+    const terminalAgents = allAgents.filter(
+      (a) => a.status === "completed" || a.status === "failed"
+    );
+
+    if (terminalAgents.length === 0) {
+      this.events.emit("agents-summary-error", "No completed agents to summarise");
+      return;
+    }
+
+    if (this.contextState.transcriptBlocks.size === 0) {
+      this.hydrateTranscriptContextFromDb();
+    }
+    const allBlocks = [...this.contextState.transcriptBlocks.values()];
+    const prompt = buildAgentsSummaryPrompt(terminalAgents, allBlocks, this.contextState.allKeyPoints);
+
+    void (async () => {
+      try {
+        const { object, usage } = await generateObject({
+          model: this.todoModel,
+          schema: agentsSummarySchema,
+          prompt,
+          abortSignal: AbortSignal.timeout(60_000),
+          temperature: 0,
+        });
+
+        const totalCost = addCostToAcc(
+          this.costAccumulator,
+          usage?.inputTokens ?? 0,
+          usage?.outputTokens ?? 0,
+          "text",
+          "openrouter",
+        );
+        this.events.emit("cost-updated", totalCost);
+
+        const totalDurationSecs = terminalAgents.reduce((acc, a) => {
+          return acc + (a.completedAt && a.createdAt
+            ? Math.round((a.completedAt - a.createdAt) / 1000) : 0);
+        }, 0);
+
+        const summary: AgentsSummary = {
+          overallNarrative: object.overallNarrative.trim(),
+          agentHighlights: object.agentHighlights,
+          coverageGaps: object.coverageGaps,
+          nextSteps: object.nextSteps.map((s) => s.trim()).filter(Boolean),
+          generatedAt: Date.now(),
+          totalAgents: terminalAgents.length,
+          succeededAgents: terminalAgents.filter((a) => a.status === "completed").length,
+          failedAgents: terminalAgents.filter((a) => a.status === "failed").length,
+          totalDurationSecs,
+        };
+
+        this.db?.saveAgentsSummary(this.sessionId, summary);
+        this.events.emit("agents-summary-ready", summary);
+      } catch (error) {
+        this.events.emit("agents-summary-error", toReadableError(error));
       }
     })();
   }

@@ -1,10 +1,13 @@
 import type { Agent } from "../../../core/types";
-import { LoaderCircleIcon, CheckCircleIcon, XCircleIcon } from "lucide-react";
+import { LoaderCircleIcon, CheckCircleIcon, XCircleIcon, SparklesIcon } from "lucide-react";
 
 type AgentListProps = {
   agents: Agent[];
   selectedAgentId: string | null;
   onSelectAgent: (id: string) => void;
+  onGenerateDebrief?: () => void;
+  canGenerateDebrief?: boolean;
+  isDebriefLoading?: boolean;
 };
 
 function relativeTime(timestamp: number): string {
@@ -58,14 +61,36 @@ function contextPreview(agent: Agent): string | null {
   return contextText.replace(/\s+/g, " ").slice(0, 140);
 }
 
-export function AgentList({ agents, selectedAgentId, onSelectAgent }: AgentListProps) {
+export function AgentList({
+  agents,
+  selectedAgentId,
+  onSelectAgent,
+  onGenerateDebrief,
+  canGenerateDebrief,
+  isDebriefLoading,
+}: AgentListProps) {
   if (agents.length === 0) return null;
 
   return (
     <div className="mb-3">
-      <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-        Agents
-      </span>
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+          Agents ({agents.length})
+        </span>
+        {onGenerateDebrief && (
+          <button
+            type="button"
+            onClick={onGenerateDebrief}
+            disabled={!canGenerateDebrief || isDebriefLoading}
+            className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            aria-label="Generate agent debrief"
+            title={canGenerateDebrief ? "Generate debrief" : "Wait for all agents to finish"}
+          >
+            <SparklesIcon className="size-3" />
+            Debrief
+          </button>
+        )}
+      </div>
       <ul className="mt-1.5 space-y-1">
         {agents.map((agent) => {
           const preview = contextPreview(agent);

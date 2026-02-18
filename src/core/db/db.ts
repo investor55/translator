@@ -15,6 +15,7 @@ import type {
   Agent,
   AgentStep,
   FinalSummary,
+  AgentsSummary,
 } from "../types";
 
 export type AppDatabase = ReturnType<typeof createDatabase>;
@@ -428,6 +429,27 @@ export function createDatabase(dbPath: string) {
         .run();
     },
 
+    saveAgentsSummary(sessionId: string, summary: AgentsSummary) {
+      orm.update(sessions)
+        .set({
+          agentsSummaryData: JSON.stringify(summary),
+          agentsSummaryGeneratedAt: summary.generatedAt,
+        })
+        .where(eq(sessions.id, sessionId))
+        .run();
+    },
+
+    getAgentsSummary(sessionId: string): AgentsSummary | null {
+      const [row] = orm
+        .select({ agentsSummaryData: sessions.agentsSummaryData })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
+        .limit(1)
+        .all();
+      if (!row?.agentsSummaryData) return null;
+      return JSON.parse(row.agentsSummaryData) as AgentsSummary;
+    },
+
     getFinalSummary(sessionId: string): FinalSummary | null {
       const [row] = orm
         .select({
@@ -636,5 +658,11 @@ function runMigrations(db: Database.Database) {
   }
   if (!sessionColNames2.has("summary_generated_at")) {
     db.exec("ALTER TABLE sessions ADD COLUMN summary_generated_at INTEGER");
+  }
+  if (!sessionColNames2.has("agents_summary_data")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN agents_summary_data TEXT");
+  }
+  if (!sessionColNames2.has("agents_summary_generated_at")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN agents_summary_generated_at INTEGER");
   }
 }

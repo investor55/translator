@@ -1216,6 +1216,7 @@ export function App() {
                 processingTodoIds={processingTodoIds}
                 onAcceptSuggestion={handleAcceptSuggestion}
                 onDismissSuggestion={handleDismissSuggestion}
+                sessionId={selectedSessionId ?? session.sessionId ?? undefined}
               />
             </div>
           </>

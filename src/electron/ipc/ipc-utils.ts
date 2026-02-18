@@ -4,6 +4,7 @@ import { Session } from "../../core/session";
 import type {
   Agent,
   AgentStep,
+  AgentsSummary,
   AppConfigOverrides,
   FinalSummary,
   LanguageCode,
@@ -144,6 +145,14 @@ export function wireSessionEvents(
   activeSession.events.on("final-summary-error", (error: string) => {
     if (!isCurrentSession()) return;
     sendToRenderer(getWindow, "session:final-summary-error", error);
+  });
+  activeSession.events.on("agents-summary-ready", (summary: AgentsSummary) => {
+    if (!isCurrentSession()) return;
+    sendToRenderer(getWindow, "session:agents-summary-ready", summary);
+  });
+  activeSession.events.on("agents-summary-error", (error: string) => {
+    if (!isCurrentSession()) return;
+    sendToRenderer(getWindow, "session:agents-summary-error", error);
   });
 }
 

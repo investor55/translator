@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { TranscriptBlock, TodoItem } from "../types";
+import type { TranscriptBlock, TodoItem, Agent } from "../types";
 import {
   getAnalysisRequestPromptTemplate,
   getInsightsSystemPrompt,
@@ -72,6 +72,28 @@ export const finalSummarySchema = z.object({
 });
 
 export type FinalSummaryResult = z.infer<typeof finalSummarySchema>;
+
+export const agentsSummarySchema = z.object({
+  overallNarrative: z.string().describe(
+    "2-4 sentence prose debrief of what the agent fleet collectively accomplished. Focus on outcomes and synthesis across agents, not individual steps."
+  ),
+  agentHighlights: z.array(z.object({
+    agentId: z.string().describe("Agent id, passed through unchanged."),
+    task: z.string().describe("Agent's original task, passed through unchanged."),
+    status: z.enum(["completed", "failed"]),
+    keyFinding: z.string().describe(
+      "1-2 sentence distillation of the most important finding or outcome. If failed, describe what was attempted and why."
+    ),
+  })).describe("One entry per agent. Do not omit failed agents."),
+  coverageGaps: z.array(z.string()).describe(
+    "Aspects of the objectives that remain unaddressed. Empty array if coverage is complete."
+  ),
+  nextSteps: z.array(z.string()).describe(
+    "Specific actionable follow-up tasks suggested by collective findings. Short imperative phrases (3-10 words). Empty array if none."
+  ),
+});
+
+export type AgentsSummaryResult = z.infer<typeof agentsSummarySchema>;
 
 export function buildFinalSummaryPrompt(
   allBlocks: readonly TranscriptBlock[],
@@ -166,4 +188,61 @@ export function buildTodoFromSelectionPrompt(
     user_intent_section: userIntentSection,
     existing_todos_section: todosSection,
   });
+}
+
+export function buildAgentsSummaryPrompt(
+  agents: readonly Agent[],
+  transcriptBlocks: readonly TranscriptBlock[] = [],
+  keyPoints: readonly string[] = [],
+): string {
+  const terminal = agents.filter(
+    (a) => a.status === "completed" || a.status === "failed"
+  );
+  const agentDocs = terminal.map((a) => {
+    const tools = [...new Set(
+      a.steps.filter((s) => s.kind === "tool-call" && s.toolName).map((s) => s.toolName!)
+    )];
+    const durationSecs = a.completedAt && a.createdAt
+      ? Math.round((a.completedAt - a.createdAt) / 1000) : 0;
+    return [
+      `## Agent id:${a.id} — ${a.task}`,
+      `Status: ${a.status} | Duration: ${durationSecs}s`,
+      tools.length > 0 ? `Tools used: ${tools.join(", ")}` : null,
+      a.taskContext ? `Context: ${a.taskContext}` : null,
+      a.result ? `Result:\n${a.result}` : null,
+    ].filter(Boolean).join("\n");
+  }).join("\n\n");
+
+  const succeeded = terminal.filter((a) => a.status === "completed").length;
+
+  const transcriptSection = transcriptBlocks.length > 0
+    ? [
+        "",
+        "Session transcript (source material the agents worked from):",
+        transcriptBlocks.map((b) => {
+          const line = `[${b.audioSource}] ${b.sourceText}`;
+          return b.translation ? `${line} → ${b.translation}` : line;
+        }).join("\n"),
+      ].join("\n")
+    : "";
+
+  const keyPointsSection = keyPoints.length > 0
+    ? [
+        "",
+        "Key points identified during the session:",
+        keyPoints.map((p) => `- ${p}`).join("\n"),
+      ].join("\n")
+    : "";
+
+  return [
+    "You are producing a debrief of a completed multi-agent research session.",
+    `Stats: ${terminal.length} agents · ${succeeded} succeeded · ${terminal.length - succeeded} failed`,
+    transcriptSection,
+    keyPointsSection,
+    "",
+    "Agent reports:",
+    agentDocs,
+    "",
+    "Synthesize what was collectively learned, identify coverage gaps, and suggest next steps.",
+  ].join("\n");
 }

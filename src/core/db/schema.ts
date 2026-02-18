@@ -20,6 +20,8 @@ export const sessions = sqliteTable("sessions", {
   summaryNarrative: text("summary_narrative"),
   summaryActionItems: text("summary_action_items"),
   summaryGeneratedAt: integer("summary_generated_at"),
+  agentsSummaryData: text("agents_summary_data"),
+  agentsSummaryGeneratedAt: integer("agents_summary_generated_at"),
 });
 
 export const blocks = sqliteTable("blocks", {

@@ -5,6 +5,7 @@ import type {
   TranscriptBlock,
   Summary,
   FinalSummary,
+  AgentsSummary,
   LanguageCode,
   Device,
   TodoItem,
@@ -52,6 +53,10 @@ export type ElectronAPI = {
   getFinalSummary: (sessionId: string) => Promise<{ ok: boolean; summary?: FinalSummary }>;
   onFinalSummaryReady: (callback: (summary: FinalSummary) => void) => () => void;
   onFinalSummaryError: (callback: (error: string) => void) => () => void;
+  generateAgentsSummary: () => Promise<{ ok: boolean; error?: string }>;
+  getAgentsSummary: (sessionId: string) => Promise<{ ok: boolean; summary?: AgentsSummary }>;
+  onAgentsSummaryReady: (cb: (summary: AgentsSummary) => void) => () => void;
+  onAgentsSummaryError: (cb: (error: string) => void) => () => void;
 
   getTodos: () => Promise<TodoItem[]>;
   addTodo: (todo: TodoItem, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; todo?: TodoItem; error?: string }>;
@@ -161,6 +166,10 @@ const api: ElectronAPI = {
   getFinalSummary: (sessionId) => ipcRenderer.invoke("get-final-summary", sessionId),
   onFinalSummaryReady: createListener<FinalSummary>("session:final-summary-ready"),
   onFinalSummaryError: createListener<string>("session:final-summary-error"),
+  generateAgentsSummary: () => ipcRenderer.invoke("generate-agents-summary"),
+  getAgentsSummary: (id) => ipcRenderer.invoke("get-agents-summary", id),
+  onAgentsSummaryReady: createListener<AgentsSummary>("session:agents-summary-ready"),
+  onAgentsSummaryError: createListener<string>("session:agents-summary-error"),
 
   getTodos: () => ipcRenderer.invoke("get-todos"),
   addTodo: (todo, appConfig) => ipcRenderer.invoke("add-todo", todo, appConfig),

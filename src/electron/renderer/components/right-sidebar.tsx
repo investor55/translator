@@ -14,6 +14,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AgentList } from "./agent-list";
+import { AgentDebriefPanel } from "./agent-debrief-panel";
+import { useAgentsSummary } from "../hooks/use-agents-summary";
 
 const SUGGESTION_TTL_MS = 30_000;
 
@@ -30,6 +32,7 @@ type RightSidebarProps = {
   processingTodoIds?: string[];
   onAcceptSuggestion?: (suggestion: TodoSuggestion) => void;
   onDismissSuggestion?: (id: string) => void;
+  sessionId?: string;
 };
 
 function SuggestionItem({
@@ -136,10 +139,22 @@ export function RightSidebar({
   processingTodoIds = [],
   onAcceptSuggestion,
   onDismissSuggestion,
+  sessionId,
 }: RightSidebarProps) {
   const [input, setInput] = useState("");
   const [completedOpen, setCompletedOpen] = useState(false);
   const processingTodoIdSet = new Set(processingTodoIds);
+
+  const { state: debriefState, generate: generateDebrief, canGenerate: canGenerateDebrief, preload: preloadDebrief } =
+    useAgentsSummary(agents ?? []);
+
+  // Pre-populate debrief from DB for past sessions
+  useEffect(() => {
+    if (!sessionId) return;
+    void window.electronAPI.getAgentsSummary(sessionId).then((res) => {
+      if (res.ok && res.summary) preloadDebrief(res.summary);
+    });
+  }, [sessionId, preloadDebrief]);
 
   const agentByTodoId = new Map<string, Agent>();
   for (const agent of agents ?? []) {
@@ -231,11 +246,24 @@ export function RightSidebar({
 
         {/* Agents */}
         {agents && onSelectAgent && (
-          <AgentList
-            agents={agents}
-            selectedAgentId={selectedAgentId ?? null}
-            onSelectAgent={onSelectAgent}
-          />
+          <>
+            <AgentList
+              agents={agents}
+              selectedAgentId={selectedAgentId ?? null}
+              onSelectAgent={onSelectAgent}
+              onGenerateDebrief={generateDebrief}
+              canGenerateDebrief={canGenerateDebrief}
+              isDebriefLoading={debriefState.kind === "loading"}
+            />
+            {agents.length > 0 && (
+              <AgentDebriefPanel
+                state={debriefState}
+                onGenerate={generateDebrief}
+                canGenerate={canGenerateDebrief}
+                onAddTodo={onAddTodo}
+              />
+            )}
+          </>
         )}
 
         {/* Active todos */}

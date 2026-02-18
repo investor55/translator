@@ -189,4 +189,15 @@ export function registerSessionHandlers({ db, getWindow, sessionRef, getExternal
     const summary = db.getFinalSummary(sessionId);
     return summary ? { ok: true, summary } : { ok: false };
   });
+
+  ipcMain.handle("generate-agents-summary", () => {
+    if (!sessionRef.current) return { ok: false, error: "No active session" };
+    sessionRef.current.generateAgentsSummary();
+    return { ok: true };
+  });
+
+  ipcMain.handle("get-agents-summary", (_event, sessionId: string) => {
+    const summary = db.getAgentsSummary(sessionId);
+    return summary ? { ok: true, summary } : { ok: false };
+  });
 }
