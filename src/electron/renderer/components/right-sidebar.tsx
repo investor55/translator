@@ -5,9 +5,10 @@ import {
   ChevronDownIcon,
   CheckIcon,
   XIcon,
-  SparklesIcon,
   LoaderCircleIcon,
+  PlayIcon,
   Trash2Icon,
+  ZapIcon,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -277,9 +278,9 @@ export function RightSidebar({
                           type="button"
                           onClick={() => onLaunchAgent(todo)}
                           className="shrink-0 rounded-none p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 transition-all"
-                          aria-label="Research this todo"
+                          aria-label="Run with agent"
                         >
-                          <SparklesIcon className="size-3.5" />
+                          <PlayIcon className="size-3.5" />
                         </button>
                       ) : null}
                       <button
@@ -291,8 +292,8 @@ export function RightSidebar({
                         <Trash2Icon className="size-3.5" />
                       </button>
                       {todo.source === "ai" && !isProcessing && (
-                        <span className="text-[11px] text-muted-foreground bg-muted px-1 py-0.5 rounded-none shrink-0 leading-none">
-                          AI
+                        <span className="shrink-0 p-0.5 flex items-center">
+                          <ZapIcon className="size-3 text-muted-foreground/60" />
                         </span>
                       )}
                     </div>

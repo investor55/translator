@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Trash2Icon } from "lucide-react";
 
 type LeftSidebarProps = {
   rollingKeyPoints: string[];
@@ -273,34 +274,42 @@ export function LeftSidebar({
         {sessions.length > 0 ? (
           <ul className="space-y-1">
             {sessions.map((session) => (
-              <li key={session.id} className="group relative">
+              <li key={session.id} className="group">
                 <button
                   type="button"
                   onClick={() => onSelectSession?.(session.id)}
                   className={`w-full text-left px-2 py-1.5 rounded-none text-xs transition-colors ${activeSessionId === session.id ? "bg-sidebar-accent" : "hover:bg-sidebar-accent"}`}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <span className="text-foreground font-medium truncate">
                       {session.title ?? "Untitled Session"}
                     </span>
-                    <span className="text-muted-foreground text-[11px] font-mono shrink-0 ml-2">
-                      {session.blockCount}
+                    <span className="shrink-0 flex items-center justify-end w-5">
+                      {onDeleteSession ? (
+                        <>
+                          <span className="text-muted-foreground text-[11px] font-mono group-hover:hidden">
+                            {session.blockCount}
+                          </span>
+                          <span
+                            role="button"
+                            onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
+                            className="hidden group-hover:flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
+                            title="Delete session"
+                          >
+                            <Trash2Icon className="size-3" />
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground text-[11px] font-mono">
+                          {session.blockCount}
+                        </span>
+                      )}
                     </span>
                   </div>
                   <div className="text-muted-foreground text-[11px] font-mono">
                     {formatDate(session.startedAt)} · {formatTime(session.startedAt)}
                   </div>
                 </button>
-                {onDeleteSession && (
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
-                    className="absolute right-1 top-1 hidden group-hover:flex items-center justify-center w-5 h-5 rounded-none text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                    title="Delete session"
-                  >
-                    ×
-                  </button>
-                )}
               </li>
             ))}
           </ul>
