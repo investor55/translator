@@ -633,7 +633,7 @@ export function App() {
     return { ok: true, todo: result.todo ?? todo };
   }, [appConfig]);
 
-  const handleAddTodo = useCallback(async (text: string) => {
+  const handleAddTodo = useCallback(async (text: string, details?: string) => {
     const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
     if (!targetSessionId) {
       setRouteNotice("Select or start a session before adding todos.");
@@ -649,6 +649,7 @@ export function App() {
     const optimisticTodo: TodoItem = {
       id: optimisticId,
       text: trimmedText,
+      details,
       size: "large",
       completed: false,
       source: "manual",
@@ -663,6 +664,7 @@ export function App() {
     const result = await persistTodo({
       targetSessionId,
       text: trimmedText,
+      details,
       source: "manual",
       id: optimisticId,
       createdAt: optimisticTodo.createdAt,

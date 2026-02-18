@@ -82,7 +82,7 @@ export function AgentList({
             type="button"
             onClick={onGenerateDebrief}
             disabled={!canGenerateDebrief || isDebriefLoading}
-            className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             aria-label="Generate agent debrief"
             title={canGenerateDebrief ? "Generate debrief" : "Wait for all agents to finish"}
           >
@@ -91,42 +91,33 @@ export function AgentList({
           </button>
         )}
       </div>
-      <ul className="mt-1.5 space-y-1">
-        {agents.map((agent) => {
-          const preview = contextPreview(agent);
-          return (
-            <li key={agent.id}>
-              <button
-                type="button"
-                onClick={() => onSelectAgent(agent.id)}
-                className={`w-full text-left rounded-none px-2 py-1.5 transition-colors ${
-                  selectedAgentId === agent.id
-                    ? "bg-primary/10 border border-primary/20"
-                    : "hover:bg-muted/50 border border-transparent"
-                }`}
-              >
-                <div className="flex items-start gap-2">
-                  <StatusIcon status={agent.status} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-foreground leading-relaxed line-clamp-2">
-                      {agent.task}
-                    </p>
-                    {preview && (
-                      <p className="mt-0.5 text-[11px] text-muted-foreground leading-relaxed line-clamp-2">
-                        Context: {preview}
-                      </p>
-                    )}
-                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate font-mono">
-                      {agent.status === "running"
-                        ? lastStepSummary(agent)
-                        : relativeTime(agent.completedAt ?? agent.createdAt)}
-                    </p>
-                  </div>
-                </div>
-              </button>
-            </li>
-          );
-        })}
+      <ul className="mt-1">
+        {agents.map((agent) => (
+          <li key={agent.id}>
+            <button
+              type="button"
+              onClick={() => onSelectAgent(agent.id)}
+              className={`w-full text-left rounded-none px-2 py-1.5 transition-colors ${
+                selectedAgentId === agent.id
+                  ? "bg-primary/10 border-l-2 border-l-primary"
+                  : "hover:bg-muted/50 border-l-2 border-l-transparent"
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <StatusIcon status={agent.status} />
+                <p className="text-xs text-foreground truncate flex-1">
+                  {agent.task}
+                </p>
+                <span className="text-[11px] text-muted-foreground shrink-0 font-mono">
+                  {relativeTime(agent.completedAt ?? agent.createdAt)}
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground truncate font-mono pl-5">
+                {lastStepSummary(agent)}
+              </p>
+            </button>
+          </li>
+        ))}
       </ul>
     </div>
   );

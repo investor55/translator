@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { AgentList } from "./agent-list";
 import { AgentDebriefPanel } from "./agent-debrief-panel";
 import { useAgentsSummary } from "../hooks/use-agents-summary";
+import { Separator } from "@/components/ui/separator";
 
 const SUGGESTION_TTL_MS = 30_000;
 
@@ -26,7 +27,7 @@ type RightSidebarProps = {
   selectedAgentId?: string | null;
   onSelectAgent?: (id: string | null) => void;
   onLaunchAgent?: (todo: TodoItem) => void;
-  onAddTodo?: (text: string) => void;
+  onAddTodo?: (text: string, details?: string) => void;
   onToggleTodo?: (id: string) => void;
   onDeleteTodo?: (id: string) => void;
   processingTodoIds?: string[];
@@ -73,56 +74,44 @@ function SuggestionItem({
 
   return (
     <li
-      className="relative overflow-hidden rounded-none bg-primary/5 border border-primary/10 transition-opacity duration-500"
+      className="relative overflow-hidden border-l-2 border-l-primary/40 bg-primary/5 transition-opacity duration-500"
       style={{ opacity }}
     >
-      <div className="flex items-start gap-2 py-1.5 px-2 relative z-10">
-        <span className="text-xs text-foreground leading-relaxed flex-1">
+      <div className="flex items-center gap-2 h-7 px-2 relative z-10">
+        <span className="text-xs text-foreground truncate flex-1">
           {suggestion.text}
         </span>
         <button
           type="button"
           onClick={onAccept}
-          className="shrink-0 rounded-none p-0.5 text-primary hover:bg-primary/10 transition-colors"
+          className="shrink-0 p-0.5 text-primary hover:text-primary/80 transition-colors"
           aria-label="Accept suggestion"
         >
-          <CheckIcon className="size-3.5" />
+          <CheckIcon className="size-3" />
         </button>
         <button
           type="button"
           onClick={onDismiss}
-          className="shrink-0 rounded-none p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground transition-colors"
           aria-label="Dismiss suggestion"
         >
-          <XIcon className="size-3.5" />
+          <XIcon className="size-3" />
         </button>
       </div>
-      {/* Countdown progress bar */}
-      <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary/5">
-        <div
-          className="h-full bg-primary/30 transition-none"
-          style={{ width: `${progress}%` }}
-        />
+      <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-primary/5">
+        <div className="h-full bg-primary/30 transition-none" style={{ width: `${progress}%` }} />
       </div>
     </li>
   );
 }
 
-function TodoContextPanel({ details }: { details?: string }) {
-  const contextText = details?.trim();
-  if (!contextText) return null;
-
+function ContextDot({ details }: { details?: string }) {
+  if (!details?.trim()) return null;
   return (
-    <details className="mt-1">
-      <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-        Context
-      </summary>
-      <div className="mt-1 max-h-28 overflow-y-auto rounded-none border border-border/60 bg-muted/20 px-1.5 py-1">
-        <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-muted-foreground">
-          {contextText}
-        </p>
-      </div>
-    </details>
+    <span
+      className="shrink-0 size-1 rounded-full bg-muted-foreground/40"
+      title={details.trim()}
+    />
   );
 }
 
@@ -198,31 +187,25 @@ export function RightSidebar({
 
   return (
     <div className="w-full h-full shrink-0 border-l border-border flex flex-col min-h-0 bg-sidebar">
-      <div className="px-3 pt-2.5 pb-2 shrink-0">
-        <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
-          Todos
-        </h2>
-
-        {onAddTodo && (
-          <div className="mb-3">
-            <form onSubmit={handleSubmit} className="flex gap-1.5">
-              <Input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Add a todo..."
-                className="flex-1 h-7"
-              />
-              <Button
-                type="submit"
-                size="icon-sm"
-                disabled={!input.trim()}
-              >
-                <PlusIcon className="size-3.5" />
-              </Button>
-            </form>
-          </div>
-        )}
-      </div>
+      {onAddTodo && (
+        <div className="px-3 pt-2.5 pb-2 shrink-0">
+          <form onSubmit={handleSubmit} className="flex gap-1.5">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Add a todo..."
+              className="flex-1 h-7"
+            />
+            <Button
+              type="submit"
+              size="icon-sm"
+              disabled={!input.trim()}
+            >
+              <PlusIcon className="size-3.5" />
+            </Button>
+          </form>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3">
         {/* AI Suggestions */}
@@ -245,7 +228,7 @@ export function RightSidebar({
         )}
 
         {/* Agents */}
-        {agents && onSelectAgent && (
+        {agents && onSelectAgent && agents.length > 0 && (
           <>
             <AgentList
               agents={agents}
@@ -255,83 +238,72 @@ export function RightSidebar({
               canGenerateDebrief={canGenerateDebrief}
               isDebriefLoading={debriefState.kind === "loading"}
             />
-            {agents.length > 0 && (
-              <AgentDebriefPanel
-                state={debriefState}
-                onGenerate={generateDebrief}
-                canGenerate={canGenerateDebrief}
-                onAddTodo={onAddTodo}
-              />
-            )}
+            <AgentDebriefPanel
+              state={debriefState}
+              onGenerate={generateDebrief}
+              canGenerate={canGenerateDebrief}
+              onAddTodo={onAddTodo}
+            />
+            <Separator className="my-3" />
           </>
         )}
 
         {/* Active todos */}
         <div className="mb-3">
-          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-            Active ({activeTodos.length})
-          </span>
-          {pendingInAgentsCount > 0 && (
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {pendingInAgentsCount} pending in agents
-            </p>
-          )}
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+              {pendingInAgentsCount > 0 ? `Todos · ${pendingInAgentsCount} in agents` : "Todos"}
+            </span>
+          </div>
           {activeTodos.length > 0 ? (
-            <ul className="mt-1.5 space-y-1">
+            <ul className="space-y-px">
               {activeTodos.map((todo) => {
                 const isProcessing = processingTodoIdSet.has(todo.id);
                 return (
-                  <li key={todo.id} className="py-1 group">
-                    <div className="flex items-start gap-2">
+                  <li key={todo.id} className="flex items-center gap-2 h-7 group px-1 -mx-1 rounded-sm hover:bg-muted/30 transition-colors">
+                    {isProcessing ? (
+                      <LoaderCircleIcon className="size-3 shrink-0 text-muted-foreground animate-spin" />
+                    ) : (
                       <input
                         type="checkbox"
                         checked={false}
                         onChange={() => onToggleTodo?.(todo.id)}
-                        disabled={isProcessing}
-                        className="mt-0.5 size-3.5 rounded border-input accent-primary cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="size-3 shrink-0 rounded-sm border-border accent-primary cursor-pointer"
                       />
-                      <div className="min-w-0 flex-1">
-                        <span
-                          className={`text-xs leading-relaxed ${isProcessing ? "text-muted-foreground italic" : "text-foreground"}`}
-                        >
-                          {todo.text}
-                        </span>
-                        <TodoContextPanel details={todo.details} />
-                      </div>
-                      {isProcessing ? (
-                        <span className="shrink-0 rounded-none p-0.5 text-muted-foreground" aria-label="Processing todo">
-                          <LoaderCircleIcon className="size-3.5 animate-spin" />
-                        </span>
-                      ) : onLaunchAgent ? (
+                    )}
+                    <span className={`text-xs truncate flex-1 ${isProcessing ? "text-muted-foreground italic" : "text-foreground"}`}>
+                      {todo.text}
+                    </span>
+                    <ContextDot details={todo.details} />
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      {!isProcessing && onLaunchAgent && (
                         <button
                           type="button"
                           onClick={() => onLaunchAgent(todo)}
-                          className="shrink-0 rounded-none p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 transition-all"
+                          className="p-0.5 text-muted-foreground hover:text-primary transition-colors"
                           aria-label="Run with agent"
                         >
-                          <PlayIcon className="size-3.5" />
+                          <PlayIcon className="size-3" />
                         </button>
-                      ) : null}
+                      )}
                       <button
                         type="button"
                         onClick={() => onDeleteTodo?.(todo.id)}
-                        className="shrink-0 rounded-none p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all"
+                        className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"
                         aria-label="Delete todo"
                       >
-                        <Trash2Icon className="size-3.5" />
+                        <Trash2Icon className="size-3" />
                       </button>
-                      {todo.source === "ai" && !isProcessing && (
-                        <span className="shrink-0 p-0.5 flex items-center">
-                          <ZapIcon className="size-3 text-muted-foreground/60" />
-                        </span>
-                      )}
                     </div>
+                    {todo.source === "ai" && !isProcessing && (
+                      <ZapIcon className="size-3 text-muted-foreground/40 shrink-0 group-hover:hidden" />
+                    )}
                   </li>
                 );
               })}
             </ul>
           ) : (
-            <p className="text-xs text-muted-foreground italic mt-1.5">
+            <p className="text-xs text-muted-foreground italic">
               No active todos
             </p>
           )}
@@ -351,51 +323,48 @@ export function RightSidebar({
               Completed ({completedTodos.length})
             </button>
             {completedOpen && (
-              <ul className="mt-1.5 space-y-1">
+              <ul className="mt-1.5 space-y-px">
                 {completedTodos.map((todo) => {
                   const todoAgent = agentByTodoId.get(todo.id);
                   return (
-                    <li key={todo.id} className="py-1 group">
-                      <div className="flex items-start gap-2">
-                        <input
-                          type="checkbox"
-                          checked
-                          onChange={() => onToggleTodo?.(todo.id)}
-                          className="mt-0.5 size-3.5 rounded border-input accent-primary cursor-pointer shrink-0"
-                        />
-                        <div className="min-w-0 flex-1">
-                          {todoAgent && onSelectAgent ? (
-                            <button
-                              type="button"
-                              onClick={() => onSelectAgent(todoAgent.id)}
-                              className="text-xs text-muted-foreground leading-relaxed text-left hover:text-foreground transition-colors cursor-pointer"
-                            >
-                              {todo.text}
-                            </button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground line-through leading-relaxed">
-                              {todo.text}
-                            </span>
-                          )}
-                          <TodoContextPanel details={todo.details} />
-                        </div>
+                    <li key={todo.id} className="flex items-center gap-2 h-7 group px-1 -mx-1 rounded-sm hover:bg-muted/30 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked
+                        onChange={() => onToggleTodo?.(todo.id)}
+                        className="size-3 shrink-0 rounded-sm border-border accent-primary cursor-pointer"
+                      />
+                      {todoAgent && onSelectAgent ? (
+                        <button
+                          type="button"
+                          onClick={() => onSelectAgent(todoAgent.id)}
+                          className="text-xs text-muted-foreground/60 truncate flex-1 text-left line-through hover:text-muted-foreground transition-colors"
+                        >
+                          {todo.text}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/60 truncate flex-1 line-through">
+                          {todo.text}
+                        </span>
+                      )}
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                         {todoAgent && onSelectAgent && (
                           <button
                             type="button"
                             onClick={() => onSelectAgent(todoAgent.id)}
-                            className="shrink-0 rounded-none p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 transition-all"
+                            className="p-0.5 text-muted-foreground hover:text-primary transition-colors"
                             aria-label="View agent results"
                           >
-                            <SparklesIcon className="size-3.5" />
+                            <SparklesIcon className="size-3" />
                           </button>
                         )}
                         <button
                           type="button"
                           onClick={() => onDeleteTodo?.(todo.id)}
-                          className="shrink-0 rounded-none p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all"
+                          className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"
                           aria-label="Delete todo"
                         >
-                          <Trash2Icon className="size-3.5" />
+                          <Trash2Icon className="size-3" />
                         </button>
                       </div>
                     </li>

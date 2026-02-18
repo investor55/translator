@@ -102,7 +102,7 @@ export function ToolbarHeader({
     <div className="shrink-0">
       <div className="titlebar-drag border-b border-border pl-20 pr-4 flex items-center gap-3 h-11 text-sm">
         {/* Logo */}
-        <span className="font-serif text-[15px] font-medium text-foreground titlebar-no-drag">
+        <span className="font-serif text-base font-medium text-foreground titlebar-no-drag">
           Ambient
         </span>
 

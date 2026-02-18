@@ -286,7 +286,7 @@ function AskQuestionPendingCard({
                             : "border-border/80 text-muted-foreground hover:border-border hover:text-foreground",
                         ].join(" ")}
                       >
-                        <span className="inline-flex h-4 min-w-4 items-center justify-center border border-current px-1 text-[10px] font-semibold uppercase">
+                        <span className="inline-flex h-4 min-w-4 items-center justify-center border border-current px-1 text-[11px] font-semibold uppercase">
                           {option.id.slice(0, 1)}
                         </span>
                         <span className="leading-relaxed">{option.label}</span>

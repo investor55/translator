@@ -103,7 +103,7 @@ function Paragraph({ blocks, isLast, canTranslate }: { blocks: TranscriptBlock[]
         )}
         {formatTimestamp(first.createdAt)}
       </div>
-      <div className="text-[13px] font-mono">
+      <div className="text-sm font-mono">
         <span className="text-foreground">{sourceText}</span>
         {isNonEnglishSource && (
           <span className="text-[11px] text-muted-foreground/60 ml-1.5 font-mono">
@@ -112,7 +112,7 @@ function Paragraph({ blocks, isLast, canTranslate }: { blocks: TranscriptBlock[]
         )}
       </div>
       {!isTranscriptionOnly && canTranslate && (
-        <div className="text-[13px] font-sans mt-0.5">
+        <div className="text-sm font-sans mt-0.5">
           {translationText ? (
             <span className="text-foreground">
               {translationText}
@@ -335,7 +335,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
             </div>
           )}
           {blocks.length === 0 ? (
-            <p className="text-[13px] text-muted-foreground italic mt-2">
+            <p className="text-sm text-muted-foreground italic mt-2">
               Speak to see transcriptions here...
             </p>
           ) : (
@@ -349,13 +349,13 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
             ))
           )}
           {systemPartial && (
-            <div className="flex items-center gap-1.5 text-[13px] font-mono text-muted-foreground/50 italic animate-pulse">
+            <div className="flex items-center gap-1.5 text-sm font-mono text-muted-foreground/50 italic animate-pulse">
               <Volume2Icon className="size-3 shrink-0" />
               <span>{systemPartial}</span>
             </div>
           )}
           {micPartial && (
-            <div className="flex items-center gap-1.5 text-[13px] font-mono text-muted-foreground/50 italic animate-pulse">
+            <div className="flex items-center gap-1.5 text-sm font-mono text-muted-foreground/50 italic animate-pulse">
               <MicIcon className="size-3 shrink-0" />
               <span>{micPartial}</span>
             </div>

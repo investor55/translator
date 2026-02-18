@@ -14,7 +14,7 @@ type AgentDebriefPanelProps = {
   state: AgentsSummaryState;
   onGenerate: () => void;
   canGenerate: boolean;
-  onAddTodo?: (text: string) => void;
+  onAddTodo?: (text: string, details?: string) => void;
 };
 
 function formatDuration(totalSecs: number): string {
@@ -30,39 +30,50 @@ function StatusDot({ status }: { status: "completed" | "failed" }) {
     : <XCircleIcon className="size-3 text-destructive shrink-0 mt-0.5" />;
 }
 
+function buildStepContext(summary: AgentsSummary, step: string): string {
+  const lines: string[] = [`Next step from agent debrief: ${step}`, "", summary.overallNarrative];
+  if (summary.agentHighlights.length > 0) {
+    lines.push("", "Agent findings:");
+    for (const h of summary.agentHighlights) {
+      lines.push(`• ${h.task}: ${h.keyFinding}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 function DebriefContent({
   summary,
   onAddTodo,
 }: {
   summary: AgentsSummary;
-  onAddTodo?: (text: string) => void;
+  onAddTodo?: (text: string, details?: string) => void;
 }) {
   const handleAddStep = useCallback(
-    (step: string) => () => onAddTodo?.(step),
-    [onAddTodo],
+    (step: string) => () => onAddTodo?.(step, buildStepContext(summary, step)),
+    [onAddTodo, summary],
   );
 
   return (
     <div className="space-y-2.5">
       {/* Stats row */}
-      <p className="font-mono text-[10px] text-muted-foreground">
+      <p className="font-mono text-[11px] text-muted-foreground">
         {summary.totalAgents} agents · {summary.succeededAgents} ok
         {summary.failedAgents > 0 ? ` · ${summary.failedAgents} failed` : ""}
         {summary.totalDurationSecs > 0 ? ` · ${formatDuration(summary.totalDurationSecs)}` : ""}
       </p>
 
       {/* Narrative */}
-      <p className="text-[11px] leading-relaxed text-foreground">
+      <p className="text-xs leading-relaxed text-foreground">
         {summary.overallNarrative}
       </p>
 
       {/* Per-agent highlights */}
       {summary.agentHighlights.length > 0 && (
-        <ul className="space-y-1">
+        <ul className="space-y-1.5">
           {summary.agentHighlights.map((h) => (
             <li key={h.agentId} className="flex items-start gap-1.5">
               <StatusDot status={h.status} />
-              <span className="text-[11px] leading-relaxed text-muted-foreground">
+              <span className="text-xs leading-relaxed text-muted-foreground">
                 <span className="text-foreground font-medium">{h.task.slice(0, 40)}{h.task.length > 40 ? "…" : ""}:</span>{" "}
                 {h.keyFinding}
               </span>
@@ -74,13 +85,13 @@ function DebriefContent({
       {/* Coverage gaps */}
       {summary.coverageGaps.length > 0 && (
         <div>
-          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
             Gaps
           </p>
-          <ul className="space-y-0.5">
+          <ul className="space-y-1">
             {summary.coverageGaps.map((gap, i) => (
               // eslint-disable-next-line react/no-array-index-key
-              <li key={i} className="text-[11px] text-muted-foreground flex items-start gap-1">
+              <li key={i} className="text-xs text-muted-foreground flex items-start gap-1">
                 <span className="shrink-0">·</span>
                 <span>{gap}</span>
               </li>
@@ -92,15 +103,15 @@ function DebriefContent({
       {/* Next steps */}
       {summary.nextSteps.length > 0 && (
         <div>
-          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
             Next Steps
           </p>
           <ul className="space-y-1">
             {summary.nextSteps.map((step, i) => (
               // eslint-disable-next-line react/no-array-index-key
               <li key={i} className="flex items-start gap-1.5">
-                <span className="text-[11px] text-muted-foreground shrink-0 mt-0.5">☐</span>
-                <span className="text-[11px] text-foreground flex-1">{step}</span>
+                <span className="text-xs text-muted-foreground shrink-0 mt-0.5">☐</span>
+                <span className="text-xs text-foreground flex-1">{step}</span>
                 {onAddTodo && (
                   <button
                     type="button"
@@ -150,7 +161,7 @@ export function AgentDebriefPanel({
       </div>
 
       {state.kind === "loading" && (
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <LoaderCircleIcon className="size-3 animate-spin shrink-0" />
           Generating debrief…
         </div>
@@ -158,12 +169,12 @@ export function AgentDebriefPanel({
 
       {state.kind === "error" && (
         <div className="space-y-1.5">
-          <p className="text-[11px] text-destructive">{state.message}</p>
+          <p className="text-xs text-destructive">{state.message}</p>
           {canGenerate && (
             <button
               type="button"
               onClick={onGenerate}
-              className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
             >
               Retry
             </button>
