@@ -9,6 +9,7 @@ import {
   ChevronRightIcon,
   SearchIcon,
   RotateCcwIcon,
+  ArchiveIcon,
 } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import {
@@ -62,6 +63,7 @@ type AgentDetailPanelProps = {
   ) => Promise<AnswerToolApprovalResult> | AnswerToolApprovalResult;
   onCancel?: (agentId: string) => void;
   onRelaunch?: (agent: Agent) => void;
+  onArchive?: (agent: Agent) => void;
 };
 
 function StatusBadge({ status }: { status: Agent["status"] }) {
@@ -669,6 +671,7 @@ export function AgentDetailPanel({
   onAnswerToolApproval,
   onCancel,
   onRelaunch,
+  onArchive,
 }: AgentDetailPanelProps) {
   const [followUpError, setFollowUpError] = useState("");
   const visibleSteps = useMemo(
@@ -908,6 +911,16 @@ export function AgentDetailPanel({
                 aria-label="Relaunch agent"
               >
                 <RotateCcwIcon className="size-3.5" />
+              </button>
+            )}
+            {!isRunning && onArchive && (
+              <button
+                type="button"
+                onClick={() => onArchive(agent)}
+                className="rounded-none p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+                aria-label="Archive agent"
+              >
+                <ArchiveIcon className="size-3.5" />
               </button>
             )}
             <button

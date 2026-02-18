@@ -877,14 +877,16 @@ export function App() {
     await launchTodoAgent(todo);
   }, [launchTodoAgent, processingTodoIds]);
 
+  const handleArchiveAgent = useCallback(async (agent: Agent) => {
+    await window.electronAPI.archiveAgent(agent.id);
+  }, []);
+
   const handleRelaunchAgent = useCallback(async (agent: Agent) => {
-    const todo = todos.find((t) => t.id === agent.todoId);
-    if (!todo) {
-      setRouteNotice("Could not find todo to relaunch.");
-      return;
+    const result = await window.electronAPI.relaunchAgent(agent.id);
+    if (!result.ok) {
+      setRouteNotice(`Failed to relaunch agent: ${result.error ?? "Unknown error"}`);
     }
-    await handleLaunchAgent(todo);
-  }, [todos, handleLaunchAgent]);
+  }, []);
 
   const handleApproveLargeTodo = useCallback(async () => {
     if (!pendingApprovalTodo) return;
@@ -1099,6 +1101,7 @@ export function App() {
                     onAnswerToolApproval={handleAnswerAgentToolApproval}
                     onCancel={handleCancelAgent}
                     onRelaunch={handleRelaunchAgent}
+                    onArchive={handleArchiveAgent}
                   />
                 </div>
               </>

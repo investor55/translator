@@ -65,4 +65,5 @@ export const agents = sqliteTable("agents", {
   steps: text("steps", { mode: "json" }).$type<AgentStep[]>().default([]),
   createdAt: integer("created_at").notNull(),
   completedAt: integer("completed_at"),
+  archived: integer("archived").default(0),
 });

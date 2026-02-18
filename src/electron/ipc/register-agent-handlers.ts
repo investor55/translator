@@ -104,6 +104,20 @@ export function registerAgentHandlers({
     },
   );
 
+  ipcMain.handle("archive-agent", (_event, agentId: string) => {
+    if (!sessionRef.current) return { ok: false, error: "No active session" };
+    const archived = sessionRef.current.archiveAgent(agentId);
+    if (!archived) return { ok: false, error: "Agent not found or still running" };
+    return { ok: true };
+  });
+
+  ipcMain.handle("relaunch-agent", (_event, agentId: string) => {
+    if (!sessionRef.current) return { ok: false, error: "No active session" };
+    const agent = sessionRef.current.relaunchAgent(agentId);
+    if (!agent) return { ok: false, error: "Agent not found or still running" };
+    return { ok: true, agent };
+  });
+
   ipcMain.handle("follow-up-agent", (_event, agentId: string, question: string) => {
     if (!sessionRef.current) return { ok: false, error: "No active session" };
     const started = sessionRef.current.followUpAgent(agentId, question);

@@ -344,6 +344,7 @@ export type Agent = {
   createdAt: number;
   completedAt?: number;
   sessionId?: string;
+  archived?: boolean;
 };
 
 // Session event types for EventEmitter
@@ -366,4 +367,5 @@ export type SessionEvents = {
   "agent-step": [agentId: string, step: AgentStep];
   "agent-completed": [agentId: string, result: string];
   "agent-failed": [agentId: string, error: string];
+  "agent-archived": [agentId: string];
 };

@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
-import { eq, desc, count } from "drizzle-orm";
+import { and, eq, desc, count } from "drizzle-orm";
 import { sessions, blocks, todos, insights, agents, projects } from "./schema";
 import type {
   TodoItem,
@@ -351,11 +351,15 @@ export function createDatabase(dbPath: string) {
       orm.update(agents).set(set).where(eq(agents.id, id)).run();
     },
 
+    archiveAgent(id: string) {
+      orm.update(agents).set({ archived: 1 }).where(eq(agents.id, id)).run();
+    },
+
     getAgentsForSession(sessionId: string): Agent[] {
       const rows = orm
         .select()
         .from(agents)
-        .where(eq(agents.sessionId, sessionId))
+        .where(and(eq(agents.sessionId, sessionId), eq(agents.archived, 0)))
         .orderBy(desc(agents.createdAt))
         .all();
       return rows.map((r) => ({
@@ -573,6 +577,9 @@ function runMigrations(db: Database.Database) {
   const agentColNames = new Set(agentCols.map((c) => c.name));
   if (!agentColNames.has("task_context")) {
     db.exec("ALTER TABLE agents ADD COLUMN task_context TEXT");
+  }
+  if (!agentColNames.has("archived")) {
+    db.exec("ALTER TABLE agents ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
   }
 
   // Projects feature migrations

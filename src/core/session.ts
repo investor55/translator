@@ -802,6 +802,16 @@ export class Session {
     return this.agentManager.launchAgent(todoId, task, this.sessionId, taskContext);
   }
 
+  relaunchAgent(agentId: string): Agent | null {
+    if (!this.agentManager) return null;
+    return this.agentManager.relaunchAgent(agentId);
+  }
+
+  archiveAgent(agentId: string): boolean {
+    if (!this.agentManager) return false;
+    return this.agentManager.archiveAgent(agentId);
+  }
+
   async classifyTodoSize(text: string): Promise<TodoSizeClassification> {
     const result = await classifyTodoSizeWithModel(this.todoModel, text);
     log(

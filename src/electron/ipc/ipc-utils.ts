@@ -129,6 +129,10 @@ export function wireSessionEvents(
     if (!isCurrentSession()) return;
     sendToRenderer(getWindow, "session:agent-failed", agentId, error);
   });
+  activeSession.events.on("agent-archived", (agentId: string) => {
+    if (!isCurrentSession()) return;
+    sendToRenderer(getWindow, "session:agent-archived", agentId);
+  });
 }
 
 export async function shutdownCurrentSession(sessionRef: SessionRef, db: AppDatabase): Promise<void> {

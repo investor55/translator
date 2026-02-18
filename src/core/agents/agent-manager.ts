@@ -31,6 +31,8 @@ type AgentManagerDeps = {
 
 export type AgentManager = {
   launchAgent: (todoId: string, task: string, sessionId?: string, taskContext?: string) => Agent;
+  relaunchAgent: (agentId: string) => Agent | null;
+  archiveAgent: (agentId: string) => boolean;
   followUpAgent: (agentId: string, question: string) => boolean;
   answerAgentQuestion: (agentId: string, answers: AgentQuestionSelection[]) => { ok: boolean; error?: string };
   answerAgentToolApproval: (agentId: string, response: AgentToolApprovalResponse) => { ok: boolean; error?: string };
@@ -477,6 +479,18 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     return { ok: true };
   }
 
+  function archiveAgent(agentId: string): boolean {
+    const agent = agents.get(agentId);
+    if (!agent || agent.status === "running") return false;
+    agents.delete(agentId);
+    conversationHistory.delete(agentId);
+    cancelFlush(agentId);
+    deps.db?.archiveAgent(agentId);
+    deps.events.emit("agent-archived", agentId);
+    log("INFO", `Agent archived: ${agentId}`);
+    return true;
+  }
+
   function cancelAgent(id: string): boolean {
     const controller = abortControllers.get(id);
     if (!controller) return false;
@@ -486,8 +500,66 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     return true;
   }
 
+  function relaunchAgent(agentId: string): Agent | null {
+    const agent = agents.get(agentId);
+    if (!agent) return null;
+    if (agent.status === "running") return null;
+
+    // Tear down any stale state from the previous run
+    abortControllers.get(agentId)?.abort();
+    abortControllers.delete(agentId);
+    rejectPendingQuestion(agentId, "Agent relaunched");
+    rejectPendingApproval(agentId, "Agent relaunched");
+    cancelFlush(agentId);
+    conversationHistory.delete(agentId);
+
+    // Reset the agent in-place so the same object/ID is reused
+    agent.status = "running";
+    agent.steps = [];
+    agent.result = undefined;
+    agent.completedAt = undefined;
+    agent.createdAt = Date.now();
+
+    deps.db?.updateAgent(agentId, { status: "running", steps: [], result: undefined, completedAt: undefined });
+    deps.events.emit("agent-started", agent);
+    log("INFO", `Agent relaunched: ${agentId}`);
+
+    let exa: ReturnType<typeof getExa>;
+    try {
+      exa = getExa();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      agent.status = "failed";
+      agent.result = `Failed to load Exa SDK: ${msg}`;
+      agent.completedAt = Date.now();
+      deps.db?.updateAgent(agentId, { status: agent.status, result: agent.result, completedAt: agent.completedAt });
+      deps.events.emit("agent-failed", agentId, agent.result);
+      return agent;
+    }
+
+    const controller = new AbortController();
+    abortControllers.set(agentId, controller);
+
+    void runAgent(agent, {
+      model: deps.model,
+      exa,
+      getTranscriptContext: deps.getTranscriptContext,
+      projectInstructions: deps.getProjectInstructions?.(),
+      getExternalTools: deps.getExternalTools,
+      allowAutoApprove: deps.allowAutoApprove,
+      requestClarification: (request, options) => requestClarification(agentId, request, options),
+      requestToolApproval: (request, options) => requestToolApproval(agentId, request, options),
+      abortSignal: controller.signal,
+      ...makeAgentCallbacks(agent),
+    });
+
+    return agent;
+  }
+
   return {
     launchAgent,
+    relaunchAgent,
+    archiveAgent,
     followUpAgent,
     answerAgentQuestion,
     answerAgentToolApproval,
