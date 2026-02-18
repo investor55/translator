@@ -404,7 +404,7 @@ export class Session {
     this.inFlight.set("microphone", 0);
     this.whisperPendingParagraphs.clear();
     this.whisperLastParagraphDecisionAt = 0;
-    this.events.emit("partial", "");
+    this.events.emit("partial", { source: null, text: "" });
 
     if (!resume) {
       resetContextState(this.contextState);
@@ -842,7 +842,7 @@ export class Session {
     } else {
       this.whisperPendingParagraphs.clear();
     }
-    this.events.emit("partial", "");
+    this.events.emit("partial", { source: null, text: "" });
     writeSummaryLog(this.contextState.allKeyPoints);
   }
 
@@ -1041,9 +1041,7 @@ export class Session {
       this.events.emit("error", "Missing ELEVENLABS_API_KEY");
       return;
     }
-    const languageCode = this.config.direction === "source-target"
-      ? this.config.sourceLang
-      : undefined;
+    const languageCode = this.config.sourceLang;
 
     let connection: RealtimeConnection;
     try {
@@ -1074,7 +1072,7 @@ export class Session {
 
   private attachElevenLabsHandlers(connection: RealtimeConnection, source: AudioSource): void {
     connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (msg) => {
-      if (msg.text) this.events.emit("partial", `${msg.text}`);
+      if (msg.text) this.events.emit("partial", { source, text: `${msg.text}` });
     });
 
     connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT_WITH_TIMESTAMPS, (msg) => {
@@ -1117,7 +1115,7 @@ export class Session {
     audioSource: AudioSource,
     capturedAt: number
   ): Promise<void> {
-    this.events.emit("partial", "");
+    this.events.emit("partial", { source: audioSource, text: "" });
     const useTranslation = this._translationEnabled && this.canTranslate;
     let detectedLang = detectedLangHint;
     let translation = "";
@@ -1177,10 +1175,12 @@ export class Session {
   }
 
   private updateWhisperPreview(): void {
-    const latest = [...this.whisperPendingParagraphs.values()]
-      .sort((left, right) => left.lastUpdatedAt - right.lastUpdatedAt)
-      .at(-1);
-    this.events.emit("partial", latest?.transcript ?? "");
+    for (const [src, para] of this.whisperPendingParagraphs) {
+      this.events.emit("partial", { source: src, text: para.transcript });
+    }
+    if (this.whisperPendingParagraphs.size === 0) {
+      this.events.emit("partial", { source: null, text: "" });
+    }
   }
 
   private async evaluateWhisperParagraphs(forceCommit: boolean, sources?: AudioSource[]): Promise<void> {

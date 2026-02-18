@@ -44,6 +44,8 @@ export function buildSessionConfig(
     transcriptionModelId: config.transcriptionModelId,
     analysisProvider: config.analysisProvider,
     analysisModelId: config.analysisModelId,
+    analysisProviderSort: config.analysisProviderSort,
+    analysisReasoning: config.analysisReasoning,
     todoModelId: config.todoModelId,
     vertexProject: config.vertexProject ?? process.env.GOOGLE_VERTEX_PROJECT_ID,
     vertexLocation: config.vertexLocation,
@@ -90,9 +92,9 @@ export function wireSessionEvents(
     if (!isCurrentSession()) return;
     sendToRenderer(getWindow, "session:cost-updated", cost);
   });
-  activeSession.events.on("partial", (text: string) => {
+  activeSession.events.on("partial", (payload) => {
     if (!isCurrentSession()) return;
-    sendToRenderer(getWindow, "session:partial", text);
+    sendToRenderer(getWindow, "session:partial", payload);
   });
   activeSession.events.on("status", (text: string) => {
     if (!isCurrentSession()) return;

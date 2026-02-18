@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useCallback, useRef } from "react";
-import type { UIState, TranscriptBlock, Summary, LanguageCode, TodoItem, Insight, Agent, AppConfig } from "../../../core/types";
+import type { UIState, TranscriptBlock, Summary, LanguageCode, TodoItem, Insight, Agent, AppConfig, AudioSource } from "../../../core/types";
 
 export type SessionState = {
   sessionId: string | null;
@@ -8,7 +8,8 @@ export type SessionState = {
   summary: Summary | null;
   rollingKeyPoints: string[];
   cost: number;
-  partialText: string;
+  systemPartial: string;
+  micPartial: string;
   statusText: string;
   errorText: string;
   sessionActive: boolean;
@@ -29,7 +30,7 @@ type SessionAction =
   | { kind: "blocks-cleared" }
   | { kind: "summary-updated"; summary: Summary | null }
   | { kind: "cost-updated"; cost: number }
-  | { kind: "partial"; text: string }
+  | { kind: "partial"; source: AudioSource | null; text: string }
   | { kind: "status"; text: string }
   | { kind: "error"; text: string }
   | { kind: "session-started"; sessionId: string }
@@ -48,8 +49,10 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
   switch (action.kind) {
     case "state-change":
       return { ...state, uiState: action.state };
-    case "block-added":
-      return { ...state, partialText: "", blocks: sortBlocks([...state.blocks, action.block]) };
+    case "block-added": {
+      const clearPartial = action.block.audioSource === "system" ? { systemPartial: "" } : { micPartial: "" };
+      return { ...state, ...clearPartial, blocks: sortBlocks([...state.blocks, action.block]) };
+    }
     case "block-updated":
       return {
         ...state,
@@ -58,7 +61,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         )),
       };
     case "blocks-cleared":
-      return { ...state, blocks: [], summary: null, rollingKeyPoints: [], cost: 0, partialText: "", statusText: "" };
+      return { ...state, blocks: [], summary: null, rollingKeyPoints: [], cost: 0, systemPartial: "", micPartial: "", statusText: "" };
     case "summary-updated":
       return {
         ...state,
@@ -70,7 +73,10 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
     case "cost-updated":
       return { ...state, cost: action.cost };
     case "partial":
-      return { ...state, partialText: action.text };
+      if (action.source === null) return { ...state, systemPartial: "", micPartial: "" };
+      return action.source === "system"
+        ? { ...state, systemPartial: action.text }
+        : { ...state, micPartial: action.text };
     case "status":
       return { ...state, statusText: action.text };
     case "error":
@@ -84,7 +90,8 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         summary: null,
         rollingKeyPoints: [],
         cost: 0,
-        partialText: "",
+        systemPartial: "",
+        micPartial: "",
         statusText: "",
         errorText: "",
       };
@@ -100,13 +107,14 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         rollingKeyPoints: keyPoints,
         summary: null,
         cost: 0,
-        partialText: "",
+        systemPartial: "",
+        micPartial: "",
         statusText: "",
         errorText: "",
       };
     }
     case "session-ended":
-      return { ...state, sessionActive: false, uiState: null, partialText: "", statusText: "", errorText: "" };
+      return { ...state, sessionActive: false, uiState: null, systemPartial: "", micPartial: "", statusText: "", errorText: "" };
     case "session-viewed":
       return {
         ...state,
@@ -117,7 +125,8 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         uiState: null,
         summary: null,
         cost: 0,
-        partialText: "",
+        systemPartial: "",
+        micPartial: "",
         statusText: "",
         errorText: "",
       };
@@ -131,7 +140,8 @@ const initialState: SessionState = {
   summary: null,
   rollingKeyPoints: [],
   cost: 0,
-  partialText: "",
+  systemPartial: "",
+  micPartial: "",
   statusText: "",
   errorText: "",
   sessionActive: false,
@@ -185,7 +195,7 @@ export function useSession(
     cleanups.push(api.onBlocksCleared(() => dispatch({ kind: "blocks-cleared" })));
     cleanups.push(api.onSummaryUpdated((s) => dispatch({ kind: "summary-updated", summary: s })));
     cleanups.push(api.onCostUpdated((c) => dispatch({ kind: "cost-updated", cost: c })));
-    cleanups.push(api.onPartial((t) => dispatch({ kind: "partial", text: t })));
+    cleanups.push(api.onPartial((p) => dispatch({ kind: "partial", source: p.source, text: p.text })));
     cleanups.push(api.onStatus((t) => dispatch({ kind: "status", text: t })));
     cleanups.push(api.onError((t) => dispatch({ kind: "error", text: t })));
 

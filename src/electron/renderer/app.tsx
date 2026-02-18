@@ -1154,7 +1154,8 @@ export function App() {
               <TranscriptArea
                 ref={transcriptRef}
                 blocks={session.blocks}
-                partialText={session.partialText}
+                systemPartial={session.systemPartial}
+                micPartial={session.micPartial}
                 canTranslate={session.uiState?.canTranslate ?? false}
                 onCreateTodoFromSelection={handleCreateTodoFromSelection}
               />

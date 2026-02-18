@@ -6,6 +6,7 @@ import type {
   Language,
   LanguageCode,
   LightVariant,
+  OpenRouterProviderSort,
   ThemeMode,
   TranscriptionProvider,
 } from "../../../core/types";
@@ -80,6 +81,13 @@ const ANALYSIS_PROVIDERS: Array<{ value: AnalysisProvider; label: string }> = [
   { value: "openrouter", label: "OpenRouter" },
   { value: "google", label: "Google" },
   { value: "vertex", label: "Vertex AI" },
+];
+
+const OPENROUTER_SORT_OPTIONS: Array<{ value: OpenRouterProviderSort | "none"; label: string }> = [
+  { value: "none", label: "None (OpenRouter default)" },
+  { value: "throughput", label: "Throughput" },
+  { value: "latency", label: "Latency" },
+  { value: "price", label: "Price" },
 ];
 
 function SettingRow({
@@ -438,6 +446,43 @@ export function SettingsPage({
                 />
               </div>
             </div>
+            {config.analysisProvider === "openrouter" && (
+              <div className="mt-3 space-y-0.5">
+                <SettingRow
+                  label="Provider Sort"
+                  description="How OpenRouter selects between providers for the analysis model."
+                  control={
+                    <Select
+                      value={config.analysisProviderSort ?? "none"}
+                      onValueChange={(v) =>
+                        set("analysisProviderSort", v === "none" ? undefined : (v as OpenRouterProviderSort))
+                      }
+                    >
+                      <SelectTrigger size="sm" className="w-44">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {OPENROUTER_SORT_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  }
+                />
+                <SettingRow
+                  label="Reasoning"
+                  description="Enable extended reasoning tokens for the analysis model (max 4096)."
+                  control={
+                    <Switch
+                      checked={config.analysisReasoning}
+                      onCheckedChange={(v) => set("analysisReasoning", v)}
+                    />
+                  }
+                />
+              </div>
+            )}
           </section>
 
           <section className="border border-border bg-card px-4 py-3 rounded-none lg:col-span-2">

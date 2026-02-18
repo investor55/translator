@@ -75,11 +75,9 @@ export function createAnalysisModel(config: SessionConfig): LanguageModel {
       const openrouter = createOpenRouter({
         apiKey: process.env.OPENROUTER_API_KEY,
       });
-      // const providerSort = getOpenRouterProviderSort();
       return openrouter(config.analysisModelId, {
-        reasoning: { max_tokens: 4096, exclude: false },
-        // provider: providerSort ? { sort: providerSort } : undefined,
-        provider: { sort: "throughput" },
+        reasoning: config.analysisReasoning ? { max_tokens: 4096, exclude: false } : undefined,
+        provider: config.analysisProviderSort ? { sort: config.analysisProviderSort } : undefined,
       });
     }
     case "google": {

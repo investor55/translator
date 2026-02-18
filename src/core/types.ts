@@ -34,6 +34,7 @@ export type LightVariant = "warm" | "linen";
 
 export type TranscriptionProvider = "google" | "vertex" | "elevenlabs" | "whisper";
 export type AnalysisProvider = "openrouter" | "google" | "vertex";
+export type OpenRouterProviderSort = "price" | "throughput" | "latency";
 
 export type TranscriptBlock = {
   id: number;
@@ -132,6 +133,8 @@ export type SessionConfig = {
   transcriptionModelId: string;
   analysisProvider: AnalysisProvider;
   analysisModelId: string;
+  analysisProviderSort?: OpenRouterProviderSort;
+  analysisReasoning: boolean;
   todoModelId: string;
   vertexProject?: string;
   vertexLocation: string;
@@ -154,6 +157,8 @@ export type AppConfig = {
   transcriptionModelId: string;
   analysisProvider: AnalysisProvider;
   analysisModelId: string;
+  analysisProviderSort?: OpenRouterProviderSort;
+  analysisReasoning: boolean;
   todoModelId: string;
   vertexProject?: string;
   vertexLocation: string;
@@ -208,6 +213,8 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   transcriptionModelId: DEFAULT_TRANSCRIPTION_MODEL_ID,
   analysisProvider: "openrouter",
   analysisModelId: DEFAULT_ANALYSIS_MODEL_ID,
+  analysisProviderSort: "throughput",
+  analysisReasoning: false,
   todoModelId: DEFAULT_TODO_MODEL_ID,
   vertexProject: ENV?.GOOGLE_VERTEX_PROJECT_ID,
   vertexLocation: DEFAULT_VERTEX_LOCATION,
@@ -278,6 +285,13 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     legacyAudio: !!merged.legacyAudio,
     translationEnabled: !!merged.translationEnabled,
     agentAutoApprove: !!merged.agentAutoApprove,
+    analysisProviderSort:
+      merged.analysisProviderSort === "price" ||
+      merged.analysisProviderSort === "throughput" ||
+      merged.analysisProviderSort === "latency"
+        ? merged.analysisProviderSort
+        : undefined,
+    analysisReasoning: !!merged.analysisReasoning,
   };
 }
 
@@ -363,7 +377,7 @@ export type SessionEvents = {
   "final-summary-ready": [summary: FinalSummary];
   "final-summary-error": [error: string];
   "cost-updated": [cost: number];
-  "partial": [text: string];
+  "partial": [payload: { source: AudioSource | null; text: string }];
   "status": [text: string];
   "error": [error: string];
   "todo-added": [todo: TodoItem];

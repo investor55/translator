@@ -19,7 +19,8 @@ export type SelectionTodoResult = {
 
 type TranscriptAreaProps = {
   blocks: TranscriptBlock[];
-  partialText?: string;
+  systemPartial?: string;
+  micPartial?: string;
   canTranslate?: boolean;
   onCreateTodoFromSelection?: (
     highlightedText: string,
@@ -133,7 +134,7 @@ function Paragraph({ blocks, isLast, canTranslate }: { blocks: TranscriptBlock[]
 }
 
 export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
-  function TranscriptArea({ blocks, partialText, canTranslate, onCreateTodoFromSelection }, ref) {
+  function TranscriptArea({ blocks, systemPartial, micPartial, canTranslate, onCreateTodoFromSelection }, ref) {
     const bottomRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const selectionMenuRef = useRef<HTMLDivElement>(null);
@@ -347,10 +348,17 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
               />
             ))
           )}
-          {partialText && (
-            <p className="text-[13px] font-mono text-muted-foreground/50 italic animate-pulse">
-              {partialText}
-            </p>
+          {systemPartial && (
+            <div className="flex items-center gap-1.5 text-[13px] font-mono text-muted-foreground/50 italic animate-pulse">
+              <Volume2Icon className="size-3 shrink-0" />
+              <span>{systemPartial}</span>
+            </div>
+          )}
+          {micPartial && (
+            <div className="flex items-center gap-1.5 text-[13px] font-mono text-muted-foreground/50 italic animate-pulse">
+              <MicIcon className="size-3 shrink-0" />
+              <span>{micPartial}</span>
+            </div>
           )}
           <div ref={bottomRef} />
         </div>

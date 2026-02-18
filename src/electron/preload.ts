@@ -18,6 +18,7 @@ import type {
   AgentToolApprovalResponse,
   AppConfigOverrides,
   McpIntegrationStatus,
+  AudioSource,
 } from "../core/types";
 import type {
   WhisperGpuReadyPayload,
@@ -114,7 +115,7 @@ export type ElectronAPI = {
   onBlocksCleared: (callback: () => void) => () => void;
   onSummaryUpdated: (callback: (summary: Summary | null) => void) => () => void;
   onCostUpdated: (callback: (cost: number) => void) => () => void;
-  onPartial: (callback: (text: string) => void) => () => void;
+  onPartial: (callback: (payload: { source: AudioSource | null; text: string }) => void) => () => void;
   onStatus: (callback: (text: string) => void) => () => void;
   onError: (callback: (text: string) => void) => () => void;
   onTodoAdded: (callback: (todo: TodoItem) => void) => () => void;
@@ -212,7 +213,7 @@ const api: ElectronAPI = {
   onBlocksCleared: createListener<void>("session:blocks-cleared"),
   onSummaryUpdated: createListener<Summary | null>("session:summary-updated"),
   onCostUpdated: createListener<number>("session:cost-updated"),
-  onPartial: createListener<string>("session:partial"),
+  onPartial: createListener<{ source: AudioSource | null; text: string }>("session:partial"),
   onStatus: createListener<string>("session:status"),
   onError: createListener<string>("session:error"),
   onTodoAdded: createListener<TodoItem>("session:todo-added"),
