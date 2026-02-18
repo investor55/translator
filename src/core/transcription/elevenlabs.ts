@@ -5,8 +5,8 @@ import {
   CommitStrategy,
   type RealtimeConnection,
 } from "@elevenlabs/elevenlabs-js";
-import type { LanguageCode } from "./types";
-import { isValidLangCode } from "./language";
+import type { LanguageCode } from "../types";
+import { isValidLangCode } from "../language";
 
 const ELEVENLABS_LANGUAGE_MAP: Record<string, LanguageCode> = {
   eng: "en",

@@ -5,13 +5,13 @@ import type {
   Agent,
   AgentQuestionRequest,
   AgentQuestionSelection,
-} from "./types";
-import { log } from "./logger";
+} from "../types";
+import { log } from "../logger";
 import {
   getAgentInitialUserPromptTemplate,
   getAgentSystemPromptTemplate,
   renderPromptTemplate,
-} from "./prompt-loader";
+} from "../prompt-loader";
 
 type ExaClient = {
   searchAndContents: (query: string, options: Record<string, unknown>) => Promise<{

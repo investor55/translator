@@ -1,8 +1,8 @@
 import { ChildProcess, fork } from "node:child_process";
 import path from "node:path";
-import type { LanguageCode } from "./types";
-import { detectSourceLanguage } from "./language";
-import { log } from "./logger";
+import type { LanguageCode } from "../types";
+import { detectSourceLanguage } from "../language";
+import { log } from "../logger";
 
 export function pcmToFloat32(pcmBuffer: Buffer): Float32Array {
   const samples = pcmBuffer.length / 2;

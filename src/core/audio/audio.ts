@@ -11,4 +11,4 @@ export {
   spawnMicFfmpeg,
   listMicDevices,
   type AudioRecorder,
-} from "../audio";
+} from "../../audio";

@@ -17,8 +17,8 @@ import type {
 } from "./types";
 import { createTranscriptionModel, createAnalysisModel, createTodoModel } from "./providers";
 import { log } from "./logger";
-import { pcmToWavBuffer, computeRms } from "./audio-utils";
-import { isLikelyDuplicateTodoText, normalizeTodoText, toReadableError } from "./text-utils";
+import { pcmToWavBuffer, computeRms } from "./audio/audio-utils";
+import { isLikelyDuplicateTodoText, normalizeTodoText, toReadableError } from "./text/text-utils";
 import {
   analysisSchema,
   todoAnalysisSchema,
@@ -26,9 +26,9 @@ import {
   buildAnalysisPrompt,
   buildTodoPrompt,
   buildTodoFromSelectionPrompt,
-} from "./analysis";
-import { classifyTodoSize as classifyTodoSizeWithModel, type TodoSizeClassification } from "./todo-size";
-import type { AppDatabase } from "./db";
+} from "./analysis/analysis";
+import { classifyTodoSize as classifyTodoSizeWithModel, type TodoSizeClassification } from "./analysis/todo-size";
+import type { AppDatabase } from "./db/db";
 import {
   LANG_NAMES,
   getLanguageLabel,
@@ -48,7 +48,7 @@ import {
   processAudioData,
   flushVad,
   type VadState,
-} from "./vad";
+} from "./audio/vad";
 import {
   createContextState,
   resetContextState,
@@ -67,15 +67,15 @@ import {
   spawnFfmpeg,
   spawnMicFfmpeg,
   type AudioRecorder,
-} from "./audio";
-import { createAgentManager, type AgentManager } from "./agent-manager";
+} from "./audio/audio";
+import { createAgentManager, type AgentManager } from "./agents/agent-manager";
 import {
   connectElevenLabsRealtime,
   normalizeElevenLabsLanguageCode,
   RealtimeEvents,
   type RealtimeConnection,
-} from "./elevenlabs";
-import { preloadWhisperPipeline, disposeWhisperPipeline, transcribeWithWhisper } from "./whisper-local";
+} from "./transcription/elevenlabs";
+import { preloadWhisperPipeline, disposeWhisperPipeline, transcribeWithWhisper } from "./transcription/whisper-local";
 import {
   getParagraphDecisionPromptTemplate,
   getTranscriptPostProcessPromptTemplate,

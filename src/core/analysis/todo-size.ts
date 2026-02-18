@@ -1,8 +1,8 @@
 import { generateObject, type LanguageModel } from "ai";
 import { z } from "zod";
-import type { TodoSize } from "./types";
-import { toReadableError } from "./text-utils";
-import { getTodoSizeClassifierPromptTemplate, renderPromptTemplate } from "./prompt-loader";
+import type { TodoSize } from "../types";
+import { toReadableError } from "../text/text-utils";
+import { getTodoSizeClassifierPromptTemplate, renderPromptTemplate } from "../prompt-loader";
 
 const TODO_SIZE_TIMEOUT_MS = 12_000;
 const DEFAULT_MIN_CONFIDENCE = 0.65;

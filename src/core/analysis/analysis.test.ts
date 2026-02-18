@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildAnalysisPrompt, buildTodoPrompt } from "./analysis";
-import type { TranscriptBlock } from "./types";
+import type { TranscriptBlock } from "../types";
 
 const SAMPLE_BLOCKS: TranscriptBlock[] = [
   {

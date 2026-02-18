@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createDatabase, type AppDatabase } from "./db";
-import type { TranscriptBlock, TodoItem, Insight, Agent } from "./types";
+import type { TranscriptBlock, TodoItem, Insight, Agent } from "../types";
 
 let db: AppDatabase;
 

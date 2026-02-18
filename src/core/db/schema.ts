@@ -1,5 +1,5 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
-import type { AgentStep } from "./types";
+import type { AgentStep } from "../types";
 
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),

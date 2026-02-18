@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { AudioSource, TranscriptBlock } from "./types";
-import { normalizeText } from "./text-utils";
+import { normalizeText } from "./text/text-utils";
 
 export type ContextState = {
   contextBuffer: string[];

@@ -1,5 +1,5 @@
 import type { BrowserWindow } from "electron";
-import type { AppDatabase } from "../../core/db";
+import type { AppDatabase } from "../../core/db/db";
 import { Session } from "../../core/session";
 import type {
   Agent,

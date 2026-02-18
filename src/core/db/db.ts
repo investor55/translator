@@ -13,7 +13,7 @@ import type {
   LanguageCode,
   Agent,
   AgentStep,
-} from "./types";
+} from "../types";
 
 export type AppDatabase = ReturnType<typeof createDatabase>;
 

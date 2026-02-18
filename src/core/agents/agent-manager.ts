@@ -1,15 +1,15 @@
 import { EventEmitter } from "node:events";
 import type { ModelMessage } from "ai";
 import { buildAgentInitialUserPrompt, runAgent, continueAgent } from "./agent";
-import { log } from "./logger";
-import type { AppDatabase } from "./db";
+import { log } from "../logger";
+import type { AppDatabase } from "../db/db";
 import type {
   Agent,
   AgentStep,
   SessionEvents,
   AgentQuestionRequest,
   AgentQuestionSelection,
-} from "./types";
+} from "../types";
 
 type TypedEmitter = EventEmitter & {
   emit<K extends keyof SessionEvents>(event: K, ...args: SessionEvents[K]): boolean;

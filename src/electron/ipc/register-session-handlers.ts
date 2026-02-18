@@ -3,7 +3,7 @@ import { listMicDevices } from "../../audio";
 import { validateEnv } from "../../core/config";
 import { log } from "../../core/logger";
 import { Session } from "../../core/session";
-import { toReadableError } from "../../core/text-utils";
+import { toReadableError } from "../../core/text/text-utils";
 import type { AppConfigOverrides, LanguageCode } from "../../core/types";
 import { SUPPORTED_LANGUAGES } from "../../core/types";
 import { buildSessionConfig, shutdownCurrentSession, wireSessionEvents } from "./ipc-utils";

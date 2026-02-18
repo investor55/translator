@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { TranscriptBlock, TodoItem } from "./types";
+import type { TranscriptBlock, TodoItem } from "../types";
 import {
   getAnalysisRequestPromptTemplate,
   getInsightsSystemPrompt,
@@ -7,7 +7,7 @@ import {
   getTodoExtractPromptTemplate,
   getTodoFromSelectionPromptTemplate,
   renderPromptTemplate,
-} from "./prompt-loader";
+} from "../prompt-loader";
 
 export const analysisSchema = z.object({
   keyPoints: z

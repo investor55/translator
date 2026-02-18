@@ -1,9 +1,9 @@
 import type { BrowserWindow } from "electron";
-import type { AppDatabase } from "../core/db";
+import type { AppDatabase } from "../core/db/db";
 import { validateEnv } from "../core/config";
 import { log } from "../core/logger";
 import { Session } from "../core/session";
-import { toReadableError } from "../core/text-utils";
+import { toReadableError } from "../core/text/text-utils";
 import type { AppConfigOverrides, LanguageCode } from "../core/types";
 import { registerAgentHandlers } from "./ipc/register-agent-handlers";
 import { registerSessionHandlers } from "./ipc/register-session-handlers";

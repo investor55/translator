@@ -7,8 +7,8 @@ export default defineConfig({
     lib: {
       entry: {
         main: "src/electron/main.ts",
-        "whisper-worker": "src/core/whisper-worker.ts",
-        "whisper-child": "src/core/whisper-child.ts",
+        "whisper-worker": "src/core/transcription/whisper-worker.ts",
+        "whisper-child": "src/core/transcription/whisper-child.ts",
       },
       formats: ["cjs"],
       fileName: () => "[name].js",
