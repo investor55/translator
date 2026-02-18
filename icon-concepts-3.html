@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ambient — Icon Concepts III</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600&family=Outfit:wght@900&family=Barlow:wght@900&family=Josefin+Sans:wght@700&family=DM+Sans:opsz,wght@9..40,900&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #060504;
+      color: #fff;
+      font-family: 'Syne', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 60px;
+      gap: 60px;
+    }
+
+    header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .eyebrow {
+      font-size: 9.5px;
+      letter-spacing: 0.45em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.15);
+      font-weight: 500;
+    }
+
+    h1 {
+      font-size: 12px;
+      letter-spacing: 0.4em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.4);
+      font-weight: 600;
+    }
+
+    .rule { width: 28px; height: 1px; background: rgba(255,255,255,0.07); }
+
+    .icons-row {
+      display: flex;
+      gap: 48px;
+      align-items: flex-start;
+    }
+
+    .icon-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .icon-wrap {
+      border-radius: 36px;
+      overflow: hidden;
+      box-shadow:
+        0 4px 24px rgba(0,0,0,0.7),
+        0 0 0 0.5px rgba(255,255,255,0.05);
+      transition:
+        transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+        box-shadow 0.3s ease;
+      cursor: pointer;
+    }
+
+    .icon-card:hover .icon-wrap {
+      transform: translateY(-8px) scale(1.04);
+      box-shadow:
+        0 32px 64px rgba(0,0,0,0.8),
+        0 0 0 0.5px rgba(255,255,255,0.1);
+    }
+
+    .icon-meta { text-align: center; display: flex; flex-direction: column; gap: 5px; }
+    .icon-num  { font-size: 9px; letter-spacing: 0.3em; color: rgba(255,255,255,0.12); font-weight: 600; text-transform: uppercase; }
+    .icon-desc { font-size: 10px; letter-spacing: 0.15em; color: rgba(255,255,255,0.32); font-weight: 500; text-transform: uppercase; }
+
+    footer {
+      font-size: 9px;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.08);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <span class="eyebrow">Icon Exploration · Draft 03</span>
+    <h1>Ambient</h1>
+    <div class="rule"></div>
+  </header>
+
+  <div class="icons-row">
+
+    <!-- 01: Outfit 900 — clean, rounded, modern -->
+    <div class="icon-card">
+      <div class="icon-wrap">
+        <svg width="160" height="160" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="bg1" cx="50%" cy="44%" r="62%">
+              <stop offset="0%" stop-color="#302820"/>
+              <stop offset="55%" stop-color="#1c1510"/>
+              <stop offset="100%" stop-color="#080604"/>
+            </radialGradient>
+            <radialGradient id="vig1" cx="50%" cy="50%" r="68%">
+              <stop offset="0%" stop-color="transparent"/>
+              <stop offset="100%" stop-color="rgba(0,0,0,0.6)"/>
+            </radialGradient>
+            <filter id="glow1" x="-80%" y="-80%" width="260%" height="260%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="7"   result="bloom"/>
+              <feGaussianBlur in="SourceGraphic" stdDeviation="3"   result="mid"/>
+              <feGaussianBlur in="SourceGraphic" stdDeviation="0.8" result="crisp"/>
+              <feMerge>
+                <feMergeNode in="bloom"/>
+                <feMergeNode in="mid"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+          </defs>
+          <rect width="128" height="128" fill="url(#bg1)"/>
+          <text
+            x="64" y="99"
+            text-anchor="middle"
+            font-family="Outfit, sans-serif"
+            font-weight="900"
+            font-size="108"
+            fill="#fffdf8"
+            filter="url(#glow1)">A</text>
+          <rect width="128" height="128" fill="url(#vig1)"/>
+        </svg>
+      </div>
+      <div class="icon-meta">
+        <span class="icon-num">01</span>
+        <span class="icon-desc">Outfit Black</span>
+      </div>
+    </div>
+
+    <!-- 02: Barlow 900 — punchy grotesque -->
+    <div class="icon-card">
+      <div class="icon-wrap">
+        <svg width="160" height="160" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="bg2" cx="50%" cy="44%" r="62%">
+              <stop offset="0%" stop-color="#302820"/>
+              <stop offset="55%" stop-color="#1c1510"/>
+              <stop offset="100%" stop-color="#080604"/>
+            </radialGradient>
+            <radialGradient id="vig2" cx="50%" cy="50%" r="68%">
+              <stop offset="0%" stop-color="transparent"/>
+              <stop offset="100%" stop-color="rgba(0,0,0,0.6)"/>
+            </radialGradient>
+            <filter id="glow2" x="-80%" y="-80%" width="260%" height="260%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="7"   result="bloom"/>
+              <feGaussianBlur in="SourceGraphic" stdDeviation="3"   result="mid"/>
+              <feMerge>
+                <feMergeNode in="bloom"/>
+                <feMergeNode in="mid"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+          </defs>
+          <rect width="128" height="128" fill="url(#bg2)"/>
+          <text
+            x="64" y="99"
+            text-anchor="middle"
+            font-family="Barlow, sans-serif"
+            font-weight="900"
+            font-size="108"
+            fill="#fffdf8"
+            filter="url(#glow2)">A</text>
+          <rect width="128" height="128" fill="url(#vig2)"/>
+        </svg>
+      </div>
+      <div class="icon-meta">
+        <span class="icon-num">02</span>
+        <span class="icon-desc">Barlow Black</span>
+      </div>
+    </div>
+
+    <!-- 03: Josefin Sans 700 — Futura-inspired geometric -->
+    <div class="icon-card">
+      <div class="icon-wrap">
+        <svg width="160" height="160" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="bg3" cx="50%" cy="44%" r="62%">
+              <stop offset="0%" stop-color="#302820"/>
+              <stop offset="55%" stop-color="#1c1510"/>
+              <stop offset="100%" stop-color="#080604"/>
+            </radialGradient>
+            <radialGradient id="vig3" cx="50%" cy="50%" r="68%">
+              <stop offset="0%" stop-color="transparent"/>
+              <stop offset="100%" stop-color="rgba(0,0,0,0.6)"/>
+            </radialGradient>
+            <filter id="glow3" x="-80%" y="-80%" width="260%" height="260%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="7"   result="bloom"/>
+              <feGaussianBlur in="SourceGraphic" stdDeviation="3"   result="mid"/>
+              <feMerge>
+                <feMergeNode in="bloom"/>
+                <feMergeNode in="mid"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+          </defs>
+          <rect width="128" height="128" fill="url(#bg3)"/>
+          <text
+            x="64" y="97"
+            text-anchor="middle"
+            font-family="'Josefin Sans', sans-serif"
+            font-weight="700"
+            font-size="102"
+            fill="#fffdf8"
+            filter="url(#glow3)">A</text>
+          <rect width="128" height="128" fill="url(#vig3)"/>
+        </svg>
+      </div>
+      <div class="icon-meta">
+        <span class="icon-num">03</span>
+        <span class="icon-desc">Josefin Sans</span>
+      </div>
+    </div>
+
+    <!-- 04: DM Sans 900 — refined, contemporary grotesque -->
+    <div class="icon-card">
+      <div class="icon-wrap">
+        <svg width="160" height="160" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="bg4" cx="50%" cy="44%" r="62%">
+              <stop offset="0%" stop-color="#302820"/>
+              <stop offset="55%" stop-color="#1c1510"/>
+              <stop offset="100%" stop-color="#080604"/>
+            </radialGradient>
+            <radialGradient id="vig4" cx="50%" cy="50%" r="68%">
+              <stop offset="0%" stop-color="transparent"/>
+              <stop offset="100%" stop-color="rgba(0,0,0,0.6)"/>
+            </radialGradient>
+            <filter id="glow4" x="-80%" y="-80%" width="260%" height="260%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="7"   result="bloom"/>
+              <feGaussianBlur in="SourceGraphic" stdDeviation="3"   result="mid"/>
+              <feMerge>
+                <feMergeNode in="bloom"/>
+                <feMergeNode in="mid"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+          </defs>
+          <rect width="128" height="128" fill="url(#bg4)"/>
+          <text
+            x="64" y="99"
+            text-anchor="middle"
+            font-family="'DM Sans', sans-serif"
+            font-weight="900"
+            font-size="108"
+            fill="#fffdf8"
+            filter="url(#glow4)">A</text>
+          <rect width="128" height="128" fill="url(#vig4)"/>
+        </svg>
+      </div>
+      <div class="icon-meta">
+        <span class="icon-num">04</span>
+        <span class="icon-desc">DM Sans Black</span>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>Ambient · Type Series · 2026</footer>
+
+</body>
+</html>

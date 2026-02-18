@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; }
+    html, body { width: 1024px; height: 1024px; overflow: hidden; background: #000; }
+    svg { display: block; }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <svg width="1024" height="1024" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <radialGradient id="bg" cx="50%" cy="44%" r="62%">
+        <stop offset="0%" stop-color="#302820"/>
+        <stop offset="55%" stop-color="#1c1510"/>
+        <stop offset="100%" stop-color="#080604"/>
+      </radialGradient>
+      <radialGradient id="vig" cx="50%" cy="50%" r="68%">
+        <stop offset="0%" stop-color="transparent"/>
+        <stop offset="100%" stop-color="rgba(0,0,0,0.6)"/>
+      </radialGradient>
+      <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="7"   result="bloom"/>
+        <feGaussianBlur in="SourceGraphic" stdDeviation="3"   result="mid"/>
+        <feMerge>
+          <feMergeNode in="bloom"/>
+          <feMergeNode in="mid"/>
+          <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+      </filter>
+    </defs>
+
+    <!-- Background -->
+    <rect width="128" height="128" fill="url(#bg)"/>
+
+    <!-- Glowing A -->
+    <text
+      x="64" y="97"
+      text-anchor="middle"
+      font-family="'Josefin Sans', sans-serif"
+      font-weight="700"
+      font-size="102"
+      fill="#fffdf8"
+      filter="url(#glow)">A</text>
+
+    <!-- Vignette -->
+    <rect width="128" height="128" fill="url(#vig)"/>
+  </svg>
+</body>
+</html>

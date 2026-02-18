@@ -105,8 +105,8 @@ export function createMcpToolRegistry(options: {
   }
 
   async function authenticateNotionRuntime(runtime: ProviderRuntime, kind: NotionTransportKind): Promise<void> {
-    await runtime.client.connect(runtime.transport);
     try {
+      await runtime.client.connect(runtime.transport);
       await runtime.client.listTools();
       return;
     } catch (error) {
