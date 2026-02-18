@@ -26,6 +26,9 @@ export function Footer({ sessionActive, statusText }: FooterProps) {
           <Separator orientation="vertical" className="h-3 mx-0.5" />
           <Kbd>Q</Kbd>
           <span>end session</span>
+          <Separator orientation="vertical" className="h-3 mx-0.5" />
+          <Kbd>End</Kbd>
+          <span>summary</span>
           {statusText && (
             <>
               <Separator orientation="vertical" className="h-3 mx-0.5" />

@@ -4,6 +4,7 @@ import type {
   UIState,
   TranscriptBlock,
   Summary,
+  FinalSummary,
   LanguageCode,
   Device,
   TodoItem,
@@ -46,6 +47,10 @@ export type ElectronAPI = {
   toggleTranslation: () => Promise<{ ok: boolean; enabled?: boolean; error?: string }>;
   listMicDevices: () => Promise<Device[]>;
   shutdownSession: () => Promise<{ ok: boolean }>;
+  generateFinalSummary: () => Promise<{ ok: boolean; error?: string }>;
+  getFinalSummary: (sessionId: string) => Promise<{ ok: boolean; summary?: FinalSummary }>;
+  onFinalSummaryReady: (callback: (summary: FinalSummary) => void) => () => void;
+  onFinalSummaryError: (callback: (error: string) => void) => () => void;
 
   getTodos: () => Promise<TodoItem[]>;
   addTodo: (todo: TodoItem, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; todo?: TodoItem; error?: string }>;
@@ -151,6 +156,10 @@ const api: ElectronAPI = {
   toggleTranslation: () => ipcRenderer.invoke("toggle-translation"),
   listMicDevices: () => ipcRenderer.invoke("list-mic-devices"),
   shutdownSession: () => ipcRenderer.invoke("shutdown-session"),
+  generateFinalSummary: () => ipcRenderer.invoke("generate-final-summary"),
+  getFinalSummary: (sessionId) => ipcRenderer.invoke("get-final-summary", sessionId),
+  onFinalSummaryReady: createListener<FinalSummary>("session:final-summary-ready"),
+  onFinalSummaryError: createListener<string>("session:final-summary-error"),
 
   getTodos: () => ipcRenderer.invoke("get-todos"),
   addTodo: (todo, appConfig) => ipcRenderer.invoke("add-todo", todo, appConfig),

@@ -5,6 +5,7 @@ import type {
   Agent,
   AgentStep,
   AppConfigOverrides,
+  FinalSummary,
   LanguageCode,
   SessionConfig,
   Summary,
@@ -132,6 +133,14 @@ export function wireSessionEvents(
   activeSession.events.on("agent-archived", (agentId: string) => {
     if (!isCurrentSession()) return;
     sendToRenderer(getWindow, "session:agent-archived", agentId);
+  });
+  activeSession.events.on("final-summary-ready", (summary: FinalSummary) => {
+    if (!isCurrentSession()) return;
+    sendToRenderer(getWindow, "session:final-summary-ready", summary);
+  });
+  activeSession.events.on("final-summary-error", (error: string) => {
+    if (!isCurrentSession()) return;
+    sendToRenderer(getWindow, "session:final-summary-error", error);
   });
 }
 

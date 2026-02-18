@@ -5,6 +5,7 @@ type KeyboardActions = {
   onQuit: () => void;
   onScrollUp?: () => void;
   onScrollDown?: () => void;
+  onGenerateSummary?: () => void;
 };
 
 export function useKeyboard(actions: KeyboardActions) {
@@ -30,6 +31,10 @@ export function useKeyboard(actions: KeyboardActions) {
       case "ArrowDown":
         e.preventDefault();
         actions.onScrollDown?.();
+        break;
+      case "End":
+        e.preventDefault();
+        actions.onGenerateSummary?.();
         break;
     }
   });

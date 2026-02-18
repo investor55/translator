@@ -62,6 +62,35 @@ export const todoFromSelectionSchema = z.object({
     .describe("Brief explanation for decision."),
 });
 
+export const finalSummarySchema = z.object({
+  narrative: z.string().describe(
+    "A comprehensive 2-5 sentence prose summary of the full conversation covering main topics, decisions, and overall arc. Write in plain English."
+  ),
+  actionItems: z.array(z.string()).describe(
+    "Concrete action items or commitments. Each a short imperative phrase (3-10 words). Empty array if none."
+  ),
+});
+
+export type FinalSummaryResult = z.infer<typeof finalSummarySchema>;
+
+export function buildFinalSummaryPrompt(
+  allBlocks: readonly TranscriptBlock[],
+  allKeyPoints: readonly string[],
+): string {
+  const transcript = allBlocks
+    .map((b) => {
+      const line = `[${b.audioSource}] ${b.sourceText}`;
+      return b.translation ? `${line} → ${b.translation}` : line;
+    })
+    .join("\n");
+
+  const keyPointsSection = allKeyPoints.length > 0
+    ? `\n\nKey points identified during the session:\n${allKeyPoints.map((p) => `- ${p}`).join("\n")}`
+    : "";
+
+  return `You are producing a final summary of a completed conversation that was transcribed and translated in real-time.\n\nFull transcript:\n${transcript || "(No transcript available)"}${keyPointsSection}`;
+}
+
 export type AnalysisResult = z.infer<typeof analysisSchema>;
 export type TodoAnalysisResult = z.infer<typeof todoAnalysisSchema>;
 export type TodoExtractSuggestion = TodoAnalysisResult["suggestedTodos"][number];

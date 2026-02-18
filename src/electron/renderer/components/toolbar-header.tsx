@@ -3,7 +3,7 @@ import {
   PlayIcon,
   PauseIcon,
 } from "@hugeicons/core-free-icons";
-import { ArrowLeftIcon, LanguagesIcon, MicIcon, MicOffIcon, PlusIcon, Settings2Icon } from "lucide-react";
+import { ArrowLeftIcon, FileTextIcon, LanguagesIcon, MicIcon, MicOffIcon, PlusIcon, Settings2Icon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -30,6 +30,7 @@ type ToolbarHeaderProps = {
   langError: string;
   onToggleTranslation?: () => void;
   onToggleMic?: () => void;
+  onGenerateSummary?: () => void;
   settingsOpen?: boolean;
   onToggleSettings?: () => void;
 };
@@ -73,6 +74,7 @@ export function ToolbarHeader({
   langError,
   onToggleTranslation,
   onToggleMic,
+  onGenerateSummary,
   settingsOpen,
   onToggleSettings,
 }: ToolbarHeaderProps) {
@@ -200,6 +202,10 @@ export function ToolbarHeader({
               <Button variant="outline" size="sm" onClick={onNewSession}>
                 <PlusIcon className="size-3.5" data-icon="inline-start" />
                 New
+              </Button>
+              <Button variant="outline" size="sm" onClick={onGenerateSummary}>
+                <FileTextIcon className="size-3.5" data-icon="inline-start" />
+                Summary
               </Button>
             </>
           )}

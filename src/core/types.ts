@@ -53,6 +53,12 @@ export type Summary = {
   updatedAt: number;
 };
 
+export type FinalSummary = {
+  narrative: string;       // prose paragraph summary of the entire conversation
+  actionItems: string[];   // extracted action items / todos
+  generatedAt: number;
+};
+
 export type TodoItem = Readonly<{
   id: string;
   text: string;
@@ -354,6 +360,8 @@ export type SessionEvents = {
   "block-updated": [block: TranscriptBlock];
   "blocks-cleared": [];
   "summary-updated": [summary: Summary | null];
+  "final-summary-ready": [summary: FinalSummary];
+  "final-summary-error": [error: string];
   "cost-updated": [cost: number];
   "partial": [text: string];
   "status": [text: string];

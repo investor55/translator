@@ -178,4 +178,15 @@ export function registerSessionHandlers({ db, getWindow, sessionRef, getExternal
     await shutdownCurrentSession(sessionRef, db);
     return { ok: true };
   });
+
+  ipcMain.handle("generate-final-summary", () => {
+    if (!sessionRef.current) return { ok: false, error: "No active session" };
+    sessionRef.current.generateFinalSummary();
+    return { ok: true };
+  });
+
+  ipcMain.handle("get-final-summary", (_event, sessionId: string) => {
+    const summary = db.getFinalSummary(sessionId);
+    return summary ? { ok: true, summary } : { ok: false };
+  });
 }

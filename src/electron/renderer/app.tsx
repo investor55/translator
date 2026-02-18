@@ -3,6 +3,7 @@ import { useLocalStorage } from "usehooks-ts";
 import type {
   Agent,
   AppConfig,
+  FinalSummary,
   Language,
   LanguageCode,
   TodoItem,
@@ -33,6 +34,8 @@ import { AgentDetailPanel } from "./components/agent-detail-panel";
 import { Footer } from "./components/footer";
 import { SettingsPage } from "./components/settings-page";
 import { SplashScreen } from "./components/splash-screen";
+import { SessionSummaryPanel } from "./components/session-summary-modal";
+import type { SummaryModalState } from "./components/session-summary-modal";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -113,6 +116,7 @@ export function App() {
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [activeProjectId, setActiveProjectId] = useLocalStorage<string | null>("ambient-active-project-id", null);
   const [mcpBusy, setMcpBusy] = useState(false);
+  const [finalSummaryState, setFinalSummaryState] = useState<SummaryModalState>({ kind: "idle" });
   const pendingNewSessionRouteRef = useRef(false);
   const { refreshSessions, sessionsRef } = useAppBootstrap({
     setSessions,
@@ -129,7 +133,13 @@ export function App() {
     setProcessingTodoIds([]);
     setInsights(data.insights);
     seedAgents(data.agents);
+    setFinalSummaryState({ kind: "idle" });
     void refreshSessions();
+    void window.electronAPI.getFinalSummary(data.sessionId).then((result) => {
+      if (result.ok && result.summary) {
+        setFinalSummaryState({ kind: "ready", summary: result.summary });
+      }
+    });
   }, [refreshSessions, seedAgents]);
 
   const session = useSession(
@@ -279,10 +289,20 @@ export function App() {
     setInsights((prev) => [...prev, insight]);
   }, []);
 
+  const handleFinalSummaryReady = useCallback((summary: FinalSummary) => {
+    setFinalSummaryState({ kind: "ready", summary });
+  }, []);
+
+  const handleFinalSummaryError = useCallback((error: string) => {
+    setFinalSummaryState({ kind: "error", message: error });
+  }, []);
+
   // Keep these listeners active so todo suggestions and insights stream into the UI.
   useSessionEventStream({
     onTodoSuggested: handleTodoSuggested,
     onInsightAdded: handleInsightAdded,
+    onFinalSummaryReady: handleFinalSummaryReady,
+    onFinalSummaryError: handleFinalSummaryError,
   });
 
   const handleToggleMic = useCallback(async () => {
@@ -985,11 +1005,64 @@ export function App() {
     setStoredAppConfig(normalizeAppConfig(next));
   }, [setStoredAppConfig]);
 
+  const handleAcceptSummaryItems = useCallback((items: Array<{ text: string; details?: string }>) => {
+    const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
+    if (!targetSessionId) return;
+    void (async () => {
+      for (const { text, details } of items) {
+        const trimmed = text.trim();
+        if (!trimmed) continue;
+        const optimisticId = crypto.randomUUID();
+        const optimisticTodo: TodoItem = {
+          id: optimisticId,
+          text: trimmed,
+          details,
+          size: "large",
+          completed: false,
+          source: "ai",
+          createdAt: Date.now(),
+          sessionId: targetSessionId,
+        };
+        setTodos((prev) => [optimisticTodo, ...prev]);
+        setProcessingTodoIds((prev) => [optimisticId, ...prev]);
+        const result = await persistTodo({ targetSessionId, text: trimmed, details, source: "ai", id: optimisticId, createdAt: optimisticTodo.createdAt });
+        setProcessingTodoIds((prev) => prev.filter((id) => id !== optimisticId));
+        if (!result.ok) {
+          setTodos((prev) => prev.filter((t) => t.id !== optimisticId));
+        } else {
+          setTodos((prev) => prev.map((t) => (t.id === optimisticId ? result.todo! : t)));
+        }
+      }
+    })();
+  }, [persistTodo, selectedSessionId, session.sessionId]);
+
+  const handleGenerateSummary = useCallback(async () => {
+    if (finalSummaryState.kind === "loading") return;
+    if (finalSummaryState.kind === "ready") return;
+    const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
+    setFinalSummaryState({ kind: "loading" });
+    if (targetSessionId) {
+      const cached = await window.electronAPI.getFinalSummary(targetSessionId);
+      if (cached.ok && cached.summary) {
+        setFinalSummaryState({ kind: "ready", summary: cached.summary });
+        return;
+      }
+    }
+    void window.electronAPI.generateFinalSummary();
+  }, [finalSummaryState.kind, selectedSessionId, session.sessionId]);
+
+  const handleRegenerateSummary = useCallback(() => {
+    if (finalSummaryState.kind === "loading") return;
+    setFinalSummaryState({ kind: "loading" });
+    void window.electronAPI.generateFinalSummary();
+  }, [finalSummaryState.kind]);
+
   useKeyboard({
     onToggleRecording: sessionActive ? session.toggleRecording : handleStart,
     onQuit: sessionActive ? handleStop : () => window.close(),
     onScrollUp: sessionActive ? scrollUp : undefined,
     onScrollDown: sessionActive ? scrollDown : undefined,
+    onGenerateSummary: sessionActive ? handleGenerateSummary : undefined,
   });
 
   const educationalInsights = insights.filter((i) => i.kind !== "key-point");
@@ -1021,6 +1094,7 @@ export function App() {
         langError={langError}
         onToggleTranslation={handleToggleTranslation}
         onToggleMic={handleToggleMic}
+        onGenerateSummary={sessionActive ? handleGenerateSummary : undefined}
         settingsOpen={settingsOpen}
         onToggleSettings={() => setSettingsOpen((prev) => !prev)}
       />
@@ -1077,6 +1151,12 @@ export function App() {
                 blocks={session.blocks}
                 partialText={session.partialText}
                 onCreateTodoFromSelection={handleCreateTodoFromSelection}
+              />
+              <SessionSummaryPanel
+                state={finalSummaryState}
+                onClose={() => setFinalSummaryState({ kind: "idle" })}
+                onAcceptItems={handleAcceptSummaryItems}
+                onRegenerate={handleRegenerateSummary}
               />
             </main>
             {selectedAgent && (

@@ -12,6 +12,7 @@ import type {
   SessionConfig,
   SessionEvents,
   Summary,
+  FinalSummary,
   UIState,
   LanguageCode,
   TodoSuggestion,
@@ -26,9 +27,11 @@ import {
   todoAnalysisSchema,
   type TodoExtractSuggestion,
   todoFromSelectionSchema,
+  finalSummarySchema,
   buildAnalysisPrompt,
   buildTodoPrompt,
   buildTodoFromSelectionPrompt,
+  buildFinalSummaryPrompt,
 } from "./analysis/analysis";
 import { classifyTodoSize as classifyTodoSizeWithModel, type TodoSizeClassification } from "./analysis/todo-size";
 import type { AppDatabase } from "./db/db";
@@ -736,6 +739,51 @@ export class Session {
       todoSuggestionsEmitted: analysisResult.todoSuggestionsEmitted,
       suggestions: analysisResult.suggestions,
     };
+  }
+
+  generateFinalSummary(): void {
+    if (this.contextState.transcriptBlocks.size === 0) {
+      this.hydrateTranscriptContextFromDb();
+    }
+    if (this.contextState.transcriptBlocks.size === 0) {
+      this.events.emit("final-summary-error", "No transcript available to summarise");
+      return;
+    }
+
+    const allBlocks = [...this.contextState.transcriptBlocks.values()];
+    const prompt = buildFinalSummaryPrompt(allBlocks, this.contextState.allKeyPoints);
+
+    void (async () => {
+      try {
+        const { object, usage } = await generateObject({
+          model: this.todoModel,
+          schema: finalSummarySchema,
+          prompt,
+          abortSignal: AbortSignal.timeout(45_000),
+          temperature: 0,
+        });
+
+        const totalCost = addCostToAcc(
+          this.costAccumulator,
+          usage?.inputTokens ?? 0,
+          usage?.outputTokens ?? 0,
+          "text",
+          "openrouter",
+        );
+        this.events.emit("cost-updated", totalCost);
+
+        const summary: FinalSummary = {
+          narrative: object.narrative.trim(),
+          actionItems: object.actionItems.map((item) => item.trim()).filter(Boolean),
+          generatedAt: Date.now(),
+        };
+
+        this.db?.saveFinalSummary(this.sessionId, summary);
+        this.events.emit("final-summary-ready", summary);
+      } catch (error) {
+        this.events.emit("final-summary-error", toReadableError(error));
+      }
+    })();
   }
 
   private hydrateTranscriptContextFromDb() {

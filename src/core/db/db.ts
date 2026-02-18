@@ -14,6 +14,7 @@ import type {
   LanguageCode,
   Agent,
   AgentStep,
+  FinalSummary,
 } from "../types";
 
 export type AppDatabase = ReturnType<typeof createDatabase>;
@@ -416,6 +417,36 @@ export function createDatabase(dbPath: string) {
       });
     },
 
+    saveFinalSummary(sessionId: string, summary: FinalSummary) {
+      orm.update(sessions)
+        .set({
+          summaryNarrative: summary.narrative,
+          summaryActionItems: JSON.stringify(summary.actionItems),
+          summaryGeneratedAt: summary.generatedAt,
+        })
+        .where(eq(sessions.id, sessionId))
+        .run();
+    },
+
+    getFinalSummary(sessionId: string): FinalSummary | null {
+      const [row] = orm
+        .select({
+          summaryNarrative: sessions.summaryNarrative,
+          summaryActionItems: sessions.summaryActionItems,
+          summaryGeneratedAt: sessions.summaryGeneratedAt,
+        })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
+        .limit(1)
+        .all();
+      if (!row?.summaryNarrative) return null;
+      return {
+        narrative: row.summaryNarrative,
+        actionItems: JSON.parse(row.summaryActionItems ?? "[]") as string[],
+        generatedAt: row.summaryGeneratedAt ?? 0,
+      };
+    },
+
     failStaleRunningAgents(reason: string): number {
       const completedAt = Date.now();
       const result = sqlite
@@ -596,5 +627,14 @@ function runMigrations(db: Database.Database) {
   const sessionColNames2 = new Set(sessionCols2.map((c) => c.name));
   if (!sessionColNames2.has("project_id")) {
     db.exec("ALTER TABLE sessions ADD COLUMN project_id TEXT REFERENCES projects(id)");
+  }
+  if (!sessionColNames2.has("summary_narrative")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN summary_narrative TEXT");
+  }
+  if (!sessionColNames2.has("summary_action_items")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN summary_action_items TEXT");
+  }
+  if (!sessionColNames2.has("summary_generated_at")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN summary_generated_at INTEGER");
   }
 }
