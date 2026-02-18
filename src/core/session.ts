@@ -1045,7 +1045,8 @@ export class Session {
       recordContext(this.contextState, translation);
     }
 
-    this.scheduleAnalysis();
+    // Paragraph was committed (not preview text), so run analysis immediately.
+    this.scheduleAnalysis(0);
   }
 
   private mergeWhisperTranscript(existing: string, incoming: string): string {
@@ -1585,11 +1586,17 @@ export class Session {
     const shouldRunSummaryAnalysis =
       hasNewAnalysisBlocks
       && !(forceTodoAnalysis && !this.isRecording);
+    const hasNewTodoBlocks = allBlocks.length > this.lastTodoAnalysisBlockCount;
     const shouldRunTodoAnalysis =
       (forceTodoAnalysis && allBlocks.length > 0)
       || (
-        allBlocks.length > this.lastTodoAnalysisBlockCount
-        && now - this.lastTodoAnalysisAt >= this.todoAnalysisIntervalMs
+        hasNewTodoBlocks
+        && (
+          // Whisper/ElevenLabs have preview text; run todo scan when a paragraph is committed.
+          this.config.transcriptionProvider === "whisper"
+          || this.config.transcriptionProvider === "elevenlabs"
+          || now - this.lastTodoAnalysisAt >= this.todoAnalysisIntervalMs
+        )
       );
     if (!shouldRunSummaryAnalysis && !shouldRunTodoAnalysis) {
       return {

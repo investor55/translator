@@ -477,18 +477,44 @@ export function App() {
       return false;
     }
 
+    const trimmedText = text.trim();
+    if (!trimmedText) {
+      return false;
+    }
+
+    const optimisticId = crypto.randomUUID();
+    const optimisticTodo: TodoItem = {
+      id: optimisticId,
+      text: trimmedText,
+      size: "large",
+      completed: false,
+      source: "manual",
+      createdAt: Date.now(),
+      sessionId: targetSessionId,
+    };
+
     setRouteNotice("");
+    setTodos((prev) => [optimisticTodo, ...prev]);
+    setProcessingTodoIds((prev) => (prev.includes(optimisticId) ? prev : [optimisticId, ...prev]));
+
     const result = await persistTodo({
       targetSessionId,
-      text,
+      text: trimmedText,
       source: "manual",
+      id: optimisticId,
+      createdAt: optimisticTodo.createdAt,
     });
+
+    setProcessingTodoIds((prev) => prev.filter((id) => id !== optimisticId));
     if (!result.ok) {
+      setTodos((prev) => prev.filter((todo) => todo.id !== optimisticId));
       setRouteNotice(`Failed to add todo: ${result.error ?? "Unknown error"}`);
       return false;
     }
 
-    setTodos((prev) => [result.todo!, ...prev]);
+    setTodos((prev) =>
+      prev.map((todo) => (todo.id === optimisticId ? result.todo! : todo))
+    );
     return true;
   }, [persistTodo, selectedSessionId, session.sessionId]);
 
@@ -626,8 +652,21 @@ export function App() {
       return;
     }
 
+    const optimisticTodo: TodoItem = {
+      id: suggestion.id,
+      text: suggestion.text,
+      size: "large",
+      completed: false,
+      source: "ai",
+      createdAt: suggestion.createdAt,
+      sessionId: targetSessionId,
+    };
+
     setRouteNotice("");
     setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
+    setTodos((prev) => [optimisticTodo, ...prev.filter((todo) => todo.id !== suggestion.id)]);
+    setProcessingTodoIds((prev) => (prev.includes(suggestion.id) ? prev : [suggestion.id, ...prev]));
+
     const result = await persistTodo({
       targetSessionId,
       text: suggestion.text,
@@ -635,12 +674,18 @@ export function App() {
       id: suggestion.id,
       createdAt: suggestion.createdAt,
     });
+
+    setProcessingTodoIds((prev) => prev.filter((id) => id !== suggestion.id));
     if (!result.ok) {
+      setTodos((prev) => prev.filter((todo) => todo.id !== suggestion.id));
+      setSuggestions((prev) => [suggestion, ...prev.filter((item) => item.id !== suggestion.id)]);
       setRouteNotice(`Failed to add todo from suggestion: ${result.error ?? "Unknown error"}`);
       return;
     }
 
-    setTodos((prev) => [result.todo!, ...prev]);
+    setTodos((prev) =>
+      prev.map((todo) => (todo.id === suggestion.id ? result.todo! : todo))
+    );
     if (result.todo!.size === "large") {
       setRouteNotice("Suggestion accepted as large. Approval is required before running the agent.");
     }
