@@ -14,7 +14,10 @@ import {
 } from "../prompt-loader";
 
 type ExaClient = {
-  searchAndContents: (query: string, options: Record<string, unknown>) => Promise<{
+  search: (
+    query: string,
+    options: Record<string, unknown>
+  ) => Promise<{
     results: Array<{ title: string; url: string; text?: string }>;
   }>;
 };
@@ -25,7 +28,7 @@ type AgentDeps = {
   getTranscriptContext: () => string;
   requestClarification: (
     request: AgentQuestionRequest,
-    options: { toolCallId: string; abortSignal?: AbortSignal },
+    options: { toolCallId: string; abortSignal?: AbortSignal }
   ) => Promise<AgentQuestionSelection[]>;
   onStep: (step: AgentStep) => void;
   onComplete: (result: string, messages: ModelMessage[]) => void;
@@ -33,24 +36,27 @@ type AgentDeps = {
   abortSignal?: AbortSignal;
 };
 
-const FORCE_ASK_QUESTION_TEST = process.env.AGENT_FORCE_QUESTION_TEST !== "0";
-const FORCED_QUESTION_MARKER = "[forced-ask-question-test-v1]";
-
 const askQuestionInputSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
-  questions: z.array(
-    z.object({
-      id: z.string().trim().min(1),
-      prompt: z.string().trim().min(1),
-      options: z.array(
-        z.object({
-          id: z.string().trim().min(1),
-          label: z.string().trim().min(1),
-        })
-      ).min(2).max(8),
-      allow_multiple: z.boolean().optional(),
-    })
-  ).min(1).max(3),
+  questions: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1),
+        prompt: z.string().trim().min(1),
+        options: z
+          .array(
+            z.object({
+              id: z.string().trim().min(1),
+              label: z.string().trim().min(1),
+            })
+          )
+          .min(2)
+          .max(8),
+        allow_multiple: z.boolean().optional(),
+      })
+    )
+    .min(1)
+    .max(3),
 });
 
 function formatCurrentDateForPrompt(now: Date): string {
@@ -69,7 +75,10 @@ const buildSystemPrompt = (transcriptContext: string) =>
     transcript_context: transcriptContext,
   });
 
-export function buildAgentInitialUserPrompt(task: string, taskContext?: string): string {
+export function buildAgentInitialUserPrompt(
+  task: string,
+  taskContext?: string
+): string {
   const contextText = taskContext?.trim();
   const contextSection = contextText ? `\n\nContext:\n${contextText}` : "";
   return renderPromptTemplate(getAgentInitialUserPromptTemplate(), {
@@ -81,7 +90,7 @@ export function buildAgentInitialUserPrompt(task: string, taskContext?: string):
 function buildTools(
   exa: ExaClient,
   getTranscriptContext: () => string,
-  requestClarification: AgentDeps["requestClarification"],
+  requestClarification: AgentDeps["requestClarification"]
 ) {
   return {
     searchWeb: tool({
@@ -91,21 +100,23 @@ function buildTools(
         query: z.string().describe("The search query"),
       }),
       execute: async ({ query }) => {
-        const results = await exa.searchAndContents(query, {
+        const results = await exa.search(query, {
           type: "auto",
-          numResults: 5,
+          numResults: 10,
           text: { maxCharacters: 1500 },
         });
 
-        const formatted = results.results
-          .map((r) => `**${r.title}** (${r.url})\n${r.text ?? ""}`)
-          .join("\n\n---\n\n");
+        // const formatted = results.results
+        //   .map((r) => `**${r.title}** (${r.url})\n${r.text ?? ""}`)
+        //   .join("\n\n---\n\n");
 
-        return formatted;
+        // return formatted;
+        return results.results;
       },
     }),
     getTranscriptContext: tool({
-      description: "Get recent transcript blocks from the current conversation for more context.",
+      description:
+        "Get recent transcript blocks from the current conversation for more context.",
       inputSchema: z.object({}),
       execute: async () => {
         return getTranscriptContext();
@@ -116,7 +127,10 @@ function buildTools(
         "Ask the user one or more multiple-choice clarification questions when intent is ambiguous. Wait for human responses before continuing.",
       inputSchema: askQuestionInputSchema,
       execute: async (input, { toolCallId, abortSignal }) => {
-        const answers = await requestClarification(input, { toolCallId, abortSignal });
+        const answers = await requestClarification(input, {
+          toolCallId,
+          abortSignal,
+        });
         return {
           title: input.title,
           questions: input.questions,
@@ -154,102 +168,10 @@ function getAskQuestionAnswerCount(output: unknown): number {
   return answers.length;
 }
 
-function hasForcedQuestionMarker(messages: ModelMessage[]): boolean {
-  return messages.some((message) => {
-    if (message.role !== "user") return false;
-    const content = message.content;
-    if (typeof content === "string") {
-      return content.includes(FORCED_QUESTION_MARKER);
-    }
-    try {
-      return JSON.stringify(content).includes(FORCED_QUESTION_MARKER);
-    } catch {
-      return false;
-    }
-  });
-}
-
-function buildForcedQuestionRequest(agent: Agent): AgentQuestionRequest {
-  const taskSummary = agent.task.trim().slice(0, 120);
-  return {
-    title: "Quick Clarification",
-    questions: [
-      {
-        id: "approach",
-        prompt: taskSummary
-          ? `For this task: "${taskSummary}", how should I proceed first?`
-          : "How should I proceed first?",
-        options: [
-          { id: "web-first", label: "Use web research first (Recommended)" },
-          { id: "transcript-first", label: "Use transcript/context first, then web only if needed" },
-          { id: "ask-more", label: "Ask more follow-up questions before researching" },
-        ],
-      },
-    ],
-  };
-}
-
-function formatForcedQuestionAnswers(
-  request: AgentQuestionRequest,
-  answers: AgentQuestionSelection[],
-): string {
-  const selectedByQuestionId = new Map(
-    answers.map((answer) => [answer.questionId, new Set(answer.selectedOptionIds)])
-  );
-  const lines = request.questions.map((question) => {
-    const selected = selectedByQuestionId.get(question.id) ?? new Set<string>();
-    const labels = question.options
-      .filter((option) => selected.has(option.id))
-      .map((option) => option.label);
-    return `- ${question.prompt}\n  Answer: ${labels.length > 0 ? labels.join(", ") : "No selection"}`;
-  });
-  return `${FORCED_QUESTION_MARKER}\nClarification answers:\n${lines.join("\n")}`;
-}
-
-async function applyForcedClarificationStep(
-  agent: Agent,
-  inputMessages: ModelMessage[],
-  deps: Pick<AgentDeps, "requestClarification" | "onStep" | "abortSignal">,
-): Promise<ModelMessage[]> {
-  if (!FORCE_ASK_QUESTION_TEST) return inputMessages;
-  if (hasForcedQuestionMarker(inputMessages)) return inputMessages;
-
-  const request = buildForcedQuestionRequest(agent);
-  const toolCallId = `forced-ask:${crypto.randomUUID()}`;
-  const createdAt = Date.now();
-
-  deps.onStep({
-    id: `tool:${toolCallId}`,
-    kind: "tool-call",
-    content: "Needs clarification (1 question)",
-    toolName: "askQuestion",
-    toolInput: safeJson(request),
-    createdAt,
-  });
-
-  const answers = await deps.requestClarification(request, {
-    toolCallId,
-    abortSignal: deps.abortSignal,
-  });
-  const output = {
-    title: request.title,
-    questions: request.questions,
-    answers,
-  };
-  deps.onStep({
-    id: `tool:${toolCallId}`,
-    kind: "tool-result",
-    content: `Clarification received (${answers.length} answered)`,
-    toolName: "askQuestion",
-    toolInput: safeJson(output),
-    createdAt: Date.now(),
-  });
-
-  const answerSummary = formatForcedQuestionAnswers(request, answers);
-  return [...inputMessages, { role: "user", content: answerSummary }];
-}
-
-function summarizeToolCall(toolName: string, input: unknown): {
+function summarizeToolCall(
+  toolName: string,
+  input: unknown
+): {
   content: string;
   toolInput?: string;
 } {
@@ -324,8 +246,13 @@ function summarizeToolResult(
  * Run agent with an initial prompt (first turn).
  */
 export async function runAgent(agent: Agent, deps: AgentDeps): Promise<void> {
-  const initialPrompt = buildAgentInitialUserPrompt(agent.task, agent.taskContext);
-  const inputMessages: ModelMessage[] = [{ role: "user", content: initialPrompt }];
+  const initialPrompt = buildAgentInitialUserPrompt(
+    agent.task,
+    agent.taskContext
+  );
+  const inputMessages: ModelMessage[] = [
+    { role: "user", content: initialPrompt },
+  ];
   await runAgentWithMessages(agent, inputMessages, deps);
 }
 
@@ -336,7 +263,7 @@ export async function continueAgent(
   agent: Agent,
   previousMessages: ModelMessage[],
   followUpQuestion: string,
-  deps: AgentDeps,
+  deps: AgentDeps
 ): Promise<void> {
   const inputMessages: ModelMessage[] = [
     ...previousMessages,
@@ -348,7 +275,7 @@ export async function continueAgent(
 async function runAgentWithMessages(
   agent: Agent,
   inputMessages: ModelMessage[],
-  deps: AgentDeps,
+  deps: AgentDeps
 ): Promise<void> {
   const {
     model,
@@ -362,18 +289,13 @@ async function runAgentWithMessages(
   } = deps;
 
   try {
-    const effectiveInputMessages = await applyForcedClarificationStep(agent, inputMessages, {
-      requestClarification,
-      onStep,
-      abortSignal,
-    });
     const systemPrompt = buildSystemPrompt(getTranscriptContext());
     const tools = buildTools(exa, getTranscriptContext, requestClarification);
 
     const result = streamText({
       model,
       system: systemPrompt,
-      messages: effectiveInputMessages,
+      messages: inputMessages,
       stopWhen: stepCountIs(8),
       abortSignal,
       tools,
@@ -426,7 +348,10 @@ async function runAgentWithMessages(
           break;
         }
         case "tool-call": {
-          const { content, toolInput } = summarizeToolCall(part.toolName, part.input);
+          const { content, toolInput } = summarizeToolCall(
+            part.toolName,
+            part.input
+          );
           const toolStepId = `tool:${part.toolCallId}`;
           onStep({
             id: toolStepId,
@@ -474,7 +399,8 @@ async function runAgentWithMessages(
       }
     }
 
-    const finalText = (await result.text).trim() || streamedText || "No results found.";
+    const finalText =
+      (await result.text).trim() || streamedText || "No results found.";
     const finalStepId = textStepId ?? crypto.randomUUID();
     onStep({
       id: finalStepId,
@@ -485,7 +411,7 @@ async function runAgentWithMessages(
 
     // Build full conversation history for future follow-ups
     const response = await result.response;
-    const fullHistory = [...effectiveInputMessages, ...response.messages];
+    const fullHistory = [...inputMessages, ...response.messages];
     log(
       "INFO",
       `Agent stream ${agent.id}: deltas=${deltaCount}, firstDeltaMs=${firstDeltaAfterMs ?? -1}, totalMs=${Date.now() - streamedAt}`
