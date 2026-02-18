@@ -7,6 +7,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   SquareIcon,
+  SearchIcon,
 } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import {
@@ -23,10 +24,13 @@ import {
 } from "@/components/ai-elements/conversation";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import {
-  Tool,
-  ToolContent,
-  ToolHeader,
-} from "@/components/ai-elements/tool";
+  ChainOfThought,
+  ChainOfThoughtContent,
+  ChainOfThoughtHeader,
+  ChainOfThoughtSearchResult,
+  ChainOfThoughtSearchResults,
+  ChainOfThoughtStep,
+} from "@/components/ai-elements/chain-of-thought";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import type {
   Agent,
@@ -398,6 +402,30 @@ function getActivityTitle(steps: AgentStep[]): string {
   return `Used ${toolSteps.length} tool${toolSteps.length === 1 ? "" : "s"}`;
 }
 
+function getToolCallCount(steps: AgentStep[]): number {
+  const toolCallIds = new Set<string>();
+  for (const step of steps) {
+    if (step.kind === "tool-call" || step.kind === "tool-result") {
+      toolCallIds.add(step.id);
+    }
+  }
+  return toolCallIds.size;
+}
+
+function getSearchQuery(step: AgentStep): string | null {
+  if (step.toolName !== "searchWeb") return null;
+  const match = step.content.match(/^Searched:\s*(.+)$/i);
+  const query = match?.[1]?.trim();
+  return query ? query : null;
+}
+
+function getActivityStepSummary(step: AgentStep): string {
+  if (step.kind === "thinking") return "Thought";
+  if (step.toolName === "searchWeb") return "Search";
+  if (step.toolName) return `Tool: ${step.toolName}`;
+  return "Action";
+}
+
 function ActivitySummaryItem({
   title,
   steps,
@@ -408,31 +436,44 @@ function ActivitySummaryItem({
   isStreaming: boolean;
 }) {
   const { stopScroll } = useStickToBottomContext();
+  const toolCallCount = getToolCallCount(steps);
+  const toolCallSummary = `${toolCallCount} tool${toolCallCount === 1 ? "" : "s"} called`;
 
   return (
     <div className="py-0.5 border-t border-border mt-1">
-      <Tool defaultOpen={false} isStreaming={isStreaming}>
-        <ToolHeader
-          onClickCapture={() => stopScroll()}
-          state={isStreaming ? "input-streaming" : "output-available"}
-          title={title}
-          type="tool-summary"
-        />
-        <ToolContent>
+      <ChainOfThought defaultOpen={false} isStreaming={isStreaming}>
+        <ChainOfThoughtHeader onClickCapture={() => stopScroll()}>
+          {toolCallSummary}
+        </ChainOfThoughtHeader>
+        <ChainOfThoughtContent>
+          <p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+            {title}
+          </p>
           <div className="space-y-1.5">
-            {steps.map((step) => (
-              <div className="rounded-none border border-border/50 px-1.5 py-1" key={step.id}>
-                <p className="mb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
-                  {step.kind === "thinking" ? "Thought" : "Action"}
-                </p>
-                <div className="text-[11px] text-muted-foreground leading-relaxed [&_a]:text-primary [&_a]:underline">
-                  <MessageResponse>{step.content}</MessageResponse>
-                </div>
-              </div>
-            ))}
+            {steps.map((step, index) => {
+              const searchQuery = getSearchQuery(step);
+              const isActive = isStreaming && index === steps.length - 1;
+              return (
+                <ChainOfThoughtStep
+                  key={`${step.id}:${step.kind}`}
+                  description={getActivityStepSummary(step)}
+                  icon={searchQuery ? SearchIcon : undefined}
+                  label={<MessageResponse>{step.content}</MessageResponse>}
+                  status={isActive ? "active" : "complete"}
+                >
+                  {searchQuery ? (
+                    <ChainOfThoughtSearchResults>
+                      <ChainOfThoughtSearchResult>
+                        {searchQuery}
+                      </ChainOfThoughtSearchResult>
+                    </ChainOfThoughtSearchResults>
+                  ) : null}
+                </ChainOfThoughtStep>
+              );
+            })}
           </div>
-        </ToolContent>
-      </Tool>
+        </ChainOfThoughtContent>
+      </ChainOfThought>
     </div>
   );
 }
