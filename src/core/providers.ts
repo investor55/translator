@@ -4,40 +4,6 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { SessionConfig } from "./types";
 
-function getOpenRouterProviderSort():
-  | "price"
-  | "throughput"
-  | "latency"
-  | undefined {
-  const raw = process.env.OPENROUTER_PROVIDER_SORT?.trim().toLowerCase();
-  if (raw === "price" || raw === "throughput" || raw === "latency") {
-    return raw;
-  }
-  return undefined;
-}
-
-function getOpenRouterTodoProviderSort():
-  | "price"
-  | "throughput"
-  | "latency"
-  | undefined {
-  const raw = process.env.OPENROUTER_TODO_PROVIDER_SORT?.trim().toLowerCase();
-  if (raw === "price" || raw === "throughput" || raw === "latency") {
-    return raw;
-  }
-  return "latency";
-}
-
-function getOpenRouterTodoReasoningTokens(): number {
-  const raw = process.env.OPENROUTER_TODO_REASONING_TOKENS?.trim();
-  if (!raw) return 1024;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return 1024;
-  }
-  return parsed;
-}
-
 export function createTranscriptionModel(config: SessionConfig): LanguageModel {
   switch (config.transcriptionProvider) {
     case "google": {
@@ -77,7 +43,7 @@ export function createAnalysisModel(config: SessionConfig): LanguageModel {
       });
       return openrouter(config.analysisModelId, {
         reasoning: config.analysisReasoning ? { max_tokens: 4096, exclude: false } : undefined,
-        provider: config.analysisProviderSort ? { sort: config.analysisProviderSort } : undefined,
+        provider: config.analysisProviderOnly ? { only: [config.analysisProviderOnly] } : undefined,
       });
     }
     case "google": {
@@ -105,13 +71,8 @@ export function createTodoModel(config: SessionConfig): LanguageModel {
   const openrouter = createOpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY,
   });
-  // const providerSort = getOpenRouterTodoProviderSort();
-  const reasoningTokens = getOpenRouterTodoReasoningTokens();
-  const todoModelId =
-    config.todoModelId ?? process.env.TODO_MODEL_ID ?? "openai/gpt-oss-120b";
-  return openrouter(todoModelId, {
-    reasoning: { max_tokens: reasoningTokens, exclude: false },
-    // provider: providerSort ? { sort: providerSort } : undefined,
-    provider: { sort: "throughput" },
+  return openrouter(config.todoModelId, {
+    reasoning: { max_tokens: 1024, exclude: false },
+    provider: config.todoProviders?.length ? { only: config.todoProviders } : undefined,
   });
 }

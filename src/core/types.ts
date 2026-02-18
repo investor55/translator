@@ -34,7 +34,6 @@ export type LightVariant = "warm" | "linen";
 
 export type TranscriptionProvider = "google" | "vertex" | "elevenlabs" | "whisper";
 export type AnalysisProvider = "openrouter" | "google" | "vertex";
-export type OpenRouterProviderSort = "price" | "throughput" | "latency";
 
 export type TranscriptBlock = {
   id: number;
@@ -133,9 +132,10 @@ export type SessionConfig = {
   transcriptionModelId: string;
   analysisProvider: AnalysisProvider;
   analysisModelId: string;
-  analysisProviderSort?: OpenRouterProviderSort;
+  analysisProviderOnly?: string;
   analysisReasoning: boolean;
   todoModelId: string;
+  todoProviders: string[];
   vertexProject?: string;
   vertexLocation: string;
   contextFile: string;
@@ -157,9 +157,10 @@ export type AppConfig = {
   transcriptionModelId: string;
   analysisProvider: AnalysisProvider;
   analysisModelId: string;
-  analysisProviderSort?: OpenRouterProviderSort;
+  analysisProviderOnly?: string;
   analysisReasoning: boolean;
   todoModelId: string;
+  todoProviders: string[];
   vertexProject?: string;
   vertexLocation: string;
   contextFile: string;
@@ -212,10 +213,11 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   transcriptionProvider: "elevenlabs",
   transcriptionModelId: DEFAULT_TRANSCRIPTION_MODEL_ID,
   analysisProvider: "openrouter",
-  analysisModelId: DEFAULT_ANALYSIS_MODEL_ID,
-  analysisProviderSort: "throughput",
+  analysisModelId: "moonshotai/kimi-k2-0905:exacto",
+  analysisProviderOnly: "Groq",
   analysisReasoning: false,
   todoModelId: DEFAULT_TODO_MODEL_ID,
+  todoProviders: ["sambanova"],
   vertexProject: ENV?.GOOGLE_VERTEX_PROJECT_ID,
   vertexLocation: DEFAULT_VERTEX_LOCATION,
   contextFile: "context.md",
@@ -285,13 +287,11 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     legacyAudio: !!merged.legacyAudio,
     translationEnabled: !!merged.translationEnabled,
     agentAutoApprove: !!merged.agentAutoApprove,
-    analysisProviderSort:
-      merged.analysisProviderSort === "price" ||
-      merged.analysisProviderSort === "throughput" ||
-      merged.analysisProviderSort === "latency"
-        ? merged.analysisProviderSort
-        : undefined,
+    analysisProviderOnly: merged.analysisProviderOnly?.trim() || undefined,
     analysisReasoning: !!merged.analysisReasoning,
+    todoProviders: Array.isArray(merged.todoProviders) && merged.todoProviders.length > 0
+      ? merged.todoProviders
+      : DEFAULT_APP_CONFIG.todoProviders,
   };
 }
 
