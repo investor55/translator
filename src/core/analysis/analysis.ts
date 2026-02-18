@@ -62,6 +62,16 @@ export const todoFromSelectionSchema = z.object({
     .describe("Brief explanation for decision."),
 });
 
+export const sessionTitleSchema = z.object({
+  title: z.string().describe(
+    "A concise 3-6 word title capturing the main topic or purpose of this conversation. No quotes. No filler like 'Discussion about'."
+  ),
+});
+
+export function buildSessionTitlePrompt(excerpt: string): string {
+  return `Generate a short, descriptive title (3-6 words) for a conversation based on this excerpt:\n\n${excerpt}\n\nFocus on the specific topic, not generic labels.`;
+}
+
 export const finalSummarySchema = z.object({
   narrative: z.string().describe(
     "A comprehensive 2-5 sentence prose summary of the full conversation covering main topics, decisions, and overall arc. Write in plain English."

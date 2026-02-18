@@ -30,11 +30,13 @@ import {
   todoFromSelectionSchema,
   finalSummarySchema,
   agentsSummarySchema,
+  sessionTitleSchema,
   buildAnalysisPrompt,
   buildTodoPrompt,
   buildTodoFromSelectionPrompt,
   buildFinalSummaryPrompt,
   buildAgentsSummaryPrompt,
+  buildSessionTitlePrompt,
 } from "./analysis/analysis";
 import { classifyTodoSize as classifyTodoSizeWithModel, type TodoSizeClassification } from "./analysis/todo-size";
 import type { AppDatabase } from "./db/db";
@@ -198,6 +200,7 @@ export class Session {
   private readonly MIC_PRIORITY_GRACE_MS = 300;
   private lastSummary: Summary | null = null;
   private lastAnalysisBlockCount = 0;
+  private titleGenerated = false;
   private db: AppDatabase | null;
   private agentManager: AgentManager | null = null;
   private getExternalTools?: () => Promise<AgentExternalToolSet>;
@@ -417,6 +420,7 @@ export class Session {
       this.lastTodoAnalysisBlockCount = 0;
       this.lastTodoAnalysisAt = 0;
       this.recentSuggestedTodoTexts = [];
+      this.titleGenerated = false;
       this.events.emit("blocks-cleared");
       this.events.emit("summary-updated", null);
     }
@@ -743,6 +747,31 @@ export class Session {
       todoSuggestionsEmitted: analysisResult.todoSuggestionsEmitted,
       suggestions: analysisResult.suggestions,
     };
+  }
+
+  private maybeGenerateTitle(): void {
+    if (this.titleGenerated || !this.db) return;
+    const blocks = [...this.contextState.transcriptBlocks.values()].filter((b) => !b.partial);
+    const wordCount = blocks.reduce((n, b) => n + b.sourceText.split(/\s+/).filter(Boolean).length, 0);
+    if (wordCount < 50) return;
+    this.titleGenerated = true;
+    void this.generateSessionTitle(blocks);
+  }
+
+  private async generateSessionTitle(blocks: TranscriptBlock[]): Promise<void> {
+    const excerpt = blocks.map((b) => b.sourceText).join(" ").slice(0, 600);
+    try {
+      const { object } = await generateObject({
+        model: this.todoModel,
+        schema: sessionTitleSchema,
+        prompt: buildSessionTitlePrompt(excerpt),
+        abortSignal: AbortSignal.timeout(15_000),
+      });
+      this.events.emit("session-title-generated", this.sessionId, object.title);
+    } catch (err) {
+      log("WARN", `Failed to generate session title: ${err}`);
+      this.titleGenerated = false; // allow retry next block
+    }
   }
 
   generateFinalSummary(): void {
@@ -1215,6 +1244,7 @@ export class Session {
     block.partial = isPartial;
     block.newTopic = isNewTopic;
     this.events.emit("block-updated", block);
+    this.maybeGenerateTitle();
 
     if (hasTranslatableContent(transcript)) {
       recordContext(this.contextState, transcript);
@@ -1561,6 +1591,7 @@ export class Session {
       block.partial = isPartial;
       block.newTopic = isNewTopic;
       this.events.emit("block-updated", block);
+      this.maybeGenerateTitle();
 
       if (sourceText && hasTranslatableContent(sourceText)) {
         recordContext(this.contextState, sourceText);

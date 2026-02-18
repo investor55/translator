@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { TodoItem, TodoSuggestion, Agent } from "../../../core/types";
 import {
   PlusIcon,
@@ -9,14 +9,16 @@ import {
   PlayIcon,
   Trash2Icon,
   ZapIcon,
-  SparklesIcon,
 } from "lucide-react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { WorkoutRunIcon } from "@hugeicons/core-free-icons";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AgentList } from "./agent-list";
 import { AgentDebriefPanel } from "./agent-debrief-panel";
 import { useAgentsSummary } from "../hooks/use-agents-summary";
 import { Separator } from "@/components/ui/separator";
+import { SectionLabel } from "@/components/ui/section-label";
 
 const SUGGESTION_TTL_MS = 30_000;
 
@@ -30,6 +32,7 @@ type RightSidebarProps = {
   onAddTodo?: (text: string, details?: string) => void;
   onToggleTodo?: (id: string) => void;
   onDeleteTodo?: (id: string) => void;
+  onUpdateTodo?: (id: string, text: string) => void;
   processingTodoIds?: string[];
   onAcceptSuggestion?: (suggestion: TodoSuggestion) => void;
   onDismissSuggestion?: (id: string) => void;
@@ -115,6 +118,123 @@ function ContextDot({ details }: { details?: string }) {
   );
 }
 
+function EditableTodoItem({
+  todo,
+  isProcessing,
+  agent,
+  onToggle,
+  onDelete,
+  onUpdate,
+  onLaunchAgent,
+  onSelectAgent,
+}: {
+  todo: TodoItem;
+  isProcessing: boolean;
+  agent?: Agent;
+  onToggle?: () => void;
+  onDelete?: () => void;
+  onUpdate?: (text: string) => void;
+  onLaunchAgent?: () => void;
+  onSelectAgent?: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(todo.text);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.select();
+  }, [editing]);
+
+  function handleDoubleClick() {
+    if (isProcessing || !onUpdate) return;
+    setDraft(todo.text);
+    setEditing(true);
+  }
+
+  function commit() {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== todo.text) onUpdate?.(trimmed);
+    setEditing(false);
+  }
+
+  function handleKey(e: React.KeyboardEvent) {
+    if (e.key === "Enter") commit();
+    if (e.key === "Escape") setEditing(false);
+  }
+
+  return (
+    <li className="flex items-start gap-2 min-h-7 group px-1 -mx-1 rounded-sm hover:bg-muted/30 transition-colors py-1.5">
+      {isProcessing ? (
+        <LoaderCircleIcon className="size-3 shrink-0 text-muted-foreground animate-spin mt-px" />
+      ) : (
+        <input
+          type="checkbox"
+          checked={false}
+          onChange={onToggle}
+          className="size-3 shrink-0 rounded-sm border-border accent-primary cursor-pointer mt-px"
+        />
+      )}
+      {editing ? (
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={handleKey}
+          className="flex-1 text-xs bg-transparent border-b border-primary outline-none"
+        />
+      ) : (
+        <span
+          onDoubleClick={handleDoubleClick}
+          className={`text-xs flex-1 break-words leading-normal ${isProcessing ? "text-muted-foreground italic" : "text-foreground"} ${onUpdate && !isProcessing ? "cursor-text" : ""}`}
+        >
+          {todo.text}
+        </span>
+      )}
+      {agent && onSelectAgent ? (
+        <button
+          type="button"
+          onClick={() => onSelectAgent(agent.id)}
+          className={`shrink-0 p-0.5 mt-px transition-colors ${
+            agent.status === "completed"
+              ? "text-green-500 hover:text-green-400"
+              : "text-destructive hover:text-destructive/80"
+          }`}
+          aria-label="View agent results"
+        >
+          <HugeiconsIcon icon={WorkoutRunIcon} className="size-3" />
+        </button>
+      ) : (
+        <div className="flex items-center gap-0.5 shrink-0 mt-px">
+          {todo.source === "ai" && !isProcessing && !editing && (
+            <ZapIcon className="size-3 text-muted-foreground/40 group-hover:invisible" />
+          )}
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            {!isProcessing && onLaunchAgent && (
+              <button
+                type="button"
+                onClick={onLaunchAgent}
+                className="p-0.5 text-muted-foreground hover:text-primary transition-colors"
+                aria-label="Run with agent"
+              >
+                <PlayIcon className="size-3" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onDelete}
+              className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"
+              aria-label="Delete todo"
+            >
+              <Trash2Icon className="size-3" />
+            </button>
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
 export function RightSidebar({
   todos,
   suggestions,
@@ -125,6 +245,7 @@ export function RightSidebar({
   onAddTodo,
   onToggleTodo,
   onDeleteTodo,
+  onUpdateTodo,
   processingTodoIds = [],
   onAcceptSuggestion,
   onDismissSuggestion,
@@ -211,9 +332,7 @@ export function RightSidebar({
         {/* AI Suggestions */}
         {suggestions.length > 0 && (
           <div className="mb-3">
-            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-              Suggested
-            </span>
+            <SectionLabel as="span">Suggested</SectionLabel>
             <ul className="mt-1.5 space-y-1">
               {suggestions.map((s) => (
                 <SuggestionItem
@@ -234,9 +353,6 @@ export function RightSidebar({
               agents={agents}
               selectedAgentId={selectedAgentId ?? null}
               onSelectAgent={onSelectAgent}
-              onGenerateDebrief={generateDebrief}
-              canGenerateDebrief={canGenerateDebrief}
-              isDebriefLoading={debriefState.kind === "loading"}
             />
             <AgentDebriefPanel
               state={debriefState}
@@ -251,56 +367,40 @@ export function RightSidebar({
         {/* Active todos */}
         <div className="mb-3">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+            <SectionLabel as="span">
               {pendingInAgentsCount > 0 ? `Todos · ${pendingInAgentsCount} in agents` : "Todos"}
-            </span>
+            </SectionLabel>
+            {(() => {
+              const completedByAgent = activeTodos.filter(
+                (t) => agentByTodoId.get(t.id)?.status === "completed"
+              );
+              if (completedByAgent.length === 0) return null;
+              return (
+                <button
+                  type="button"
+                  onClick={() => completedByAgent.forEach((t) => onToggleTodo?.(t.id))}
+                  className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Complete all ({completedByAgent.length})
+                </button>
+              );
+            })()}
           </div>
           {activeTodos.length > 0 ? (
             <ul className="space-y-px">
-              {activeTodos.map((todo) => {
-                const isProcessing = processingTodoIdSet.has(todo.id);
-                return (
-                  <li key={todo.id} className="flex items-center gap-2 h-7 group px-1 -mx-1 rounded-sm hover:bg-muted/30 transition-colors">
-                    {isProcessing ? (
-                      <LoaderCircleIcon className="size-3 shrink-0 text-muted-foreground animate-spin" />
-                    ) : (
-                      <input
-                        type="checkbox"
-                        checked={false}
-                        onChange={() => onToggleTodo?.(todo.id)}
-                        className="size-3 shrink-0 rounded-sm border-border accent-primary cursor-pointer"
-                      />
-                    )}
-                    <span className={`text-xs truncate flex-1 ${isProcessing ? "text-muted-foreground italic" : "text-foreground"}`}>
-                      {todo.text}
-                    </span>
-                    <ContextDot details={todo.details} />
-                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                      {!isProcessing && onLaunchAgent && (
-                        <button
-                          type="button"
-                          onClick={() => onLaunchAgent(todo)}
-                          className="p-0.5 text-muted-foreground hover:text-primary transition-colors"
-                          aria-label="Run with agent"
-                        >
-                          <PlayIcon className="size-3" />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => onDeleteTodo?.(todo.id)}
-                        className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"
-                        aria-label="Delete todo"
-                      >
-                        <Trash2Icon className="size-3" />
-                      </button>
-                    </div>
-                    {todo.source === "ai" && !isProcessing && (
-                      <ZapIcon className="size-3 text-muted-foreground/40 shrink-0 group-hover:hidden" />
-                    )}
-                  </li>
-                );
-              })}
+              {activeTodos.map((todo) => (
+                <EditableTodoItem
+                  key={todo.id}
+                  todo={todo}
+                  isProcessing={processingTodoIdSet.has(todo.id)}
+                  agent={agentByTodoId.get(todo.id)}
+                  onToggle={() => onToggleTodo?.(todo.id)}
+                  onDelete={() => onDeleteTodo?.(todo.id)}
+                  onUpdate={onUpdateTodo ? (text) => onUpdateTodo(todo.id, text) : undefined}
+                  onLaunchAgent={onLaunchAgent ? () => onLaunchAgent(todo) : undefined}
+                  onSelectAgent={onSelectAgent ?? undefined}
+                />
+              ))}
             </ul>
           ) : (
             <p className="text-xs text-muted-foreground italic">
@@ -315,7 +415,7 @@ export function RightSidebar({
             <button
               type="button"
               onClick={() => setCompletedOpen((prev) => !prev)}
-              className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+              className="flex items-center gap-1 text-2xs font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
             >
               <ChevronDownIcon
                 className={`size-3 transition-transform ${completedOpen ? "" : "-rotate-90"}`}
@@ -355,7 +455,7 @@ export function RightSidebar({
                             className="p-0.5 text-muted-foreground hover:text-primary transition-colors"
                             aria-label="View agent results"
                           >
-                            <SparklesIcon className="size-3" />
+                            <HugeiconsIcon icon={WorkoutRunIcon} className="size-3" />
                           </button>
                         )}
                         <button

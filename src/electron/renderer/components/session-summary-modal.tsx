@@ -150,20 +150,29 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
             {summary.actionItems.length > 0 && (
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-2xs text-muted-foreground">
                     {selected.size > 0
                       ? `${selected.size} selected`
                       : `${remainingItems} action item${remainingItems !== 1 ? "s" : ""}`}
                   </span>
                   {selected.size > 0 ? (
-                    <Button size="sm" onClick={handleAcceptSelected} className="gap-1 h-6 text-[11px] px-2">
-                      <PlusIcon className="size-2.5" />
-                      Add to Todos
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="text-2xs text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => setSelected(new Set())}
+                      >
+                        Deselect all
+                      </button>
+                      <Button size="sm" onClick={handleAcceptSelected} className="gap-1 h-6 text-2xs px-2">
+                        <PlusIcon className="size-2.5" />
+                        Add to Todos
+                      </Button>
+                    </div>
                   ) : remainingItems > 0 ? (
                     <button
                       type="button"
-                      className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                      className="text-2xs text-muted-foreground hover:text-foreground transition-colors"
                       onClick={() =>
                         setSelected(
                           new Set(summary.actionItems.map((_, i) => i).filter((i) => !accepted.has(i)))

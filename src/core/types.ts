@@ -122,6 +122,7 @@ export type SessionMeta = Readonly<{
   endedAt?: number;
   title?: string;
   blockCount: number;
+  agentCount: number;
   sourceLang?: LanguageCode;
   targetLang?: LanguageCode;
   projectId?: string;
@@ -166,11 +167,13 @@ export type SessionConfig = {
 };
 
 export type FontSize = "sm" | "md" | "lg";
+export type FontFamily = "sans" | "mono";
 
 export type AppConfig = {
   themeMode: ThemeMode;
   lightVariant: LightVariant;
   fontSize: FontSize;
+  fontFamily: FontFamily;
   direction: Direction;
   intervalMs: number;
   transcriptionProvider: TranscriptionProvider;
@@ -225,11 +228,13 @@ export const DEFAULT_INTERVAL_MS = 2000;
 export const DEFAULT_THEME_MODE: ThemeMode = "system";
 export const DEFAULT_LIGHT_VARIANT: LightVariant = "warm";
 export const DEFAULT_FONT_SIZE: FontSize = "md";
+export const DEFAULT_FONT_FAMILY: FontFamily = "sans";
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
   themeMode: DEFAULT_THEME_MODE,
   lightVariant: DEFAULT_LIGHT_VARIANT,
   fontSize: DEFAULT_FONT_SIZE,
+  fontFamily: DEFAULT_FONT_FAMILY,
   direction: "auto",
   intervalMs: DEFAULT_INTERVAL_MS,
   transcriptionProvider: "elevenlabs",
@@ -269,6 +274,10 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     merged.fontSize === "sm" || merged.fontSize === "md" || merged.fontSize === "lg"
       ? merged.fontSize
       : DEFAULT_APP_CONFIG.fontSize;
+  const fontFamily: FontFamily =
+    merged.fontFamily === "sans" || merged.fontFamily === "mono"
+      ? merged.fontFamily
+      : DEFAULT_APP_CONFIG.fontFamily;
   const direction: Direction =
     merged.direction === "source-target" || merged.direction === "auto"
       ? merged.direction
@@ -298,6 +307,7 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     themeMode,
     lightVariant,
     fontSize,
+    fontFamily,
     direction,
     transcriptionProvider,
     analysisProvider,
@@ -419,4 +429,5 @@ export type SessionEvents = {
   "agent-archived": [agentId: string];
   "agents-summary-ready": [summary: AgentsSummary];
   "agents-summary-error": [error: string];
+  "session-title-generated": [sessionId: string, title: string];
 };

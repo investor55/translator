@@ -70,21 +70,21 @@ function StatusBadge({ status }: { status: Agent["status"] }) {
   switch (status) {
     case "running":
       return (
-        <span className="inline-flex items-center gap-1 rounded-none bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+        <span className="inline-flex items-center gap-1 rounded-none bg-primary/10 px-1.5 py-0.5 text-2xs font-medium text-primary">
           <LoaderCircleIcon className="size-3 animate-spin" />
           Running
         </span>
       );
     case "completed":
       return (
-        <span className="inline-flex items-center gap-1 rounded-none bg-green-500/10 px-1.5 py-0.5 text-[11px] font-medium text-green-600">
+        <span className="inline-flex items-center gap-1 rounded-none bg-green-500/10 px-1.5 py-0.5 text-2xs font-medium text-green-600">
           <CheckCircleIcon className="size-3" />
           Done
         </span>
       );
     case "failed":
       return (
-        <span className="inline-flex items-center gap-1 rounded-none bg-destructive/10 px-1.5 py-0.5 text-[11px] font-medium text-destructive">
+        <span className="inline-flex items-center gap-1 rounded-none bg-destructive/10 px-1.5 py-0.5 text-2xs font-medium text-destructive">
           <XCircleIcon className="size-3" />
           Failed
         </span>
@@ -260,7 +260,7 @@ function AskQuestionPendingCard({
   return (
     <div className="mt-1 border-t border-border pt-2">
       <div className="rounded-none border border-border bg-muted/20 px-2 py-2">
-        <p className="text-[11px] font-semibold text-foreground">
+        <p className="text-2xs font-semibold text-foreground">
           {request.title || "Questions"}
         </p>
         <div className="mt-1.5 space-y-2">
@@ -268,7 +268,7 @@ function AskQuestionPendingCard({
             const selected = selectionByQuestion[question.id] ?? [];
             return (
               <div key={question.id}>
-                <p className="text-[11px] text-foreground font-medium">
+                <p className="text-2xs text-foreground font-medium">
                   {index + 1}. {question.prompt}
                 </p>
                 <div className="mt-1 flex flex-col gap-1">
@@ -280,13 +280,13 @@ function AskQuestionPendingCard({
                         type="button"
                         onClick={() => toggleOption(question.id, option.id, !!question.allow_multiple)}
                         className={[
-                          "flex items-center gap-2 rounded-none border px-2 py-1 text-left text-[11px] transition-colors",
+                          "flex items-center gap-2 rounded-none border px-2 py-1 text-left text-2xs transition-colors",
                           isSelected
                             ? "border-primary bg-primary/10 text-primary"
                             : "border-border/80 text-muted-foreground hover:border-border hover:text-foreground",
                         ].join(" ")}
                       >
-                        <span className="inline-flex h-4 min-w-4 items-center justify-center border border-current px-1 text-[11px] font-semibold uppercase">
+                        <span className="inline-flex h-4 min-w-4 items-center justify-center border border-current px-1 text-2xs font-semibold uppercase">
                           {option.id.slice(0, 1)}
                         </span>
                         <span className="leading-relaxed">{option.label}</span>
@@ -300,9 +300,9 @@ function AskQuestionPendingCard({
         </div>
         <div className="mt-2 flex items-center justify-between">
           {submitError ? (
-            <p className="text-[11px] text-destructive">{submitError}</p>
+            <p className="text-2xs text-destructive">{submitError}</p>
           ) : (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Choose an option for each question.
             </p>
           )}
@@ -310,7 +310,7 @@ function AskQuestionPendingCard({
             type="button"
             onClick={() => void handleSubmit()}
             disabled={!onAnswerQuestion || !canSubmit || submitting}
-            className="rounded-none border border-border px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-50"
+            className="rounded-none border border-border px-2 py-1 text-2xs font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-50"
           >
             {submitting ? "Submitting..." : "Continue"}
           </button>
@@ -328,7 +328,7 @@ function AskQuestionResolvedCard({ output }: { output: AskQuestionToolOutput }) 
   return (
     <div className="mt-1 border-t border-border pt-2">
       <div className="rounded-none border border-border/70 bg-muted/10 px-2 py-2">
-        <p className="text-[11px] font-semibold text-foreground">
+        <p className="text-2xs font-semibold text-foreground">
           {output.title || "Clarification received"}
         </p>
         <div className="mt-1 space-y-1.5">
@@ -339,8 +339,8 @@ function AskQuestionResolvedCard({ output }: { output: AskQuestionToolOutput }) 
               .map((option) => option.label);
             return (
               <div key={question.id}>
-                <p className="text-[11px] font-medium text-foreground">{question.prompt}</p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-2xs font-medium text-foreground">{question.prompt}</p>
+                <p className="text-2xs text-muted-foreground">
                   {selectedLabels.length > 0 ? selectedLabels.join(", ") : "No selection"}
                 </p>
               </div>
@@ -394,7 +394,7 @@ function ToolApprovalCard({
     return (
       <div className="flex items-center gap-1.5 border-t border-border mt-1 py-1">
         <CheckIcon className="size-3 text-primary/60 shrink-0" />
-        <span className="text-[11px] text-muted-foreground">{toolLabel}</span>
+        <span className="text-2xs text-muted-foreground">{toolLabel}</span>
       </div>
     );
   }
@@ -403,7 +403,7 @@ function ToolApprovalCard({
     return (
       <div className="flex items-center gap-1.5 border-t border-border mt-1 py-1">
         <XIcon className="size-3 text-muted-foreground/40 shrink-0" />
-        <span className="text-[11px] text-muted-foreground/50 line-through">{toolLabel}</span>
+        <span className="text-2xs text-muted-foreground/50 line-through">{toolLabel}</span>
       </div>
     );
   }
@@ -412,12 +412,12 @@ function ToolApprovalCard({
   return (
     <div className="border-t border-border mt-1 py-1.5">
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 text-[11px] text-foreground truncate">{toolLabel}</span>
+        <span className="min-w-0 flex-1 text-2xs text-foreground truncate">{toolLabel}</span>
         <button
           type="button"
           onClick={() => void submitApproval(false)}
           disabled={submitting !== null}
-          className="shrink-0 text-[11px] text-muted-foreground hover:text-destructive disabled:opacity-40 transition-colors"
+          className="shrink-0 text-2xs text-muted-foreground hover:text-destructive disabled:opacity-40 transition-colors"
         >
           Reject
         </button>
@@ -425,16 +425,16 @@ function ToolApprovalCard({
           type="button"
           onClick={() => void submitApproval(true)}
           disabled={submitting !== null}
-          className="shrink-0 text-[11px] font-medium text-foreground hover:text-primary disabled:opacity-40 transition-colors"
+          className="shrink-0 text-2xs font-medium text-foreground hover:text-primary disabled:opacity-40 transition-colors"
         >
           Allow
         </button>
       </div>
       {step.content && (
-        <p className="mt-0.5 text-[11px] text-muted-foreground/60 leading-relaxed">{step.content}</p>
+        <p className="mt-0.5 text-2xs text-muted-foreground/60 leading-relaxed">{step.content}</p>
       )}
       {submitError && (
-        <p className="mt-1 text-[11px] text-destructive">{submitError}</p>
+        <p className="mt-1 text-2xs text-destructive">{submitError}</p>
       )}
     </div>
   );
@@ -605,7 +605,7 @@ function ActivitySummaryItem({
               const isActive = isStreaming && index === steps.length - 1;
               if (step.kind === "thinking") {
                 return (
-                  <div key={`${step.id}:${step.kind}`} className="py-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                  <div key={`${step.id}:${step.kind}`} className="py-0.5 text-2xs leading-relaxed text-muted-foreground">
                     <MessageResponse>{step.content}</MessageResponse>
                   </div>
                 );
@@ -643,16 +643,16 @@ function TaskContextCard({ task, taskContext }: { task: string; taskContext?: st
 
   return (
     <div className="shrink-0 border-b border-border bg-muted/20 px-3 py-2">
-      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+      <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">
         Todo
       </p>
       <p className="mt-0.5 text-xs leading-relaxed text-foreground">{task}</p>
       <details className="mt-1">
-        <summary className="cursor-pointer text-[11px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">
+        <summary className="cursor-pointer text-2xs font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">
           Context
         </summary>
         <div className="mt-1 max-h-40 overflow-y-auto rounded-none border border-border/60 bg-background px-2 py-1.5">
-          <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-muted-foreground">
+          <p className="whitespace-pre-wrap text-2xs leading-relaxed text-muted-foreground">
             {contextText}
           </p>
         </div>
@@ -886,7 +886,7 @@ export function AgentDetailPanel({
                 >
                   <ChevronLeftIcon className="size-3.5" />
                 </button>
-                <span className="text-[11px] font-mono text-muted-foreground tabular-nums mx-0.5">
+                <span className="text-2xs font-mono text-muted-foreground tabular-nums mx-0.5">
                   {agents.length - currentIndex}/{agents.length}
                 </span>
                 <button
@@ -989,7 +989,7 @@ export function AgentDetailPanel({
             </PromptInputFooter>
           </PromptInput>
           {followUpError && (
-            <p className="mt-1.5 text-[11px] text-destructive">
+            <p className="mt-1.5 text-2xs text-destructive">
               {followUpError}
             </p>
           )}

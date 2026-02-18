@@ -154,6 +154,10 @@ export function wireSessionEvents(
     if (!isCurrentSession()) return;
     sendToRenderer(getWindow, "session:agents-summary-error", error);
   });
+  activeSession.events.on("session-title-generated", (sessionId: string, title: string) => {
+    db.updateSessionTitle(sessionId, title);
+    sendToRenderer(getWindow, "session:title-generated", sessionId, title);
+  });
 }
 
 export async function shutdownCurrentSession(sessionRef: SessionRef, db: AppDatabase): Promise<void> {

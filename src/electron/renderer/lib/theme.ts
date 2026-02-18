@@ -1,4 +1,4 @@
-import type { FontSize, LightVariant, ThemeMode } from "../../../core/types";
+import type { FontFamily, FontSize, LightVariant, ThemeMode } from "../../../core/types";
 
 const FONT_SIZE_PX: Record<FontSize, string> = {
   sm: "14px",
@@ -33,7 +33,7 @@ export function resolveShouldUseDark(themeMode: ThemeMode | undefined): boolean 
   return themeMode === "dark" || (themeMode !== "light" && prefersDark);
 }
 
-export function applyThemeClass(shouldUseDark: boolean, lightVariant: LightVariant = "warm", fontSize: FontSize = "md") {
+export function applyThemeClass(shouldUseDark: boolean, lightVariant: LightVariant = "warm", fontSize: FontSize = "md", fontFamily: FontFamily = "sans") {
   const isLinen = !shouldUseDark && lightVariant === "linen";
   document.documentElement.classList.toggle("dark", shouldUseDark);
   document.documentElement.classList.toggle("light-linen", isLinen);
@@ -44,6 +44,7 @@ export function applyThemeClass(shouldUseDark: boolean, lightVariant: LightVaria
       ? LINEN_BACKGROUND
       : LIGHT_BACKGROUND;
   document.documentElement.style.fontSize = FONT_SIZE_PX[fontSize];
+  document.documentElement.classList.toggle("font-ui-mono", fontFamily === "mono");
   document.body?.classList.toggle("dark", shouldUseDark);
   document.body?.classList.toggle("light-linen", isLinen);
 }

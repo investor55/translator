@@ -107,7 +107,7 @@ export function ChainOfThoughtHeader({
   return (
     <CollapsibleTrigger
       className={cn(
-        "group/cot-trigger flex w-full items-center gap-1 rounded-none px-0 py-0 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground",
+        "group/cot-trigger flex w-full items-center gap-1 rounded-none px-0 py-0 text-left text-2xs text-muted-foreground transition-colors hover:text-foreground",
         className
       )}
       {...props}
@@ -115,7 +115,7 @@ export function ChainOfThoughtHeader({
       <span className="min-w-0 flex-1 truncate">
         {children ?? "Chain of thought"}
       </span>
-      <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-muted-foreground/70">
+      <span className="shrink-0 font-mono text-2xs uppercase tracking-wide text-muted-foreground/70">
         {isStreaming ? `thinking · ${elapsedSecs}s` : "done"}
       </span>
       <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground/60 transition-transform group-data-[state=open]/cot-trigger:rotate-180" />
@@ -176,11 +176,11 @@ export function ChainOfThoughtStep({
       <div className="flex items-start gap-1.5">
         <Icon className="mt-0.5 size-3 shrink-0 text-muted-foreground/80" />
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] leading-relaxed text-muted-foreground [&_a]:text-primary [&_a]:underline">
+          <div className="text-2xs leading-relaxed text-muted-foreground [&_a]:text-primary [&_a]:underline">
             {label}
           </div>
           {description ? (
-            <div className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+            <div className="mt-0.5 text-2xs uppercase tracking-wide text-muted-foreground/70">
               {description}
             </div>
           ) : null}
@@ -215,7 +215,7 @@ export function ChainOfThoughtSearchResult({
 }: ChainOfThoughtSearchResultProps) {
   return (
     <Badge
-      className={cn("h-4 px-1.5 py-0 text-[10px] font-normal", className)}
+      className={cn("h-4 px-1.5 py-0 text-2xs font-normal", className)}
       variant={variant}
       {...props}
     />
@@ -236,7 +236,7 @@ export function ChainOfThoughtImage({
     <div className={cn("space-y-1", className)} {...props}>
       {children}
       {caption ? (
-        <p className="text-[10px] text-muted-foreground/80">{caption}</p>
+        <p className="text-2xs text-muted-foreground/80">{caption}</p>
       ) : null}
     </div>
   );

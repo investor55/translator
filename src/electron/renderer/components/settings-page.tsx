@@ -1,6 +1,7 @@
 import type {
   AnalysisProvider,
   AppConfig,
+  FontFamily,
   FontSize,
   McpIntegrationStatus,
   Direction,
@@ -74,6 +75,11 @@ const FONT_SIZE_OPTIONS: Array<{ value: FontSize; label: string }> = [
   { value: "sm", label: "Small" },
   { value: "md", label: "Default" },
   { value: "lg", label: "Large" },
+];
+
+const FONT_FAMILY_OPTIONS: Array<{ value: FontFamily; label: string }> = [
+  { value: "sans", label: "Sans-serif" },
+  { value: "mono", label: "Monospace" },
 ];
 
 const DIRECTION_OPTIONS: Array<{ value: Direction; label: string }> = [
@@ -154,7 +160,7 @@ function SettingRow({
     <div className="flex items-start justify-between gap-3 py-2">
       <div className="min-w-0">
         <div className="text-xs font-medium text-foreground">{label}</div>
-        <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+        <p className="text-2xs text-muted-foreground mt-0.5 leading-relaxed">
           {description}
         </p>
       </div>
@@ -308,6 +314,28 @@ export function SettingsPage({
                 </div>
               }
             />
+            <SettingRow
+              label="UI Font"
+              description="Sans-serif for a clean look; monospace for a terminal aesthetic."
+              control={
+                <div className="inline-flex items-center border border-border rounded-none overflow-hidden">
+                  {FONT_FAMILY_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`h-8 px-2.5 text-xs inline-flex items-center gap-1.5 transition-colors ${
+                        config.fontFamily === option.value
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-background text-muted-foreground hover:text-foreground"
+                      }`}
+                      onClick={() => set("fontFamily", option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              }
+            />
           </section>
 
           <section className="border border-border bg-card px-4 py-3 rounded-none">
@@ -367,7 +395,7 @@ export function SettingsPage({
             <Separator className="my-3" />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="space-y-1">
-                <label className="text-[11px] text-muted-foreground">
+                <label className="text-2xs text-muted-foreground">
                   Provider
                 </label>
                 <Select
@@ -398,7 +426,7 @@ export function SettingsPage({
                 </Select>
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] text-muted-foreground">
+                <label className="text-2xs text-muted-foreground">
                   Model
                 </label>
                 <Input
@@ -410,7 +438,7 @@ export function SettingsPage({
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] text-muted-foreground">
+                <label className="text-2xs text-muted-foreground">
                   {config.transcriptionProvider === "vertex"
                     ? "Source Language"
                     : "Language"}
@@ -442,7 +470,7 @@ export function SettingsPage({
               </div>
               {config.transcriptionProvider === "vertex" ? (
                 <div className="space-y-1">
-                  <label className="text-[11px] text-muted-foreground">
+                  <label className="text-2xs text-muted-foreground">
                     Target Language
                   </label>
                   <Select
@@ -472,7 +500,7 @@ export function SettingsPage({
                 </div>
               ) : (
                 <div className="space-y-1">
-                  <label className="text-[11px] text-muted-foreground">
+                  <label className="text-2xs text-muted-foreground">
                     Chunk Interval (ms)
                   </label>
                   <Input
@@ -538,7 +566,7 @@ export function SettingsPage({
               </div>
             )}
             {config.transcriptionProvider === "whisper" && (
-              <p className="mt-3 text-[11px] text-muted-foreground leading-relaxed">
+              <p className="mt-3 text-2xs text-muted-foreground leading-relaxed">
                 Whisper runs locally with no API key. Start with{" "}
                 <code className="font-mono">Xenova/whisper-small</code> for
                 better quality; it uses more memory than base/tiny.
@@ -554,7 +582,7 @@ export function SettingsPage({
             <Separator className="my-3" />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <div className="space-y-1">
-                <label className="text-[11px] text-muted-foreground">
+                <label className="text-2xs text-muted-foreground">
                   Analysis Provider
                 </label>
                 <Select
@@ -577,7 +605,7 @@ export function SettingsPage({
               </div>
               {config.analysisProvider === "openrouter" ? (
                 <div className="space-y-1">
-                  <label className="text-[11px] text-muted-foreground">
+                  <label className="text-2xs text-muted-foreground">
                     Analysis Model
                   </label>
                   <Select
@@ -607,7 +635,7 @@ export function SettingsPage({
                 </div>
               ) : (
                 <div className="space-y-1">
-                  <label className="text-[11px] text-muted-foreground">
+                  <label className="text-2xs text-muted-foreground">
                     Analysis Model ID
                   </label>
                   <Input
@@ -618,7 +646,7 @@ export function SettingsPage({
                 </div>
               )}
               <div className="space-y-1">
-                <label className="text-[11px] text-muted-foreground">Todo Model</label>
+                <label className="text-2xs text-muted-foreground">Todo Model</label>
                 <Select
                   value={config.todoModelId}
                   onValueChange={(modelId) => {
@@ -690,7 +718,7 @@ export function SettingsPage({
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2 lg:mt-0">
                 <div className="space-y-1">
-                  <label className="text-[11px] text-muted-foreground">
+                  <label className="text-2xs text-muted-foreground">
                     Context File
                   </label>
                   <Input
@@ -700,7 +728,7 @@ export function SettingsPage({
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[11px] text-muted-foreground">
+                  <label className="text-2xs text-muted-foreground">
                     Vertex Project
                   </label>
                   <Input
@@ -710,7 +738,7 @@ export function SettingsPage({
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[11px] text-muted-foreground">
+                  <label className="text-2xs text-muted-foreground">
                     Vertex Location
                   </label>
                   <Input
@@ -735,15 +763,15 @@ export function SettingsPage({
                   <p className="text-xs font-semibold text-foreground">
                     Notion MCP
                   </p>
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-2xs text-muted-foreground">
                     {notionStatus?.state ?? "disconnected"}
                   </span>
                 </div>
-                <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
+                <p className="mt-1 text-2xs text-muted-foreground leading-relaxed">
                   Hosted MCP via local OAuth callback.
                 </p>
                 {notionStatus?.error && (
-                  <p className="mt-1 text-[11px] text-destructive">
+                  <p className="mt-1 text-2xs text-destructive">
                     {notionStatus.error}
                   </p>
                 )}
@@ -774,15 +802,15 @@ export function SettingsPage({
                   <p className="text-xs font-semibold text-foreground">
                     Linear MCP
                   </p>
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-2xs text-muted-foreground">
                     {linearStatus?.state ?? "disconnected"}
                   </span>
                 </div>
-                <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
+                <p className="mt-1 text-2xs text-muted-foreground leading-relaxed">
                   Token-based access for Linear MCP.
                 </p>
                 {linearStatus?.error && (
-                  <p className="mt-1 text-[11px] text-destructive">
+                  <p className="mt-1 text-2xs text-destructive">
                     {linearStatus.error}
                   </p>
                 )}
@@ -830,7 +858,7 @@ export function SettingsPage({
                   </Button>
                 </div>
                 {linearTokenError && (
-                  <p className="mt-1 text-[11px] text-destructive">
+                  <p className="mt-1 text-2xs text-destructive">
                     {linearTokenError}
                   </p>
                 )}

@@ -100,13 +100,13 @@ export function ToolHeader({
   return (
     <CollapsibleTrigger
       className={cn(
-        "group/tool-trigger flex w-full items-center gap-1 rounded-none px-0 py-0 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground",
+        "group/tool-trigger flex w-full items-center gap-1 rounded-none px-0 py-0 text-left text-2xs text-muted-foreground transition-colors hover:text-foreground",
         className
       )}
       {...props}
     >
       <span className="min-w-0 flex-1 truncate">{title ?? formatToolName(type)}</span>
-      <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-muted-foreground/70">
+      <span className="shrink-0 font-mono text-2xs uppercase tracking-wide text-muted-foreground/70">
         {stateLabel}
       </span>
       <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground/60 transition-transform group-data-[state=open]/tool-trigger:rotate-180" />
@@ -133,7 +133,7 @@ export function ToolInput({ input, className, ...props }: ToolInputProps) {
   return (
     <div
       className={cn(
-        "text-[10px] text-muted-foreground/90 leading-snug font-mono break-all",
+        "text-2xs text-muted-foreground/90 leading-snug font-mono break-all",
         className
       )}
       {...props}
@@ -157,7 +157,7 @@ export function ToolOutput({
   return (
     <div
       className={cn(
-        "text-[10px] text-muted-foreground/90 leading-snug",
+        "text-2xs text-muted-foreground/90 leading-snug",
         className
       )}
       {...props}

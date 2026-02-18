@@ -10,7 +10,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Trash2Icon } from "lucide-react";
+import { BookOpen, Info, Link2, Trash2Icon, Star, Zap } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { SectionLabel } from "@/components/ui/section-label";
 
 type LeftSidebarProps = {
   rollingKeyPoints: string[];
@@ -45,12 +47,18 @@ function formatDate(ms: number): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-const INSIGHT_ICONS: Record<string, string> = {
-  "definition": "📖",
-  "context": "🔗",
-  "fact": "💡",
-  "tip": "✦",
+const INSIGHT_ICONS: Record<string, LucideIcon> = {
+  definition: BookOpen,
+  context: Link2,
+  fact: Info,
+  tip: Zap,
+  "key-point": Star,
 };
+
+function InsightIcon({ kind }: { kind: string }) {
+  const Icon = INSIGHT_ICONS[kind];
+  return Icon ? <Icon className="size-3" /> : <span>·</span>;
+}
 
 type ProjectFormMode =
   | { kind: "none" }
@@ -215,10 +223,8 @@ export function LeftSidebar({
       <Separator />
 
       {/* Summary section — scrollable, takes remaining space */}
-      <div className="px-3 pt-2.5 pb-2 flex-1 min-h-0 flex flex-col">
-        <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2 shrink-0">
-          Summary
-        </h2>
+      <div className="px-3 py-2.5 flex-1 min-h-0 flex flex-col">
+        <SectionLabel className="mb-2 shrink-0">Summary</SectionLabel>
         <div className="flex-1 min-h-0 overflow-y-auto">
           {rollingKeyPoints.length > 0 ? (
             <ul className="space-y-1">
@@ -241,16 +247,14 @@ export function LeftSidebar({
       <Separator />
 
       {/* Insights feed — bounded height */}
-      <div className="px-3 pt-2.5 pb-2 shrink-0 max-h-48 overflow-y-auto">
-        <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
-          Insights
-        </h2>
+      <div className="px-3 py-2.5 shrink-0 max-h-48 overflow-y-auto">
+        <SectionLabel className="mb-2">Insights</SectionLabel>
         {insights.length > 0 ? (
           <ul className="space-y-1.5">
             {insights.map((insight) => (
-              <li key={insight.id} className="text-xs leading-relaxed flex gap-1.5">
-                <span className="text-muted-foreground shrink-0 w-3 text-center font-mono">
-                  {INSIGHT_ICONS[insight.kind] ?? "•"}
+              <li key={insight.id} className="text-xs leading-relaxed flex gap-1.5 items-center">
+                <span className="text-muted-foreground shrink-0">
+                  <InsightIcon kind={insight.kind} />
                 </span>
                 <span className="text-foreground">{insight.text}</span>
               </li>
@@ -267,10 +271,8 @@ export function LeftSidebar({
       <Separator />
 
       {/* Session timeline */}
-      <div className="px-3 pt-2.5 pb-2 shrink-0 max-h-40 overflow-y-auto">
-        <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
-          Sessions
-        </h2>
+      <div className="px-3 py-2.5 shrink-0 max-h-40 overflow-y-auto">
+        <SectionLabel className="mb-2">Sessions</SectionLabel>
         {sessions.length > 0 ? (
           <ul className="space-y-1">
             {sessions.map((session) => (
@@ -287,7 +289,7 @@ export function LeftSidebar({
                     <span className="shrink-0 flex items-center justify-end w-5">
                       {onDeleteSession ? (
                         <>
-                          <span className="text-muted-foreground text-[11px] font-mono group-hover:hidden">
+                          <span className="text-muted-foreground text-2xs font-mono group-hover:hidden">
                             {session.blockCount}
                           </span>
                           <span
@@ -300,14 +302,15 @@ export function LeftSidebar({
                           </span>
                         </>
                       ) : (
-                        <span className="text-muted-foreground text-[11px] font-mono">
+                        <span className="text-muted-foreground text-2xs font-mono">
                           {session.blockCount}
                         </span>
                       )}
                     </span>
                   </div>
-                  <div className="text-muted-foreground text-[11px] font-mono">
+                  <div className="text-muted-foreground text-2xs font-mono">
                     {formatDate(session.startedAt)} · {formatTime(session.startedAt)}
+                    {session.agentCount > 0 && ` · ${session.agentCount} agent${session.agentCount !== 1 ? "s" : ""}`}
                   </div>
                 </button>
               </li>

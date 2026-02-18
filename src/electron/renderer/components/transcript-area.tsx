@@ -8,9 +8,20 @@ import {
   useState,
 } from "react";
 import type { TranscriptBlock } from "../../../core/types";
-import { LoaderCircleIcon, MicIcon, Volume2Icon } from "lucide-react";
+import { ChevronDownIcon, ChevronUpIcon, LoaderCircleIcon, MicIcon, PencilIcon, Volume2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SectionLabel } from "@/components/ui/section-label";
+
+type UserNote = {
+  id: string;
+  text: string;
+  createdAt: number;
+};
+
+type TranscriptEntry =
+  | { kind: "paragraph"; blocks: TranscriptBlock[]; key: string }
+  | { kind: "note"; note: UserNote; key: string };
 
 export type SelectionTodoResult = {
   ok: boolean;
@@ -95,7 +106,7 @@ function Paragraph({ blocks, isLast, canTranslate }: { blocks: TranscriptBlock[]
 
   return (
     <div className={`pb-3 ${isLast ? "" : "mb-3 border-b border-border/50"}`}>
-      <div className="font-mono text-muted-foreground text-[11px] mb-1 flex items-center gap-1.5">
+      <div className="font-mono text-muted-foreground text-2xs mb-1 flex items-center gap-1.5">
         {first.audioSource === "microphone" ? (
           <MicIcon className="size-3 text-mic-source" />
         ) : (
@@ -106,7 +117,7 @@ function Paragraph({ blocks, isLast, canTranslate }: { blocks: TranscriptBlock[]
       <div className="text-sm">
         <span className="text-foreground">{sourceText}</span>
         {isNonEnglishSource && (
-          <span className="text-[11px] text-muted-foreground/60 ml-1.5 font-mono">
+          <span className="text-2xs text-muted-foreground/60 ml-1.5 font-mono">
             {first.sourceLabel.toLowerCase()}
           </span>
         )}
@@ -133,6 +144,43 @@ function Paragraph({ blocks, isLast, canTranslate }: { blocks: TranscriptBlock[]
   );
 }
 
+const NOTE_COLLAPSE_CHARS = 300;
+const NOTE_COLLAPSE_LINES = 5;
+
+function isLongNote(text: string): boolean {
+  return text.length > NOTE_COLLAPSE_CHARS || text.split("\n").length > NOTE_COLLAPSE_LINES;
+}
+
+function NoteBlock({ note, isLast }: { note: UserNote; isLast: boolean }) {
+  const long = isLongNote(note.text);
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className={`pb-3 ${isLast ? "" : "mb-3 border-b border-border/50"}`}>
+      <div className="font-mono text-muted-foreground text-2xs mb-1 flex items-center gap-1.5">
+        <PencilIcon className="size-3" />
+        {formatTimestamp(note.createdAt)}
+      </div>
+      <div className={`text-sm text-foreground/80 whitespace-pre-wrap ${long && !expanded ? "line-clamp-3" : ""}`}>
+        {note.text}
+      </div>
+      {long && (
+        <button
+          type="button"
+          className="mt-1 flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? (
+            <><ChevronUpIcon className="size-3" />Show less</>
+          ) : (
+            <><ChevronDownIcon className="size-3" />Show more</>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
   function TranscriptArea({ blocks, systemPartial, micPartial, canTranslate, onCreateTodoFromSelection }, ref) {
     const bottomRef = useRef<HTMLDivElement>(null);
@@ -145,10 +193,37 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
     const [submittingSelection, setSubmittingSelection] = useState(false);
     const [selectionFeedback, setSelectionFeedback] = useState("");
     const [todoIntentInput, setTodoIntentInput] = useState("");
+    const [userNotes, setUserNotes] = useState<UserNote[]>([]);
+    const [noteInput, setNoteInput] = useState("");
+
+    const entries = useMemo((): TranscriptEntry[] => {
+      const paragraphEntries: TranscriptEntry[] = paragraphs.map((p) => ({
+        kind: "paragraph",
+        blocks: p,
+        key: String(p[0].id),
+      }));
+      const noteEntries: TranscriptEntry[] = userNotes.map((n) => ({
+        kind: "note",
+        note: n,
+        key: n.id,
+      }));
+      return [...paragraphEntries, ...noteEntries].sort((a, b) => {
+        const aTime = a.kind === "paragraph" ? a.blocks[0].createdAt : a.note.createdAt;
+        const bTime = b.kind === "paragraph" ? b.blocks[0].createdAt : b.note.createdAt;
+        return aTime - bTime;
+      });
+    }, [paragraphs, userNotes]);
+
+    const submitNote = useCallback(() => {
+      const text = noteInput.trim();
+      if (!text) return;
+      setUserNotes((prev) => [...prev, { id: crypto.randomUUID(), text, createdAt: Date.now() }]);
+      setNoteInput("");
+    }, [noteInput]);
 
     useEffect(() => {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [blocks.length]);
+    }, [blocks.length, userNotes.length]);
 
     const setContainerRef = useCallback((node: HTMLDivElement | null) => {
       containerRef.current = node;
@@ -272,9 +347,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
 
     return (
       <div className="flex-1 flex flex-col min-h-0">
-        <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-4 pt-2.5 pb-1.5 shrink-0">
-          Live Transcript
-        </h2>
+        <SectionLabel className="px-4 pt-2.5 pb-1.5 shrink-0">Live Transcript</SectionLabel>
         <div
           ref={setContainerRef}
           className="relative flex-1 overflow-y-auto px-4 pb-2"
@@ -315,7 +388,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
                 <Button
                   type="button"
                   size="sm"
-                  className="mt-1 h-6 w-full px-2 text-[11px]"
+                  className="mt-1 h-6 w-full px-2 text-2xs"
                   disabled={submittingSelection}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => { void handleCreateTodo(); }}
@@ -327,26 +400,34 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
                   )}
                 </Button>
                 {selectionFeedback && (
-                  <p className="px-1 pt-1 text-[11px] text-muted-foreground max-w-56">
+                  <p className="px-1 pt-1 text-2xs text-muted-foreground max-w-56">
                     {selectionFeedback}
                   </p>
                 )}
               </div>
             </div>
           )}
-          {blocks.length === 0 ? (
+          {entries.length === 0 ? (
             <p className="text-sm text-muted-foreground italic mt-2">
               Speak to see transcriptions here...
             </p>
           ) : (
-            paragraphs.map((para, i) => (
-              <Paragraph
-                key={para[0].id}
-                blocks={para}
-                isLast={i === paragraphs.length - 1}
-                canTranslate={canTranslate ?? false}
-              />
-            ))
+            entries.map((entry, i) =>
+              entry.kind === "paragraph" ? (
+                <Paragraph
+                  key={entry.key}
+                  blocks={entry.blocks}
+                  isLast={i === entries.length - 1}
+                  canTranslate={canTranslate ?? false}
+                />
+              ) : (
+                <NoteBlock
+                  key={entry.key}
+                  note={entry.note}
+                  isLast={i === entries.length - 1}
+                />
+              )
+            )
           )}
           {systemPartial && (
             <div className="flex items-center gap-1.5 text-sm text-muted-foreground/50 italic animate-pulse">
@@ -361,6 +442,32 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
             </div>
           )}
           <div ref={bottomRef} />
+        </div>
+        <div className="shrink-0 border-t border-border/50 px-3 py-2 flex items-center gap-2">
+          <PencilIcon className="size-3 shrink-0 text-muted-foreground/50" />
+          <Input
+            value={noteInput}
+            onChange={(e) => setNoteInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submitNote();
+              }
+            }}
+            placeholder="Add context note... (Enter to submit)"
+            className="h-7 flex-1 text-xs border-none bg-transparent shadow-none focus-visible:ring-0 px-0"
+          />
+          {noteInput.trim() && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-2xs"
+              onClick={submitNote}
+            >
+              Add
+            </Button>
+          )}
         </div>
       </div>
     );

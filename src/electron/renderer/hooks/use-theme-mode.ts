@@ -1,8 +1,8 @@
 import { useEffect } from "react";
-import type { FontSize, LightVariant, ThemeMode } from "../../../core/types";
+import type { FontFamily, FontSize, LightVariant, ThemeMode } from "../../../core/types";
 import { applyThemeClass } from "../lib/theme";
 
-export function useThemeMode(themeMode: ThemeMode, lightVariant: LightVariant = "warm", fontSize: FontSize = "md") {
+export function useThemeMode(themeMode: ThemeMode, lightVariant: LightVariant = "warm", fontSize: FontSize = "md", fontFamily: FontFamily = "sans") {
   useEffect(() => {
     const media =
       typeof window.matchMedia === "function"
@@ -12,7 +12,7 @@ export function useThemeMode(themeMode: ThemeMode, lightVariant: LightVariant = 
     const applyTheme = () => {
       const shouldUseDark =
         themeMode === "dark" || (themeMode === "system" && !!media?.matches);
-      applyThemeClass(shouldUseDark, lightVariant, fontSize);
+      applyThemeClass(shouldUseDark, lightVariant, fontSize, fontFamily);
     };
 
     applyTheme();
@@ -25,5 +25,5 @@ export function useThemeMode(themeMode: ThemeMode, lightVariant: LightVariant = 
 
     media.addListener(applyTheme);
     return () => media.removeListener(applyTheme);
-  }, [themeMode, lightVariant, fontSize]);
+  }, [themeMode, lightVariant, fontSize, fontFamily]);
 }

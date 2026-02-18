@@ -49,7 +49,7 @@ export function ConfirmationRequest({ children, className, ...props }: Component
   const { state } = useConfirmationContext();
   if (state !== "approval-requested") return null;
   return (
-    <div className={cn("text-[11px] text-foreground", className)} {...props}>
+    <div className={cn("text-2xs text-foreground", className)} {...props}>
       {children}
     </div>
   );
@@ -59,7 +59,7 @@ export function ConfirmationAccepted({ children, className, ...props }: Componen
   const { state, approved } = useConfirmationContext();
   if (!approved || (state !== "approval-responded" && state !== "output-available")) return null;
   return (
-    <div className={cn("flex items-center gap-1 text-[11px] text-green-600", className)} {...props}>
+    <div className={cn("flex items-center gap-1 text-2xs text-green-600", className)} {...props}>
       {children}
     </div>
   );
@@ -69,7 +69,7 @@ export function ConfirmationRejected({ children, className, ...props }: Componen
   const { state, approved } = useConfirmationContext();
   if (approved !== false || (state !== "approval-responded" && state !== "output-denied")) return null;
   return (
-    <div className={cn("flex items-center gap-1 text-[11px] text-destructive", className)} {...props}>
+    <div className={cn("flex items-center gap-1 text-2xs text-destructive", className)} {...props}>
       {children}
     </div>
   );

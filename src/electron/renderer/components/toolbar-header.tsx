@@ -1,9 +1,4 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  PlayIcon,
-  PauseIcon,
-} from "@hugeicons/core-free-icons";
-import { ArrowLeftIcon, FileTextIcon, LanguagesIcon, MicIcon, MicOffIcon, PlusIcon, Settings2Icon } from "lucide-react";
+import { ArrowLeftIcon, FileTextIcon, LanguagesIcon, MicIcon, MicOffIcon, MonitorSpeakerIcon, PlusIcon, Settings2Icon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -132,7 +127,7 @@ export function ToolbarHeader({
             <SelectContent>
               {languages.map((lang) => (
                 <SelectItem key={lang.code} value={lang.code}>
-                  <span className="font-mono text-[11px] opacity-60 mr-1.5">
+                  <span className="font-mono text-2xs opacity-60 mr-1.5">
                     {lang.code.toUpperCase()}
                   </span>
                   {lang.name}
@@ -163,7 +158,7 @@ export function ToolbarHeader({
                 <SelectContent>
                   {languages.map((lang) => (
                     <SelectItem key={lang.code} value={lang.code}>
-                      <span className="font-mono text-[11px] opacity-60 mr-1.5">
+                      <span className="font-mono text-2xs opacity-60 mr-1.5">
                         {lang.code.toUpperCase()}
                       </span>
                       {lang.name}
@@ -187,18 +182,6 @@ export function ToolbarHeader({
             </Button>
           ) : (
             <>
-              <Button
-                variant="outline"
-                size="icon-sm"
-                onClick={onTogglePause}
-                aria-label={isRecordingOrConnecting ? "Pause recording" : "Start recording"}
-              >
-                <HugeiconsIcon
-                  icon={isRecordingOrConnecting ? PauseIcon : PlayIcon}
-                  strokeWidth={2}
-                  className="size-3.5"
-                />
-              </Button>
               <Button variant="outline" size="sm" onClick={onNewSession}>
                 <PlusIcon className="size-3.5" data-icon="inline-start" />
                 New
@@ -227,11 +210,27 @@ export function ToolbarHeader({
                 </Button>
               )}
               <Button
-                variant={micEnabled ? "default" : "ghost"}
+                variant="outline"
+                size="sm"
+                onClick={onTogglePause}
+                className={isRecordingOrConnecting ? "bg-blue-600 hover:bg-blue-700 text-white border-blue-600 gap-1.5" : "gap-1.5"}
+                aria-label={isRecordingOrConnecting ? "Pause computer audio" : "Resume computer audio"}
+              >
+                {isRecordingOrConnecting && (
+                  <span className="relative flex size-2">
+                    <span className="absolute inset-0 rounded-full bg-white/40 mic-pulse-ring" />
+                    <span className="relative inline-flex size-2 rounded-full bg-white" />
+                  </span>
+                )}
+                <MonitorSpeakerIcon className="size-3.5" />
+                <span className="text-xs">Computer Audio</span>
+              </Button>
+              <Button
+                variant="outline"
                 size="sm"
                 onClick={onToggleMic}
-                className={micEnabled ? "bg-red-600 hover:bg-red-700 text-white gap-1.5" : "gap-1.5"}
-                aria-label={micEnabled ? "Disable microphone" : "Enable microphone"}
+                className={micEnabled ? "bg-red-600 hover:bg-red-700 text-white border-red-600 gap-1.5" : "gap-1.5"}
+                aria-label={micEnabled ? "Turn off microphone" : "Turn on microphone"}
               >
                 {micEnabled ? (
                   <>
@@ -240,14 +239,11 @@ export function ToolbarHeader({
                       <span className="relative inline-flex size-2 rounded-full bg-white" />
                     </span>
                     <MicIcon className="size-3.5" />
-                    <span className="text-xs">Mic On</span>
                   </>
                 ) : (
-                  <>
-                    <MicOffIcon className="size-3.5" />
-                    <span className="text-xs">Mic</span>
-                  </>
+                  <MicOffIcon className="size-3.5" />
                 )}
+                <span className="text-xs">My Voice</span>
               </Button>
             </div>
           </>
@@ -283,23 +279,6 @@ export function ToolbarHeader({
       {langError && (
         <div className="px-4 py-1.5 text-destructive text-xs border-b border-destructive/20 bg-destructive/5">
           {langError}
-        </div>
-      )}
-
-      {sessionActive && micEnabled && (
-        <div className="flex items-center gap-2 px-4 py-1.5 bg-red-50 dark:bg-red-950/30 border-b border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-400">
-          <span className="relative flex size-2.5 shrink-0">
-            <span className="absolute inset-0 rounded-full bg-red-500/40 mic-pulse-ring" />
-            <span className="relative inline-flex size-2.5 rounded-full bg-red-500" />
-          </span>
-          <span className="text-xs font-medium">Microphone is recording</span>
-          <button
-            type="button"
-            onClick={onToggleMic}
-            className="ml-auto text-[11px] font-mono text-red-500 hover:text-red-700 dark:hover:text-red-300 font-medium titlebar-no-drag transition-colors"
-          >
-            Turn off
-          </button>
         </div>
       )}
     </div>

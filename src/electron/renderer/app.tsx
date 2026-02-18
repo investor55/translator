@@ -268,7 +268,7 @@ export function App() {
     void refreshSessions();
   }, [refreshSessions, session.sessionId]);
 
-  useThemeMode(appConfig.themeMode, appConfig.lightVariant, appConfig.fontSize);
+  useThemeMode(appConfig.themeMode, appConfig.lightVariant, appConfig.fontSize, appConfig.fontFamily);
 
   const appendSuggestions = useCallback((incoming: TodoSuggestion[]) => {
     if (incoming.length === 0) return;
@@ -307,6 +307,12 @@ export function App() {
     onFinalSummaryReady: handleFinalSummaryReady,
     onFinalSummaryError: handleFinalSummaryError,
   });
+
+  useEffect(() => {
+    return window.electronAPI.onSessionTitleGenerated((sessionId, title) => {
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, title } : s)));
+    });
+  }, []);
 
   const handleToggleMic = useCallback(async () => {
     const result = await window.electronAPI.toggleMic();
@@ -810,6 +816,15 @@ export function App() {
     setRouteNotice(`Failed to delete todo: ${result.error ?? "Unknown error"}`);
   }, [processingTodoIds]);
 
+  const handleUpdateTodo = useCallback(async (id: string, text: string) => {
+    setTodos((prev) => prev.map((t) => t.id === id ? { ...t, text } : t));
+    const result = await window.electronAPI.updateTodoText(id, text);
+    if (!result.ok) {
+      setRouteNotice(`Failed to update todo: ${result.error ?? "Unknown error"}`);
+    }
+  }, []);
+
+
   const handleAcceptSuggestion = useCallback(async (suggestion: TodoSuggestion) => {
     const targetSessionId = suggestion.sessionId ?? selectedSessionId ?? session.sessionId ?? null;
     if (!targetSessionId) {
@@ -1215,6 +1230,7 @@ export function App() {
                 onAddTodo={handleAddTodo}
                 onToggleTodo={handleToggleTodo}
                 onDeleteTodo={handleDeleteTodo}
+                onUpdateTodo={handleUpdateTodo}
                 processingTodoIds={processingTodoIds}
                 onAcceptSuggestion={handleAcceptSuggestion}
                 onDismissSuggestion={handleDismissSuggestion}

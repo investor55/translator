@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
-import { and, eq, desc, count } from "drizzle-orm";
+import { and, eq, desc, count, inArray } from "drizzle-orm";
 import { sessions, blocks, todos, insights, agents, projects } from "./schema";
 import type {
   TodoItem,
@@ -82,7 +82,8 @@ export function createDatabase(dbPath: string) {
         .orderBy(desc(sessions.startedAt))
         .limit(limit)
         .all();
-      return rows.map(mapSessionRow);
+      const countMap = batchAgentCounts(orm, rows.map((r) => r.id));
+      return rows.map((r) => mapSessionRow(r, countMap.get(r.id) ?? 0));
     },
 
     getSessionsForProject(projectId: string, limit = 100): SessionMeta[] {
@@ -93,7 +94,8 @@ export function createDatabase(dbPath: string) {
         .orderBy(desc(sessions.startedAt))
         .limit(limit)
         .all();
-      return rows.map(mapSessionRow);
+      const countMap = batchAgentCounts(orm, rows.map((r) => r.id));
+      return rows.map((r) => mapSessionRow(r, countMap.get(r.id) ?? 0));
     },
 
     getMostRecentSession(): SessionMeta | null {
@@ -104,7 +106,8 @@ export function createDatabase(dbPath: string) {
         .limit(1)
         .all();
       if (!row) return null;
-      return mapSessionRow(row);
+      const countMap = batchAgentCounts(orm, [row.id]);
+      return mapSessionRow(row, countMap.get(row.id) ?? 0);
     },
 
     getSession(id: string): SessionMeta | null {
@@ -115,7 +118,12 @@ export function createDatabase(dbPath: string) {
         .limit(1)
         .all();
       if (!row) return null;
-      return mapSessionRow(row);
+      const countMap = batchAgentCounts(orm, [id]);
+      return mapSessionRow(row, countMap.get(id) ?? 0);
+    },
+
+    updateSessionTitle(sessionId: string, title: string) {
+      orm.update(sessions).set({ title }).where(eq(sessions.id, sessionId)).run();
     },
 
     isSessionEmpty(id: string): boolean {
@@ -491,17 +499,29 @@ export function createDatabase(dbPath: string) {
   };
 }
 
-function mapSessionRow(r: typeof sessions.$inferSelect): SessionMeta {
+function mapSessionRow(r: typeof sessions.$inferSelect, agentCount = 0): SessionMeta {
   return {
     id: r.id,
     startedAt: r.startedAt,
     endedAt: r.endedAt ?? undefined,
     title: r.title ?? undefined,
     blockCount: r.blockCount ?? 0,
+    agentCount,
     sourceLang: (r.sourceLang as LanguageCode) ?? undefined,
     targetLang: (r.targetLang as LanguageCode) ?? undefined,
     projectId: r.projectId ?? undefined,
   };
+}
+
+function batchAgentCounts(orm: BetterSQLite3Database, sessionIds: string[]): Map<string, number> {
+  if (sessionIds.length === 0) return new Map();
+  const rows = orm
+    .select({ sessionId: agents.sessionId, n: count() })
+    .from(agents)
+    .where(and(inArray(agents.sessionId, sessionIds), eq(agents.archived, 0)))
+    .groupBy(agents.sessionId)
+    .all();
+  return new Map(rows.map((r) => [r.sessionId!, r.n]));
 }
 
 function mapTodoRow(r: typeof todos.$inferSelect): TodoItem {

@@ -131,6 +131,7 @@ export type ElectronAPI = {
   onAgentCompleted: (callback: (agentId: string, result: string) => void) => () => void;
   onAgentFailed: (callback: (agentId: string, error: string) => void) => () => void;
   onAgentArchived: (callback: (agentId: string) => void) => () => void;
+  onSessionTitleGenerated: (callback: (sessionId: string, title: string) => void) => () => void;
 
   onWhisperGpuRequest: (callback: (request: WhisperGpuRequest) => void) => () => void;
   sendWhisperGpuResponse: (response: WhisperGpuResponse) => void;
@@ -245,6 +246,11 @@ const api: ElectronAPI = {
     return () => ipcRenderer.removeListener("session:agent-failed", handler);
   },
   onAgentArchived: createListener<string>("session:agent-archived"),
+  onSessionTitleGenerated: (callback: (sessionId: string, title: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessionId: string, title: string) => callback(sessionId, title);
+    ipcRenderer.on("session:title-generated", handler);
+    return () => ipcRenderer.removeListener("session:title-generated", handler);
+  },
 
   onWhisperGpuRequest: createListener<WhisperGpuRequest>(WHISPER_GPU_REQUEST_CHANNEL),
   sendWhisperGpuResponse: (response) => ipcRenderer.send(WHISPER_GPU_RESPONSE_CHANNEL, response),
