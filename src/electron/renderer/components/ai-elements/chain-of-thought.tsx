@@ -29,6 +29,7 @@ import {
 
 type ChainOfThoughtContextValue = {
   isStreaming: boolean;
+  startedAt?: number;
 };
 
 const ChainOfThoughtContext = createContext<ChainOfThoughtContextValue>({
@@ -37,11 +38,13 @@ const ChainOfThoughtContext = createContext<ChainOfThoughtContextValue>({
 
 export type ChainOfThoughtProps = ComponentProps<typeof Collapsible> & {
   isStreaming?: boolean;
+  startedAt?: number;
 };
 
 export function ChainOfThought({
   className,
   isStreaming = false,
+  startedAt,
   defaultOpen = false,
   open,
   onOpenChange,
@@ -62,7 +65,7 @@ export function ChainOfThought({
   }, [isControlled, isStreaming, onOpenChange]);
 
   return (
-    <ChainOfThoughtContext.Provider value={{ isStreaming }}>
+    <ChainOfThoughtContext.Provider value={{ isStreaming, startedAt }}>
       <Collapsible
         className={cn("w-full", className)}
         onOpenChange={(nextOpen) => {
@@ -83,7 +86,23 @@ export function ChainOfThoughtHeader({
   className,
   ...props
 }: ChainOfThoughtHeaderProps) {
-  const { isStreaming } = useContext(ChainOfThoughtContext);
+  const { isStreaming, startedAt } = useContext(ChainOfThoughtContext);
+  const [elapsedSecs, setElapsedSecs] = useState(() =>
+    isStreaming && startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0
+  );
+
+  useEffect(() => {
+    if (!isStreaming) {
+      setElapsedSecs(0);
+      return;
+    }
+    const base = startedAt ?? Date.now();
+    setElapsedSecs(Math.floor((Date.now() - base) / 1000));
+    const interval = setInterval(() => {
+      setElapsedSecs(Math.floor((Date.now() - base) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isStreaming, startedAt]);
 
   return (
     <CollapsibleTrigger
@@ -97,7 +116,7 @@ export function ChainOfThoughtHeader({
         {children ?? "Chain of thought"}
       </span>
       <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-muted-foreground/70">
-        {isStreaming ? "running" : "done"}
+        {isStreaming ? `thinking · ${elapsedSecs}s` : "done"}
       </span>
       <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground/60 transition-transform group-data-[state=open]/cot-trigger:rotate-180" />
     </CollapsibleTrigger>

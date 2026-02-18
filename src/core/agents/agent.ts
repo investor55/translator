@@ -477,6 +477,9 @@ async function runAgentWithMessages(
       onError: ({ error }) => {
         streamError = error instanceof Error ? error.message : String(error);
       },
+      onAbort: () => {
+        onFail("Cancelled");
+      },
     });
 
     const streamedAt = Date.now();
@@ -585,6 +588,9 @@ async function runAgentWithMessages(
           });
           break;
         }
+        case "abort": {
+          return;
+        }
         default: {
           break;
         }
@@ -610,10 +616,6 @@ async function runAgentWithMessages(
     );
     onComplete(finalText, fullHistory);
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      onFail("Cancelled");
-      return;
-    }
     // streamError has the real provider error (e.g. rate limit). NoOutputGeneratedError
     // is the SDK wrapper thrown when the stream ends with no steps recorded.
     const message = streamError ?? (error instanceof Error ? error.message : String(error));

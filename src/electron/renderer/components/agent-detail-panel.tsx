@@ -551,7 +551,7 @@ function getThinkingDurationSecs(steps: AgentStep[]): number | null {
   if (thinkingStart == null) return null;
   const firstAfterThinking = steps.find((s) => s.kind !== "thinking");
   const endTime = firstAfterThinking?.createdAt ?? steps[steps.length - 1]?.createdAt;
-  if (endTime == null || endTime <= thinkingStart) return null;
+  if (endTime == null) return null;
   return Math.max(1, Math.round((endTime - thinkingStart) / 1000));
 }
 
@@ -595,7 +595,7 @@ function ActivitySummaryItem({
 
   return (
     <div className="py-0.5 border-t border-border mt-1">
-      <ChainOfThought defaultOpen={isStreaming} isStreaming={isStreaming}>
+      <ChainOfThought defaultOpen={isStreaming} isStreaming={isStreaming} startedAt={steps[0]?.createdAt}>
         <ChainOfThoughtHeader onClickCapture={() => stopScroll()}>
           {headerLabel}
         </ChainOfThoughtHeader>
@@ -728,13 +728,6 @@ export function AgentDetailPanel({
       .find((step) => step.kind === "user");
     return lastUserStep?.createdAt ?? agent.createdAt;
   }, [agent.createdAt, agent.steps]);
-  const hasCurrentTurnText = useMemo(
-    () =>
-      agent.steps.some(
-        (step) => step.kind === "text" && step.createdAt >= activeTurnStartAt
-      ),
-    [activeTurnStartAt, agent.steps]
-  );
   const hasCurrentTurnActivity = useMemo(
     () =>
       agent.steps.some(
@@ -781,12 +774,16 @@ export function AgentDetailPanel({
       const isCurrentTurnGroup = steps.some(
         (step) => step.createdAt >= activeTurnStartAt
       );
+      const lastStepTime = steps[steps.length - 1]?.createdAt ?? 0;
+      const hasTextAfterActivity = visibleSteps.some(
+        (s) => s.kind === "text" && s.createdAt > lastStepTime
+      );
       items.push({
         kind: "activity",
         id,
         steps,
         title: getActivityTitle(steps),
-        isStreaming: isRunning && !hasCurrentTurnText && isCurrentTurnGroup,
+        isStreaming: isRunning && !hasTextAfterActivity && isCurrentTurnGroup,
       });
     };
 
@@ -847,7 +844,7 @@ export function AgentDetailPanel({
 
     flushActivity();
     return items;
-  }, [activeTurnStartAt, agent.id, hasCurrentTurnText, isRunning, visibleSteps]);
+  }, [activeTurnStartAt, agent.id, isRunning, visibleSteps]);
 
   const handleFollowUpSubmit = useCallback(
     async (message: PromptInputMessage) => {
