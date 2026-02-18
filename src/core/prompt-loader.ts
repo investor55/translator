@@ -71,7 +71,10 @@ Task:
 - Ignore bracketed non-speech tags like [silence], [music], [noise], [laughs].
 - Preserve details exactly: names, places, dates, times, constraints.
 - Merge fragments across neighboring lines into one complete todo.
-- Rewrite each todo as a short imperative action phrase.
+- For each todo, return:
+  - todoTitle: short imperative action phrase.
+  - todoDetails: rich context and constraints needed by an autonomous agent, including background, assumptions, boundaries, and success criteria.
+  - transcriptExcerpt: short verbatim excerpt from the transcript that grounds the todo.
 - Do NOT duplicate existing todos.
 - Return an empty list when no clear actionable todo was discussed.`;
 

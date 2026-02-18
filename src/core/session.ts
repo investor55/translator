@@ -7,6 +7,7 @@ import type {
   Agent,
   AgentQuestionSelection,
   AudioSource,
+  TranscriptBlock,
   SessionConfig,
   SessionEvents,
   Summary,
@@ -22,6 +23,7 @@ import { isLikelyDuplicateTodoText, normalizeTodoText, toReadableError } from ".
 import {
   analysisSchema,
   todoAnalysisSchema,
+  type TodoExtractSuggestion,
   todoFromSelectionSchema,
   buildAnalysisPrompt,
   buildTodoPrompt,
@@ -99,6 +101,12 @@ type WhisperPendingParagraph = {
   audioSource: AudioSource;
   capturedAt: number;
   lastUpdatedAt: number;
+};
+
+type TodoSuggestionDraft = {
+  text: string;
+  details?: string;
+  transcriptExcerpt?: string;
 };
 
 export class Session {
@@ -1688,7 +1696,7 @@ export class Session {
         }
       }
 
-      let todoSuggestions: string[] = [];
+      let todoSuggestions: TodoSuggestionDraft[] = [];
       let todoBlocks: typeof allBlocks = [];
 
       if (shouldRunTodoAnalysis) {
@@ -1723,7 +1731,9 @@ export class Session {
             "openrouter"
           );
           this.events.emit("cost-updated", totalWithTodo);
-          todoSuggestions = todoResult.suggestedTodos;
+          todoSuggestions = todoResult.suggestedTodos
+            .map((raw) => this.normalizeTodoSuggestion(raw, todoBlocks))
+            .filter((candidate): candidate is TodoSuggestionDraft => candidate !== null);
           this.lastTodoAnalysisBlockCount = analysisTargetBlockCount;
         } catch (todoError) {
           if (this.config.debug) {
@@ -1740,9 +1750,7 @@ export class Session {
       const existingTodoTexts = existingTodos.map((t) => t.text);
       const emittedTodoTexts: string[] = [];
       emittedTodoSuggestions = [];
-      for (const text of todoSuggestions) {
-        const candidate = text.trim();
-        if (!candidate) continue;
+      for (const candidate of todoSuggestions) {
         const emittedSuggestion = this.tryEmitTodoSuggestion(
           candidate,
           existingTodoTexts,
@@ -1752,7 +1760,7 @@ export class Session {
         if (!emittedSuggestion) {
           continue;
         }
-        emittedTodoTexts.push(candidate);
+        emittedTodoTexts.push(candidate.text);
         emittedTodoSuggestions.push(emittedSuggestion);
         todoSuggestionsEmitted += 1;
       }
@@ -1818,12 +1826,12 @@ export class Session {
   }
 
   private tryEmitTodoSuggestion(
-    candidate: string,
+    candidate: TodoSuggestionDraft,
     existingTodoTexts?: readonly string[],
     emittedInCurrentAnalysis: readonly string[] = [],
     ignoreRecentSuggestions = false,
   ): TodoSuggestion | null {
-    const normalized = candidate.trim();
+    const normalized = candidate.text.trim();
     if (!normalized) return null;
 
     const knownTodoTexts = existingTodoTexts ?? (this.db ? this.db.getTodos().map((t) => t.text) : []);
@@ -1834,6 +1842,8 @@ export class Session {
     const suggestion: TodoSuggestion = {
       id: crypto.randomUUID(),
       text: normalized,
+      details: candidate.details?.trim() || undefined,
+      transcriptExcerpt: candidate.transcriptExcerpt?.trim() || undefined,
       sessionId: this.sessionId,
       createdAt: Date.now(),
     };
@@ -1843,5 +1853,104 @@ export class Session {
     }
     this.events.emit("todo-suggested", suggestion);
     return suggestion;
+  }
+
+  private normalizeTodoSuggestion(
+    rawSuggestion: TodoExtractSuggestion,
+    todoBlocks: readonly TranscriptBlock[],
+  ): TodoSuggestionDraft | null {
+    if (typeof rawSuggestion === "string") {
+      const text = rawSuggestion.trim();
+      if (!text) return null;
+      return {
+        text,
+        ...this.buildTodoSuggestionFallbackContext(text, todoBlocks),
+      };
+    }
+
+    const text = rawSuggestion.todoTitle.trim();
+    if (!text) return null;
+    const details = rawSuggestion.todoDetails?.trim();
+    const transcriptExcerpt = rawSuggestion.transcriptExcerpt?.trim();
+    const fallback = this.buildTodoSuggestionFallbackContext(text, todoBlocks);
+    return {
+      text,
+      details: details || fallback.details,
+      transcriptExcerpt: transcriptExcerpt || fallback.transcriptExcerpt,
+    };
+  }
+
+  private buildTodoSuggestionFallbackContext(
+    todoText: string,
+    todoBlocks: readonly TranscriptBlock[],
+  ): Pick<TodoSuggestionDraft, "details" | "transcriptExcerpt"> {
+    if (todoBlocks.length === 0) {
+      return {};
+    }
+
+    const relevantBlocks = this.selectRelevantTodoBlocks(todoText, todoBlocks);
+    const transcriptExcerpt = relevantBlocks
+      .map((block) => {
+        const source = `[${block.audioSource}] ${block.sourceText}`;
+        const translation = block.translation ? ` → ${block.translation}` : "";
+        return source + translation;
+      })
+      .join("\n")
+      .trim();
+
+    if (!transcriptExcerpt) {
+      return {};
+    }
+
+    return {
+      details: "Derived from live transcript scan. Preserve names, dates, places, and constraints from the excerpt.",
+      transcriptExcerpt,
+    };
+  }
+
+  private selectRelevantTodoBlocks(
+    todoText: string,
+    todoBlocks: readonly TranscriptBlock[],
+  ): TranscriptBlock[] {
+    if (todoBlocks.length <= 3) {
+      return [...todoBlocks];
+    }
+
+    const todoTokens = normalizeTodoText(todoText)
+      .split(" ")
+      .filter((token) => token.length >= 3);
+    if (todoTokens.length === 0) {
+      return [...todoBlocks.slice(-3)];
+    }
+
+    const scored = todoBlocks
+      .map((block) => {
+        const searchableText = normalizeTodoText(
+          `${block.sourceText} ${block.translation ?? ""}`,
+        );
+        const score = todoTokens.reduce((acc, token) => (
+          searchableText.includes(token) ? acc + 1 : acc
+        ), 0);
+        return { block, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((left, right) => {
+        if (right.score !== left.score) return right.score - left.score;
+        if (right.block.createdAt !== left.block.createdAt) {
+          return right.block.createdAt - left.block.createdAt;
+        }
+        return right.block.id - left.block.id;
+      })
+      .slice(0, 3)
+      .map((item) => item.block);
+
+    if (scored.length === 0) {
+      return [...todoBlocks.slice(-3)];
+    }
+
+    return scored.sort((left, right) => {
+      if (left.createdAt !== right.createdAt) return left.createdAt - right.createdAt;
+      return left.id - right.id;
+    });
   }
 }

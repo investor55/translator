@@ -54,6 +54,19 @@ function clampWidth(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
+function buildAiSuggestionDetails(suggestion: TodoSuggestion): string | undefined {
+  const sections = [
+    suggestion.details?.trim()
+      ? `Context summary:\n${suggestion.details.trim()}`
+      : "",
+    suggestion.transcriptExcerpt?.trim()
+      ? `Original transcript excerpt:\n${suggestion.transcriptExcerpt.trim()}`
+      : "",
+  ].filter(Boolean);
+
+  return sections.length > 0 ? sections.join("\n\n") : undefined;
+}
+
 export function App() {
   useEffect(() => {
     initializeWhisperGpuClient();
@@ -656,10 +669,12 @@ export function App() {
       setRouteNotice("Missing session id for suggestion.");
       return;
     }
+    const suggestionDetails = buildAiSuggestionDetails(suggestion);
 
     const optimisticTodo: TodoItem = {
       id: suggestion.id,
       text: suggestion.text,
+      details: suggestionDetails,
       size: "large",
       completed: false,
       source: "ai",
@@ -675,6 +690,7 @@ export function App() {
     const result = await persistTodo({
       targetSessionId,
       text: suggestion.text,
+      details: suggestionDetails,
       source: "ai",
       id: suggestion.id,
       createdAt: suggestion.createdAt,

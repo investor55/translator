@@ -27,8 +27,24 @@ export const analysisSchema = z.object({
 
 export const todoAnalysisSchema = z.object({
   suggestedTodos: z
-    .array(z.string())
-    .describe("Clear action items from the conversation. Include explicit tasks and concrete planning intents, but skip vague chatter."),
+    .array(
+      z.union([
+        z.string().describe("Legacy fallback: short actionable todo title."),
+        z.object({
+          todoTitle: z
+            .string()
+            .describe("Short actionable todo title (3-10 words)."),
+          todoDetails: z
+            .string()
+            .describe("Rich context and constraints for autonomous execution."),
+          transcriptExcerpt: z
+            .string()
+            .describe("Short verbatim transcript excerpt grounding this todo.")
+            .optional(),
+        }),
+      ]),
+    )
+    .describe("Clear action items from the conversation. Prefer structured items with title, details, and supporting excerpt."),
 });
 
 export const todoFromSelectionSchema = z.object({
@@ -48,6 +64,7 @@ export const todoFromSelectionSchema = z.object({
 
 export type AnalysisResult = z.infer<typeof analysisSchema>;
 export type TodoAnalysisResult = z.infer<typeof todoAnalysisSchema>;
+export type TodoExtractSuggestion = TodoAnalysisResult["suggestedTodos"][number];
 export type TodoFromSelectionResult = z.infer<typeof todoFromSelectionSchema>;
 
 export function buildAnalysisPrompt(

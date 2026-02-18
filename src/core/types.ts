@@ -70,6 +70,8 @@ export type TodoSize = "small" | "large";
 export type TodoSuggestion = Readonly<{
   id: string;
   text: string;
+  details?: string;
+  transcriptExcerpt?: string;
   sessionId?: string;
   createdAt: number;
 }>;

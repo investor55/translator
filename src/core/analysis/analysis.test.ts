@@ -30,5 +30,8 @@ describe("buildTodoPrompt", () => {
     expect(prompt).toContain("[system] I want to visit Austin next month.");
     expect(prompt).toContain("Existing todos:");
     expect(prompt).toContain("[ ] Book flights");
+    expect(prompt).toContain("todoTitle");
+    expect(prompt).toContain("todoDetails");
+    expect(prompt).toContain("transcriptExcerpt");
   });
 });
