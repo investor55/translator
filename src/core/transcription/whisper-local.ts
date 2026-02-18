@@ -35,11 +35,38 @@ type WhisperChildRequest = {
   languageHints?: string[];
 };
 
+type WhisperRuntimePath = "renderer-webgpu" | "cpu-child";
+
+type WhisperCpuRuntime = {
+  preload: (modelId: string) => Promise<void>;
+  transcribe: (
+    audio: Float32Array,
+    modelId: string,
+    languageHints: string[],
+  ) => Promise<string>;
+  dispose: () => void;
+};
+
+export type WhisperRemoteRuntime = {
+  isReady: () => boolean;
+  preload: (modelId: string) => Promise<void>;
+  transcribe: (
+    audio: Float32Array,
+    modelId: string,
+    languageHints: string[],
+  ) => Promise<string>;
+  dispose: () => Promise<void> | void;
+};
+
 let child: ChildProcess | null = null;
 let nextId = 0;
 const pending = new Map<number, PendingCall>();
 const pendingMeta = new Map<number, PendingMeta>();
 let terminatingChildPid: number | null = null;
+let remoteRuntime: WhisperRemoteRuntime | null = null;
+let cpuRuntime: WhisperCpuRuntime;
+let forceCpuFallbackForSession = false;
+let activeRuntimePath: WhisperRuntimePath | null = null;
 
 function formatMemUsage(): string {
   const mem = process.memoryUsage();
@@ -201,20 +228,145 @@ function callChild<T>(msg: WhisperChildRequest): Promise<T> {
   });
 }
 
+const defaultCpuRuntime: WhisperCpuRuntime = {
+  async preload(modelId: string): Promise<void> {
+    log("INFO", `Loading Whisper model in isolated process: ${modelId}`);
+    await callChild<{ type: "loaded" }>({ type: "load", modelId });
+    log("INFO", `Whisper model ready (path=cpu-child): ${modelId}`);
+  },
+  async transcribe(
+    audio: Float32Array,
+    modelId: string,
+    languageHints: string[],
+  ): Promise<string> {
+    const result = await callChild<{ type: "result"; text: string }>({
+      type: "transcribe",
+      modelId,
+      audio,
+      languageHints,
+    });
+    return result.text.trim();
+  },
+  dispose(): void {
+    if (child) {
+      log("INFO", `Disposing Whisper child process: pid=${child.pid ?? -1}`);
+      terminatingChildPid = child.pid ?? null;
+      child.kill("SIGTERM");
+      child = null;
+    }
+    rejectAllPending(new Error("Whisper process disposed"));
+  },
+};
+
+cpuRuntime = defaultCpuRuntime;
+
+function preferredRuntimePath(): WhisperRuntimePath {
+  if (activeRuntimePath === "cpu-child") return "cpu-child";
+  if (forceCpuFallbackForSession) return "cpu-child";
+  if (activeRuntimePath === "renderer-webgpu") return "renderer-webgpu";
+  if (remoteRuntime?.isReady()) return "renderer-webgpu";
+  return "cpu-child";
+}
+
+function markCpuFallback(reason: string): void {
+  if (!forceCpuFallbackForSession) {
+    log("WARN", `Whisper runtime fallback engaged (renderer-webgpu -> cpu-child): ${reason}`);
+  }
+  forceCpuFallbackForSession = true;
+  activeRuntimePath = "cpu-child";
+}
+
+function chooseLanguageHints(sourceLang: LanguageCode, targetLang: LanguageCode): string[] {
+  return Array.from(new Set([sourceLang, targetLang]));
+}
+
+function isSuspiciousWhisperTranscript(transcript: string): boolean {
+  const text = transcript.trim();
+  if (!text) return false;
+
+  const tokens = text
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => token.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))
+    .filter(Boolean);
+
+  const symbolOnly = text.replace(/[\s>]/g, "");
+  const isMostlyAngles = text.length >= 24 && symbolOnly.length <= 2 && />{8,}/.test(text.replace(/\s/g, ""));
+  if (isMostlyAngles) return true;
+
+  if (tokens.length < 10) return false;
+
+  let longestRun = 1;
+  let currentRun = 1;
+  for (let i = 1; i < tokens.length; i++) {
+    if (tokens[i] === tokens[i - 1]) {
+      currentRun += 1;
+      longestRun = Math.max(longestRun, currentRun);
+    } else {
+      currentRun = 1;
+    }
+  }
+  if (longestRun >= 8) return true;
+
+  const counts = new Map<string, number>();
+  for (const token of tokens) {
+    counts.set(token, (counts.get(token) ?? 0) + 1);
+  }
+  const topCount = Math.max(...counts.values());
+  return topCount / tokens.length >= 0.55;
+}
+
+export function setWhisperRemoteRuntime(runtime: WhisperRemoteRuntime | null): void {
+  remoteRuntime = runtime;
+}
+
+// Test hooks for runtime routing without spawning real inference processes.
+export function __setWhisperCpuRuntimeForTest(runtime: WhisperCpuRuntime): void {
+  cpuRuntime = runtime;
+}
+
+export function __resetWhisperRuntimeStateForTest(): void {
+  try {
+    cpuRuntime.dispose();
+  } catch {
+    // no-op in tests
+  }
+  remoteRuntime = null;
+  cpuRuntime = defaultCpuRuntime;
+  forceCpuFallbackForSession = false;
+  activeRuntimePath = null;
+}
+
 export async function preloadWhisperPipeline(modelId: string): Promise<void> {
-  log("INFO", `Loading Whisper model in isolated process: ${modelId}`);
-  await callChild<{ type: "loaded" }>({ type: "load", modelId });
-  log("INFO", `Whisper model ready: ${modelId}`);
+  const path = preferredRuntimePath();
+  if (path === "renderer-webgpu" && remoteRuntime) {
+    try {
+      log("INFO", `Loading Whisper model in renderer (path=renderer-webgpu): ${modelId}`);
+      await remoteRuntime.preload(modelId);
+      activeRuntimePath = "renderer-webgpu";
+      log("INFO", `Whisper model ready (path=renderer-webgpu): ${modelId}`);
+      return;
+    } catch (error) {
+      markCpuFallback(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  await cpuRuntime.preload(modelId);
+  activeRuntimePath = "cpu-child";
 }
 
 export function disposeWhisperPipeline(): void {
-  if (child) {
-    log("INFO", `Disposing Whisper child process: pid=${child.pid ?? -1}`);
-    terminatingChildPid = child.pid ?? null;
-    child.kill("SIGTERM");
-    child = null;
+  if (remoteRuntime) {
+    void Promise.resolve(remoteRuntime.dispose()).catch((error) => {
+      log(
+        "WARN",
+        `Whisper renderer dispose failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
   }
-  rejectAllPending(new Error("Whisper process disposed"));
+  cpuRuntime.dispose();
+  forceCpuFallbackForSession = false;
+  activeRuntimePath = null;
 }
 
 export type WhisperResult = { transcript: string; detectedLang: LanguageCode };
@@ -226,13 +378,37 @@ export async function transcribeWithWhisper(
   targetLang: LanguageCode,
 ): Promise<WhisperResult> {
   const float32 = pcmToFloat32(pcmBuffer);
-  const result = await callChild<{ type: "result"; text: string }>({
-    type: "transcribe",
-    modelId,
-    audio: float32,
-    languageHints: Array.from(new Set([sourceLang, targetLang])),
-  });
-  const transcript = result.text.trim();
+  const languageHints = chooseLanguageHints(sourceLang, targetLang);
+  let transcript = "";
+  const path = preferredRuntimePath();
+
+  if (path === "renderer-webgpu" && remoteRuntime) {
+    try {
+      transcript = (await remoteRuntime.transcribe(float32, modelId, languageHints)).trim();
+      if (isSuspiciousWhisperTranscript(transcript)) {
+        markCpuFallback("suspicious repeating/symbol transcript from renderer-webgpu");
+        transcript = await cpuRuntime.transcribe(float32, modelId, languageHints);
+        transcript = transcript.trim();
+        activeRuntimePath = "cpu-child";
+        log("INFO", "Whisper transcription complete (path=cpu-child, auto-fallback-on-quality)");
+      } else {
+        activeRuntimePath = "renderer-webgpu";
+        log("INFO", "Whisper transcription complete (path=renderer-webgpu)");
+      }
+    } catch (error) {
+      markCpuFallback(error instanceof Error ? error.message : String(error));
+      transcript = await cpuRuntime.transcribe(float32, modelId, languageHints);
+      transcript = transcript.trim();
+      activeRuntimePath = "cpu-child";
+      log("INFO", "Whisper transcription complete (path=cpu-child)");
+    }
+  } else {
+    transcript = await cpuRuntime.transcribe(float32, modelId, languageHints);
+    transcript = transcript.trim();
+    activeRuntimePath = "cpu-child";
+    log("INFO", "Whisper transcription complete (path=cpu-child)");
+  }
+
   const detectedLang = detectSourceLanguage(transcript, sourceLang, targetLang);
   return { transcript, detectedLang };
 }

@@ -155,7 +155,7 @@ export const DEFAULT_VERTEX_LOCATION =
   ENV?.GOOGLE_VERTEX_PROJECT_LOCATION ?? "global";
 export const DEFAULT_TRANSCRIPTION_MODEL_ID =
   ENV?.TRANSCRIPTION_MODEL_ID ?? "scribe_v2_realtime";
-export const DEFAULT_WHISPER_MODEL_ID = "Xenova/whisper-tiny";
+export const DEFAULT_WHISPER_MODEL_ID = "Xenova/whisper-small";
 export const DEFAULT_ANALYSIS_MODEL_ID =
   ENV?.ANALYSIS_MODEL_ID ?? "moonshotai/kimi-k2-thinking";
 export const DEFAULT_TODO_MODEL_ID =
@@ -213,14 +213,8 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     Number.isFinite(merged.intervalMs) && merged.intervalMs > 0
       ? Math.round(merged.intervalMs)
       : DEFAULT_APP_CONFIG.intervalMs;
-  const rawTranscriptionModelId =
-    merged.transcriptionModelId?.trim() || DEFAULT_APP_CONFIG.transcriptionModelId;
   const transcriptionModelId =
-    transcriptionProvider === "whisper" &&
-    (rawTranscriptionModelId === "Xenova/whisper-small" ||
-      rawTranscriptionModelId === "onnx-community/whisper-small")
-      ? DEFAULT_WHISPER_MODEL_ID
-      : rawTranscriptionModelId;
+    merged.transcriptionModelId?.trim() || DEFAULT_APP_CONFIG.transcriptionModelId;
 
   return {
     ...merged,

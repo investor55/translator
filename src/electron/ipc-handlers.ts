@@ -3,24 +3,43 @@ import type { AppDatabase } from "../core/db/db";
 import { validateEnv } from "../core/config";
 import { log } from "../core/logger";
 import { Session } from "../core/session";
+import { setWhisperRemoteRuntime } from "../core/transcription/whisper-local";
 import { toReadableError } from "../core/text/text-utils";
 import type { AppConfigOverrides, LanguageCode } from "../core/types";
 import { registerAgentHandlers } from "./ipc/register-agent-handlers";
 import { registerSessionHandlers } from "./ipc/register-session-handlers";
 import { registerTodoInsightHandlers } from "./ipc/register-todo-insight-handlers";
+import { registerElectronWhisperGpuBridge } from "./ipc/whisper-gpu-bridge";
 import { buildSessionConfig, shutdownCurrentSession, wireSessionEvents } from "./ipc/ipc-utils";
 import type { EnsureSession, SessionRef } from "./ipc/types";
 
 const sessionRef: SessionRef = { current: null };
 let registeredDb: AppDatabase | null = null;
+let disposeWhisperGpuBridge: (() => void) | null = null;
 
 export function shutdownSessionOnAppQuit() {
+  if (disposeWhisperGpuBridge) {
+    disposeWhisperGpuBridge();
+    disposeWhisperGpuBridge = null;
+    setWhisperRemoteRuntime(null);
+  }
   if (!registeredDb) return;
   void shutdownCurrentSession(sessionRef, registeredDb);
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: AppDatabase) {
   registeredDb = db;
+  if (disposeWhisperGpuBridge) {
+    disposeWhisperGpuBridge();
+    disposeWhisperGpuBridge = null;
+  }
+
+  const whisperGpuBridge = registerElectronWhisperGpuBridge(getWindow);
+  setWhisperRemoteRuntime(whisperGpuBridge.runtime);
+  disposeWhisperGpuBridge = () => {
+    whisperGpuBridge.dispose();
+    setWhisperRemoteRuntime(null);
+  };
 
   const ensureSession: EnsureSession = async (
     sessionId: string,
