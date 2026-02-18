@@ -11,7 +11,9 @@
       "Bash(npx tsc:*)",
       "Bash(grep:*)",
       "WebFetch(domain:github.com)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(node -e:*)",
+      "mcp__ide__getDiagnostics"
     ]
   }
 }

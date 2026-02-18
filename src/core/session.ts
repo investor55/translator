@@ -207,7 +207,7 @@ export class Session {
     this.db = db ?? null;
     this.sessionId = sessionId ?? crypto.randomUUID();
     this.getExternalTools = externalDeps?.getExternalTools;
-    this._translationEnabled = config.translationEnabled;
+    this._translationEnabled = config.translationEnabled && config.transcriptionProvider === "vertex";
     this.userContext = loadUserContext(config.contextFile, config.useContext);
 
     this.transcriptionModel =

@@ -8,6 +8,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   SearchIcon,
+  RotateCcwIcon,
 } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import {
@@ -60,6 +61,7 @@ type AgentDetailPanelProps = {
     response: AgentToolApprovalResponse,
   ) => Promise<AnswerToolApprovalResult> | AnswerToolApprovalResult;
   onCancel?: (agentId: string) => void;
+  onRelaunch?: (agent: Agent) => void;
 };
 
 function StatusBadge({ status }: { status: Agent["status"] }) {
@@ -666,6 +668,7 @@ export function AgentDetailPanel({
   onAnswerQuestion,
   onAnswerToolApproval,
   onCancel,
+  onRelaunch,
 }: AgentDetailPanelProps) {
   const [followUpError, setFollowUpError] = useState("");
   const visibleSteps = useMemo(
@@ -896,6 +899,16 @@ export function AgentDetailPanel({
                   <ChevronRightIcon className="size-3.5" />
                 </button>
               </>
+            )}
+            {!isRunning && onRelaunch && (
+              <button
+                type="button"
+                onClick={() => onRelaunch(agent)}
+                className="rounded-none p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label="Relaunch agent"
+              >
+                <RotateCcwIcon className="size-3.5" />
+              </button>
             )}
             <button
               type="button"

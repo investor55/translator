@@ -1,4 +1,4 @@
-import { streamText, tool, dynamicTool, stepCountIs, type ModelMessage } from "ai";
+import { streamText, tool, dynamicTool, jsonSchema, stepCountIs, type ModelMessage } from "ai";
 import { z } from "zod";
 import type {
   AgentStep,
@@ -211,11 +211,11 @@ async function buildTools(
   for (const [toolName, external] of Object.entries(externalTools)) {
     baseTools[toolName] = dynamicTool({
       description: external.description ?? `External MCP tool: ${toolName}`,
-      inputSchema: (
-        external.isMutating && allowAutoApprove
+      inputSchema: jsonSchema(
+        (external.isMutating && allowAutoApprove
           ? injectAutoApproveField(external.inputSchema)
-          : external.inputSchema
-      ) as Parameters<typeof dynamicTool>[0]["inputSchema"],
+          : external.inputSchema) as Parameters<typeof jsonSchema>[0]
+      ),
       execute: async (input, { toolCallId, abortSignal }) => {
         const approvalId = `approval:${toolCallId}`;
         const { _autoApprove: autoApprove, ...cleanInput } =
@@ -453,6 +453,8 @@ async function runAgentWithMessages(
     abortSignal,
   } = deps;
 
+  let streamError: string | null = null;
+
   try {
     const systemPrompt = buildSystemPrompt(getTranscriptContext(), projectInstructions);
     const tools = await buildTools(
@@ -472,6 +474,9 @@ async function runAgentWithMessages(
       stopWhen: stepCountIs(8),
       abortSignal,
       tools: tools as Parameters<typeof streamText>[0]["tools"],
+      onError: ({ error }) => {
+        streamError = error instanceof Error ? error.message : String(error);
+      },
     });
 
     const streamedAt = Date.now();
@@ -609,7 +614,9 @@ async function runAgentWithMessages(
       onFail("Cancelled");
       return;
     }
-    const message = error instanceof Error ? error.message : String(error);
+    // streamError has the real provider error (e.g. rate limit). NoOutputGeneratedError
+    // is the SDK wrapper thrown when the stream ends with no steps recorded.
+    const message = streamError ?? (error instanceof Error ? error.message : String(error));
     onFail(message);
   }
 }

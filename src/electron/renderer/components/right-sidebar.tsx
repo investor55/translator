@@ -9,6 +9,7 @@ import {
   PlayIcon,
   Trash2Icon,
   ZapIcon,
+  SparklesIcon,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -155,7 +156,7 @@ export function RightSidebar({
       completedTodos.push(todo);
       continue;
     }
-    if (agentByTodoId.has(todo.id)) {
+    if (agentByTodoId.get(todo.id)?.status === "running") {
       pendingInAgentsCount += 1;
       continue;
     }

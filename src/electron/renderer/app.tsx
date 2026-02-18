@@ -877,6 +877,15 @@ export function App() {
     await launchTodoAgent(todo);
   }, [launchTodoAgent, processingTodoIds]);
 
+  const handleRelaunchAgent = useCallback(async (agent: Agent) => {
+    const todo = todos.find((t) => t.id === agent.todoId);
+    if (!todo) {
+      setRouteNotice("Could not find todo to relaunch.");
+      return;
+    }
+    await handleLaunchAgent(todo);
+  }, [todos, handleLaunchAgent]);
+
   const handleApproveLargeTodo = useCallback(async () => {
     if (!pendingApprovalTodo) return;
     setApprovingLargeTodo(true);
@@ -1089,6 +1098,7 @@ export function App() {
                     onAnswerQuestion={handleAnswerAgentQuestion}
                     onAnswerToolApproval={handleAnswerAgentToolApproval}
                     onCancel={handleCancelAgent}
+                    onRelaunch={handleRelaunchAgent}
                   />
                 </div>
               </>

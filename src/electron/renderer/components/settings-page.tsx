@@ -363,7 +363,12 @@ export function SettingsPage({
                   value={config.transcriptionProvider}
                   onValueChange={(v) => {
                     const provider = v as TranscriptionProvider;
-                    onConfigChange({ ...config, transcriptionProvider: provider, transcriptionModelId: getDefaultModelId(provider) });
+                    onConfigChange({
+                      ...config,
+                      transcriptionProvider: provider,
+                      transcriptionModelId: getDefaultModelId(provider),
+                      translationEnabled: provider === "vertex" ? config.translationEnabled : false,
+                    });
                   }}
                 >
                   <SelectTrigger size="sm" className="w-full">
