@@ -8,19 +8,42 @@ import * as fs from "fs";
 
 const config: ForgeConfig = {
   packagerConfig: {
-    // Modules marked external in vite.main.config.ts are not bundled by Vite,
-    // so they must be copied into node_modules before the asar is created.
-    // Modules with native binaries must also be unpacked so they can be executed.
+    // Modules with native binaries must be outside the asar so they can execute.
     asar: {
       unpackDir:
-        "node_modules/{audiotee,macos-audio-devices,better-sqlite3,bufferutil,utf-8-validate,onnxruntime-node}",
+        "node_modules/{audiotee,macos-audio-devices,better-sqlite3,bufferutil,utf-8-validate,onnxruntime-node,onnxruntime-common}",
     },
     icon: "./assets/icon",
     appBundleId: "com.ambient.app",
+    // Vite bundles most deps but modules in rollupOptions.external are required
+    // at runtime. Copy them and their full transitive dep tree into node_modules
+    // before the asar is created.
     afterCopy: [
       (buildPath, _electronVersion, _platform, _arch, callback) => {
-        // Pure module name → copy from root node_modules/name
-        // Scoped module name (@scope/pkg) → copy from root node_modules/@scope/pkg
+        const rootModules = path.resolve(__dirname, "node_modules");
+        const dstModules = path.resolve(buildPath, "node_modules");
+        const visited = new Set<string>();
+
+        function copyWithDeps(name: string) {
+          if (visited.has(name)) return;
+          visited.add(name);
+          const src = path.resolve(rootModules, name);
+          if (!fs.existsSync(src)) return;
+          const dst = path.resolve(dstModules, name);
+          fs.mkdirSync(path.dirname(dst), { recursive: true });
+          if (!fs.existsSync(dst)) {
+            fs.cpSync(src, dst, { recursive: true });
+          }
+          try {
+            const pkg = JSON.parse(
+              fs.readFileSync(path.join(src, "package.json"), "utf8"),
+            );
+            for (const dep of Object.keys(pkg.dependencies ?? {})) {
+              copyWithDeps(dep);
+            }
+          } catch {}
+        }
+
         const externalModules = [
           "audiotee",
           "macos-audio-devices",
@@ -36,13 +59,9 @@ const config: ForgeConfig = {
         ];
 
         for (const mod of externalModules) {
-          const src = path.resolve(__dirname, "node_modules", mod);
-          const dst = path.resolve(buildPath, "node_modules", mod);
-          if (fs.existsSync(src)) {
-            fs.mkdirSync(path.dirname(dst), { recursive: true });
-            fs.cpSync(src, dst, { recursive: true });
-          }
+          copyWithDeps(mod);
         }
+
         callback();
       },
     ],

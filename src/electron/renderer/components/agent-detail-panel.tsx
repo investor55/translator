@@ -754,10 +754,19 @@ export function AgentDetailPanel({
       }
     }
 
+    // Tool names that go through approval — their regular tool-call/result stream
+    // steps are redundant (the approval card covers them).
+    const approvedToolNames = new Set<string>();
+    for (const step of latestApprovalStep.values()) {
+      if (step.toolName) approvedToolNames.add(step.toolName);
+    }
+
     const items: TimelineItem[] = [];
     let pendingActivity: AgentStep[] = [];
     let activityIndex = 0;
     const seenApprovalIds = new Set<string>();
+    // Steps pulled into pendingActivity via lookahead; skip them in normal flow.
+    const lookaheadConsumed = new Set<string>();
 
     const flushActivity = () => {
       if (pendingActivity.length === 0) return;
@@ -778,6 +787,19 @@ export function AgentDetailPanel({
     };
 
     for (const step of visibleSteps) {
+      // Skip steps already pulled in by approval lookahead.
+      if (lookaheadConsumed.has(step.id)) continue;
+
+      // Skip regular tool-result steps for approved tools — output-available covers them.
+      if (
+        step.kind === "tool-result" &&
+        !step.approvalState &&
+        step.toolName &&
+        approvedToolNames.has(step.toolName)
+      ) {
+        continue;
+      }
+
       if (isAskQuestionStep(step)) {
         flushActivity();
         items.push({ kind: "step", step });
@@ -787,6 +809,22 @@ export function AgentDetailPanel({
         const id = step.approvalId!;
         if (seenApprovalIds.has(id)) continue;
         seenApprovalIds.add(id);
+        // The regular tool-call stream step for this tool arrives AFTER the
+        // approval-requested step due to AI SDK event ordering. Pull it into
+        // the current activity group now so it appears before the approval card.
+        if (step.toolName) {
+          const match = visibleSteps.find(
+            (s) =>
+              !lookaheadConsumed.has(s.id) &&
+              s.kind === "tool-call" &&
+              !s.approvalState &&
+              s.toolName === step.toolName
+          );
+          if (match) {
+            pendingActivity.push(match);
+            lookaheadConsumed.add(match.id);
+          }
+        }
         flushActivity();
         items.push({ kind: "step", step: latestApprovalStep.get(id) ?? step });
         continue;
