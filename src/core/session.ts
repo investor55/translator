@@ -311,6 +311,7 @@ export class Session {
       contextLoaded: !!this.userContext,
       cost: this.costAccumulator.totalCost,
       translationEnabled: this._translationEnabled,
+      canTranslate: this.canTranslate,
       micEnabled: this._micEnabled,
     };
   }
@@ -321,6 +322,10 @@ export class Session {
 
   get allKeyPoints(): readonly string[] {
     return this.contextState.allKeyPoints;
+  }
+
+  get canTranslate(): boolean {
+    return this.config.transcriptionProvider === "vertex";
   }
 
   get translationEnabled(): boolean {
@@ -656,6 +661,7 @@ export class Session {
   }
 
   toggleTranslation(): boolean {
+    if (!this.canTranslate) return false;
     this._translationEnabled = !this._translationEnabled;
     this.events.emit("state-change", this.getUIState(this.isRecording ? "recording" : "paused"));
     log("INFO", `Translation ${this._translationEnabled ? "enabled" : "disabled"}`);
@@ -1011,7 +1017,7 @@ export class Session {
     capturedAt: number
   ): Promise<void> {
     this.events.emit("partial", "");
-    const useTranslation = this._translationEnabled;
+    const useTranslation = this._translationEnabled && this.canTranslate;
     let detectedLang = detectedLangHint;
     let translation = "";
     let isPartial = this.isTranscriptLikelyPartial(transcript);
@@ -1300,7 +1306,7 @@ export class Session {
         );
         return;
       } else {
-        const useTranslation = this._translationEnabled;
+        const useTranslation = this._translationEnabled && this.canTranslate;
         const schema = useTranslation ? this.audioTranscriptionSchema : this.transcriptionOnlySchema;
         const wavBuffer = pcmToWavBuffer(chunk, 16000);
 

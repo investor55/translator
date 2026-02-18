@@ -200,7 +200,9 @@ export function SettingsPage({
             <Separator className="my-3" />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-[11px] text-muted-foreground">Source Language</label>
+                <label className="text-[11px] text-muted-foreground">
+                  {config.transcriptionProvider === "vertex" ? "Source Language" : "Transcription Language"}
+                </label>
                 <Select
                   value={sourceLang}
                   onValueChange={(value) => {
@@ -210,7 +212,7 @@ export function SettingsPage({
                       onTargetLangChange(next === "en" ? "ko" : "en");
                     }
                   }}
-                  disabled={languagesLoading || sessionActive}
+                  disabled={languagesLoading}
                 >
                   <SelectTrigger size="sm" className="w-full">
                     <SelectValue>{renderLanguageLabel(languages, sourceLang)}</SelectValue>
@@ -224,31 +226,33 @@ export function SettingsPage({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1">
-                <label className="text-[11px] text-muted-foreground">Target Language</label>
-                <Select
-                  value={targetLang}
-                  onValueChange={(value) => {
-                    const next = value as LanguageCode;
-                    onTargetLangChange(next);
-                    if (next === sourceLang) {
-                      onSourceLangChange(next === "en" ? "ko" : "en");
-                    }
-                  }}
-                  disabled={languagesLoading || sessionActive}
-                >
-                  <SelectTrigger size="sm" className="w-full">
-                    <SelectValue>{renderLanguageLabel(languages, targetLang)}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {languages.map((lang) => (
-                      <SelectItem key={lang.code} value={lang.code}>
-                        {lang.name} ({lang.native})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {config.transcriptionProvider === "vertex" && (
+                <div className="space-y-1">
+                  <label className="text-[11px] text-muted-foreground">Target Language</label>
+                  <Select
+                    value={targetLang}
+                    onValueChange={(value) => {
+                      const next = value as LanguageCode;
+                      onTargetLangChange(next);
+                      if (next === sourceLang) {
+                        onSourceLangChange(next === "en" ? "ko" : "en");
+                      }
+                    }}
+                    disabled={languagesLoading}
+                  >
+                    <SelectTrigger size="sm" className="w-full">
+                      <SelectValue>{renderLanguageLabel(languages, targetLang)}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {languages.map((lang) => (
+                        <SelectItem key={lang.code} value={lang.code}>
+                          {lang.name} ({lang.native})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           </section>
 
@@ -256,24 +260,26 @@ export function SettingsPage({
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Session Behavior</h2>
             <Separator className="my-3" />
             <div className="space-y-1">
-              <SettingRow
-                label="Direction"
-                description="Auto detects speaker language or always translates source to target."
-                control={
-                  <Select value={config.direction} onValueChange={(v) => set("direction", v as Direction)}>
-                    <SelectTrigger size="sm" className="w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DIRECTION_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                }
-              />
+              {config.transcriptionProvider === "vertex" && (
+                <SettingRow
+                  label="Direction"
+                  description="Auto detects speaker language or always translates source to target."
+                  control={
+                    <Select value={config.direction} onValueChange={(v) => set("direction", v as Direction)}>
+                      <SelectTrigger size="sm" className="w-40">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DIRECTION_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  }
+                />
+              )}
               <SettingRow
                 label="Chunk Interval (ms)"
                 description="How often audio chunks are sent for processing."

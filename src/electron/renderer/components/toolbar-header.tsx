@@ -79,7 +79,8 @@ export function ToolbarHeader({
   const isRecordingOrConnecting =
     uiState?.status === "recording" || uiState?.status === "connecting";
   const loading = languages.length === 0;
-  const translationEnabled = uiState?.translationEnabled ?? true;
+  const canTranslate = uiState?.canTranslate ?? false;
+  const translationEnabled = (uiState?.translationEnabled ?? false) && canTranslate;
   const micEnabled = uiState?.micEnabled ?? false;
 
   return (
@@ -94,7 +95,9 @@ export function ToolbarHeader({
 
         {/* Language selector */}
         <div className="flex items-center gap-1.5 titlebar-no-drag">
-          <span className="text-xs text-muted-foreground">Language</span>
+          <span className="text-xs text-muted-foreground">
+            {translationEnabled ? "Source" : "Language"}
+          </span>
           <Select
             value={sourceLang}
             onValueChange={(v) => {
@@ -104,7 +107,7 @@ export function ToolbarHeader({
                 onTargetLangChange(alt as LanguageCode);
               }
             }}
-            disabled={loading || sessionActive}
+            disabled={loading || isRecordingOrConnecting}
           >
             <SelectTrigger size="sm" className="w-32">
               <SelectValue>
@@ -123,6 +126,39 @@ export function ToolbarHeader({
               ))}
             </SelectContent>
           </Select>
+          {translationEnabled && (
+            <>
+              <span className="text-xs text-muted-foreground">→ Target</span>
+              <Select
+                value={targetLang}
+                onValueChange={(v) => {
+                  onTargetLangChange(v as LanguageCode);
+                  if (v === sourceLang) {
+                    const alt = v === "en" ? "ko" : "en";
+                    onSourceLangChange(alt as LanguageCode);
+                  }
+                }}
+                disabled={loading || isRecordingOrConnecting}
+              >
+                <SelectTrigger size="sm" className="w-32">
+                  <SelectValue>
+                    {loading ? "..." : renderLabel(languages, targetLang)}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {languages.map((lang) => (
+                    <SelectItem key={lang.code} value={lang.code}>
+                      <span className="font-mono text-[11px] opacity-60 mr-1.5">
+                        {lang.code.toUpperCase()}
+                      </span>
+                      {lang.name}
+                      <span className="text-muted-foreground ml-1.5">({lang.native})</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </>
+          )}
         </div>
 
         <Separator orientation="vertical" className="h-4" />
@@ -161,14 +197,16 @@ export function ToolbarHeader({
           <>
             <Separator orientation="vertical" className="h-4" />
             <div className="flex items-center gap-1.5 titlebar-no-drag">
-              <Button
-                variant={translationEnabled ? "secondary" : "ghost"}
-                size="icon-sm"
-                onClick={onToggleTranslation}
-                aria-label={translationEnabled ? "Disable translation" : "Enable translation"}
-              >
-                <LanguagesIcon className="size-3.5" />
-              </Button>
+              {canTranslate && (
+                <Button
+                  variant={translationEnabled ? "secondary" : "ghost"}
+                  size="icon-sm"
+                  onClick={onToggleTranslation}
+                  aria-label={translationEnabled ? "Disable translation" : "Enable translation"}
+                >
+                  <LanguagesIcon className="size-3.5" />
+                </Button>
+              )}
               <Button
                 variant={micEnabled ? "default" : "ghost"}
                 size="sm"

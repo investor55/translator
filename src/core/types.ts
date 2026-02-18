@@ -104,6 +104,7 @@ export type UIState = {
   contextLoaded: boolean;
   cost?: number;
   translationEnabled: boolean;
+  canTranslate: boolean;
   micEnabled: boolean;
 };
 
