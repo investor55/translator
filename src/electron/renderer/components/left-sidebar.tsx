@@ -1,6 +1,15 @@
-import { useEffect, useRef } from "react";
-import type { Insight, SessionMeta } from "../../../core/types";
+import { useEffect, useRef, useState } from "react";
+import type { Insight, ProjectMeta, SessionMeta } from "../../../core/types";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 
 type LeftSidebarProps = {
   rollingKeyPoints: string[];
@@ -9,6 +18,12 @@ type LeftSidebarProps = {
   activeSessionId?: string | null;
   onSelectSession?: (sessionId: string) => void;
   onDeleteSession?: (sessionId: string) => void;
+  projects: ProjectMeta[];
+  activeProjectId: string | null;
+  onSelectProject: (id: string | null) => void;
+  onCreateProject: (name: string, instructions: string) => void;
+  onEditProject: (project: ProjectMeta) => void;
+  onDeleteProject: (id: string) => void;
 };
 
 function formatTime(ms: number): string {
@@ -36,9 +51,31 @@ const INSIGHT_ICONS: Record<string, string> = {
   "tip": "✦",
 };
 
-export function LeftSidebar({ rollingKeyPoints, insights, sessions, activeSessionId, onSelectSession, onDeleteSession }: LeftSidebarProps) {
+type ProjectFormMode =
+  | { kind: "none" }
+  | { kind: "create" }
+  | { kind: "edit"; project: ProjectMeta };
+
+export function LeftSidebar({
+  rollingKeyPoints,
+  insights,
+  sessions,
+  activeSessionId,
+  onSelectSession,
+  onDeleteSession,
+  projects,
+  activeProjectId,
+  onSelectProject,
+  onCreateProject,
+  onEditProject,
+  onDeleteProject,
+}: LeftSidebarProps) {
   const summaryBottomRef = useRef<HTMLDivElement>(null);
   const insightsBottomRef = useRef<HTMLDivElement>(null);
+  const [formMode, setFormMode] = useState<ProjectFormMode>({ kind: "none" });
+  const [formName, setFormName] = useState("");
+  const [formInstructions, setFormInstructions] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     summaryBottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -48,8 +85,134 @@ export function LeftSidebar({ rollingKeyPoints, insights, sessions, activeSessio
     insightsBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [insights.length]);
 
+  useEffect(() => {
+    if (formMode.kind !== "none") {
+      nameInputRef.current?.focus();
+    }
+  }, [formMode.kind]);
+
+  const activeProject = activeProjectId ? projects.find((p) => p.id === activeProjectId) : null;
+
+  function openCreateForm() {
+    setFormName("");
+    setFormInstructions("");
+    setFormMode({ kind: "create" });
+  }
+
+  function openEditForm(project: ProjectMeta) {
+    setFormName(project.name);
+    setFormInstructions(project.instructions ?? "");
+    setFormMode({ kind: "edit", project });
+  }
+
+  function cancelForm() {
+    setFormMode({ kind: "none" });
+  }
+
+  function submitForm() {
+    const name = formName.trim();
+    if (!name) return;
+    if (formMode.kind === "create") {
+      onCreateProject(name, formInstructions.trim());
+    } else if (formMode.kind === "edit") {
+      onEditProject({ ...formMode.project, name, instructions: formInstructions.trim() || undefined });
+    }
+    setFormMode({ kind: "none" });
+  }
+
   return (
     <div className="w-full h-full shrink-0 border-r border-border flex flex-col min-h-0 bg-sidebar">
+      {/* Project selector */}
+      <div className="px-3 pt-2.5 pb-2 shrink-0">
+        <div className="flex items-center gap-1">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="flex-1 justify-between h-7 px-2 text-xs font-medium text-left truncate"
+              >
+                <span className="truncate">{activeProject ? activeProject.name : "All Sessions"}</span>
+                <span className="text-muted-foreground ml-1 shrink-0">▾</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-52">
+              <DropdownMenuItem onSelect={() => onSelectProject(null)}>
+                All Sessions
+              </DropdownMenuItem>
+              {projects.length > 0 && <DropdownMenuSeparator />}
+              {projects.map((p) => (
+                <DropdownMenuItem key={p.id} onSelect={() => onSelectProject(p.id)}>
+                  <span className="flex-1 truncate">{p.name}</span>
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={openCreateForm}>
+                New Project…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {activeProject && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0 h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+              title="Edit project"
+              onClick={() => openEditForm(activeProject)}
+            >
+              ✎
+            </Button>
+          )}
+        </div>
+
+        {/* Inline project form */}
+        {formMode.kind !== "none" && (
+          <div className="mt-2 space-y-1.5">
+            <Input
+              ref={nameInputRef}
+              value={formName}
+              onChange={(e) => setFormName(e.target.value)}
+              placeholder="Project name"
+              className="h-7 text-xs"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitForm();
+                if (e.key === "Escape") cancelForm();
+              }}
+            />
+            <textarea
+              value={formInstructions}
+              onChange={(e) => setFormInstructions(e.target.value)}
+              placeholder="Agent instructions (optional)"
+              rows={3}
+              className="w-full resize-none rounded-none border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") cancelForm();
+              }}
+            />
+            <div className="flex gap-1.5">
+              <Button size="sm" className="h-6 text-xs px-2" onClick={submitForm} disabled={!formName.trim()}>
+                {formMode.kind === "create" ? "Create" : "Save"}
+              </Button>
+              <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={cancelForm}>
+                Cancel
+              </Button>
+              {formMode.kind === "edit" && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 text-xs px-2 ml-auto text-destructive hover:text-destructive"
+                  onClick={() => { onDeleteProject(formMode.project.id); cancelForm(); }}
+                >
+                  Delete
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <Separator />
+
       {/* Summary section — scrollable, takes remaining space */}
       <div className="px-3 pt-2.5 pb-2 flex-1 min-h-0 flex flex-col">
         <h2 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2 shrink-0">

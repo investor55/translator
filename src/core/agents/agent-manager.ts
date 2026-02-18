@@ -23,6 +23,7 @@ type AgentManagerDeps = {
   exaApiKey: string;
   events: TypedEmitter;
   getTranscriptContext: () => string;
+  getProjectInstructions?: () => string | undefined;
   getExternalTools?: () => Promise<AgentExternalToolSet>;
   db?: AppDatabase;
 };
@@ -339,6 +340,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       model: deps.model,
       exa,
       getTranscriptContext: deps.getTranscriptContext,
+      projectInstructions: deps.getProjectInstructions?.(),
       getExternalTools: deps.getExternalTools,
       requestClarification: (request, options) =>
         requestClarification(agent.id, request, options),
@@ -391,6 +393,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       model: deps.model,
       exa,
       getTranscriptContext: deps.getTranscriptContext,
+      projectInstructions: deps.getProjectInstructions?.(),
       getExternalTools: deps.getExternalTools,
       requestClarification: (request, options) =>
         requestClarification(agent.id, request, options),

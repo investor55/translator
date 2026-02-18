@@ -7,6 +7,7 @@ import { setWhisperRemoteRuntime } from "../core/transcription/whisper-local";
 import { toReadableError } from "../core/text/text-utils";
 import type { AppConfigOverrides, LanguageCode } from "../core/types";
 import { registerAgentHandlers } from "./ipc/register-agent-handlers";
+import { registerProjectHandlers } from "./ipc/register-project-handlers";
 import { registerSessionHandlers } from "./ipc/register-session-handlers";
 import { registerTodoInsightHandlers } from "./ipc/register-todo-insight-handlers";
 import { registerIntegrationHandlers } from "./ipc/register-integration-handlers";
@@ -92,6 +93,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     }
   };
 
+  registerProjectHandlers({ db });
   registerSessionHandlers({
     db,
     getWindow,

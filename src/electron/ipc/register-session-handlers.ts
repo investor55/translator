@@ -26,6 +26,7 @@ export function registerSessionHandlers({ db, getWindow, sessionRef, getExternal
       sourceLang: LanguageCode,
       targetLang: LanguageCode,
       appConfig?: AppConfigOverrides,
+      projectId?: string,
     ) => {
       await shutdownCurrentSession(sessionRef, db);
 
@@ -44,7 +45,7 @@ export function registerSessionHandlers({ db, getWindow, sessionRef, getExternal
         log("INFO", `Reusing empty session: ${sessionId}`);
       } else {
         sessionId = crypto.randomUUID();
-        db.createSession(sessionId, sourceLang, targetLang);
+        db.createSession(sessionId, sourceLang, targetLang, undefined, projectId);
       }
 
       const activeSession = new Session(config, db, sessionId, { getExternalTools });

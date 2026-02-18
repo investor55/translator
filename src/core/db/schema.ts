@@ -1,6 +1,13 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 import type { AgentStep } from "../types";
 
+export const projects = sqliteTable("projects", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  instructions: text("instructions"),
+  createdAt: integer("created_at").notNull(),
+});
+
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),
   startedAt: integer("started_at").notNull(),
@@ -9,6 +16,7 @@ export const sessions = sqliteTable("sessions", {
   blockCount: integer("block_count").default(0),
   sourceLang: text("source_lang"),
   targetLang: text("target_lang"),
+  projectId: text("project_id").references(() => projects.id),
 });
 
 export const blocks = sqliteTable("blocks", {

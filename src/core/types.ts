@@ -86,6 +86,13 @@ export type Insight = Readonly<{
   sessionId?: string;
 }>;
 
+export type ProjectMeta = Readonly<{
+  id: string;
+  name: string;
+  instructions?: string;
+  createdAt: number;
+}>;
+
 export type SessionMeta = Readonly<{
   id: string;
   startedAt: number;
@@ -94,6 +101,7 @@ export type SessionMeta = Readonly<{
   blockCount: number;
   sourceLang?: LanguageCode;
   targetLang?: LanguageCode;
+  projectId?: string;
 }>;
 
 export type UIState = {

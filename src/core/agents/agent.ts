@@ -29,6 +29,7 @@ type AgentDeps = {
   model: Parameters<typeof streamText>[0]["model"];
   exa: ExaClient;
   getTranscriptContext: () => string;
+  projectInstructions?: string;
   getExternalTools?: () => Promise<AgentExternalToolSet>;
   requestClarification: (
     request: AgentQuestionRequest,
@@ -77,11 +78,14 @@ function formatCurrentDateForPrompt(now: Date): string {
   return `${longDate} (ISO: ${now.toISOString().slice(0, 10)})`;
 }
 
-const buildSystemPrompt = (transcriptContext: string) =>
-  renderPromptTemplate(getAgentSystemPromptTemplate(), {
+const buildSystemPrompt = (transcriptContext: string, projectInstructions?: string) => {
+  const base = renderPromptTemplate(getAgentSystemPromptTemplate(), {
     today: formatCurrentDateForPrompt(new Date()),
     transcript_context: transcriptContext,
   });
+  if (!projectInstructions?.trim()) return base;
+  return `## Project Instructions\n\n${projectInstructions.trim()}\n\n---\n\n${base}`;
+};
 
 export function buildAgentInitialUserPrompt(
   task: string,
@@ -411,6 +415,7 @@ async function runAgentWithMessages(
     model,
     exa,
     getTranscriptContext,
+    projectInstructions,
     getExternalTools,
     requestClarification,
     requestToolApproval,
@@ -421,7 +426,7 @@ async function runAgentWithMessages(
   } = deps;
 
   try {
-    const systemPrompt = buildSystemPrompt(getTranscriptContext());
+    const systemPrompt = buildSystemPrompt(getTranscriptContext(), projectInstructions);
     const tools = await buildTools(
       exa,
       getTranscriptContext,

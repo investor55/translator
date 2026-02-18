@@ -222,6 +222,11 @@ export class Session {
         exaApiKey,
         events: this.events,
         getTranscriptContext: () => this.getTranscriptContextForAgent(),
+        getProjectInstructions: () => {
+          const meta = this.db?.getSession(this.sessionId);
+          if (!meta?.projectId) return undefined;
+          return this.db?.getProject(meta.projectId)?.instructions ?? undefined;
+        },
         getExternalTools: this.getExternalTools,
         db: this.db ?? undefined,
       });

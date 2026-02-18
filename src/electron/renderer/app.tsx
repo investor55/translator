@@ -8,6 +8,7 @@ import type {
   TodoItem,
   TodoSuggestion,
   Insight,
+  ProjectMeta,
   SessionMeta,
   AgentQuestionSelection,
   AgentToolApprovalResponse,
@@ -109,6 +110,8 @@ export function App() {
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
   const [mcpIntegrations, setMcpIntegrations] = useState<McpIntegrationStatus[]>([]);
+  const [projects, setProjects] = useState<ProjectMeta[]>([]);
+  const [activeProjectId, setActiveProjectId] = useLocalStorage<string | null>("ambient-active-project-id", null);
   const [mcpBusy, setMcpBusy] = useState(false);
   const pendingNewSessionRouteRef = useRef(false);
   const { refreshSessions, sessionsRef } = useAppBootstrap({
@@ -135,7 +138,7 @@ export function App() {
     sessionActive,
     appConfig,
     resumeSessionId,
-    { onResumed: handleResumed },
+    { onResumed: handleResumed, projectId: activeProjectId },
     sessionRestartKey,
   );
 
@@ -227,6 +230,16 @@ export function App() {
   useEffect(() => {
     void refreshMcpIntegrations();
   }, [refreshMcpIntegrations]);
+
+  const refreshProjects = useCallback(async () => {
+    const list = await window.electronAPI.getProjects();
+    setProjects(list);
+    return list;
+  }, []);
+
+  useEffect(() => {
+    void refreshProjects();
+  }, [refreshProjects]);
 
   useEffect(() => {
     if (!session.sessionId) return;
@@ -342,6 +355,38 @@ export function App() {
       setMcpBusy(false);
     }
   }, [refreshMcpIntegrations]);
+
+  const handleSelectProject = useCallback((id: string | null) => {
+    setActiveProjectId(id);
+  }, [setActiveProjectId]);
+
+  const handleCreateProject = useCallback(async (name: string, instructions: string) => {
+    const result = await window.electronAPI.createProject(name, instructions || undefined);
+    if (result.ok) {
+      await refreshProjects();
+      if (result.project) {
+        setActiveProjectId(result.project.id);
+      }
+    }
+  }, [refreshProjects, setActiveProjectId]);
+
+  const handleEditProject = useCallback(async (project: ProjectMeta) => {
+    const result = await window.electronAPI.updateProject(project.id, {
+      name: project.name,
+      instructions: project.instructions,
+    });
+    if (result.ok) {
+      await refreshProjects();
+    }
+  }, [refreshProjects]);
+
+  const handleDeleteProject = useCallback(async (id: string) => {
+    await window.electronAPI.deleteProject(id);
+    if (activeProjectId === id) {
+      setActiveProjectId(null);
+    }
+    await refreshProjects();
+  }, [activeProjectId, refreshProjects, setActiveProjectId]);
 
   const handleStart = useCallback(() => {
     setLangError("");
@@ -937,6 +982,9 @@ export function App() {
   });
 
   const educationalInsights = insights.filter((i) => i.kind !== "key-point");
+  const visibleSessions = activeProjectId
+    ? sessions.filter((s) => s.projectId === activeProjectId)
+    : sessions;
 
   if (!splashDone) {
     return (
@@ -991,10 +1039,16 @@ export function App() {
               <LeftSidebar
                 rollingKeyPoints={session.rollingKeyPoints}
                 insights={educationalInsights}
-                sessions={sessions}
+                sessions={visibleSessions}
                 activeSessionId={selectedSessionId}
                 onSelectSession={handleSelectSession}
                 onDeleteSession={handleDeleteSession}
+                projects={projects}
+                activeProjectId={activeProjectId}
+                onSelectProject={handleSelectProject}
+                onCreateProject={(name, instructions) => void handleCreateProject(name, instructions)}
+                onEditProject={(project) => void handleEditProject(project)}
+                onDeleteProject={(id) => void handleDeleteProject(id)}
               />
             </div>
             <div

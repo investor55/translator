@@ -153,6 +153,7 @@ export { sessionReducer, initialState };
 
 export type SessionOptions = {
   onResumed?: (data: ResumeData) => void;
+  projectId?: string | null;
 };
 
 export function useSession(
@@ -167,8 +168,10 @@ export function useSession(
   const [state, dispatch] = useReducer(sessionStateReducer, initialState);
   const onResumedRef = useRef(options.onResumed);
   const appConfigRef = useRef(appConfig);
+  const projectIdRef = useRef(options.projectId);
   onResumedRef.current = options.onResumed;
   appConfigRef.current = appConfig;
+  projectIdRef.current = options.projectId;
 
   useEffect(() => {
     if (!active) return;
@@ -203,7 +206,7 @@ export function useSession(
         }
       });
     } else {
-      api.startSession(sourceLang, targetLang, appConfigRef.current).then(async (result) => {
+      api.startSession(sourceLang, targetLang, appConfigRef.current, projectIdRef.current ?? undefined).then(async (result) => {
         if (result.ok && result.sessionId) {
           dispatch({ kind: "session-started", sessionId: result.sessionId });
           const recResult = await api.startRecording();

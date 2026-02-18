@@ -1,13 +1,14 @@
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { eq, desc, count } from "drizzle-orm";
-import { sessions, blocks, todos, insights, agents } from "./schema";
+import { sessions, blocks, todos, insights, agents, projects } from "./schema";
 import type {
   TodoItem,
   TodoSize,
   Insight,
   InsightKind,
   SessionMeta,
+  ProjectMeta,
   TranscriptBlock,
   AudioSource,
   LanguageCode,
@@ -27,13 +28,14 @@ export function createDatabase(dbPath: string) {
   const orm: BetterSQLite3Database = drizzle({ client: sqlite });
 
   return {
-    createSession(id: string, sourceLang?: LanguageCode, targetLang?: LanguageCode, title?: string) {
+    createSession(id: string, sourceLang?: LanguageCode, targetLang?: LanguageCode, title?: string, projectId?: string) {
       orm.insert(sessions).values({
         id,
         startedAt: Date.now(),
         title: title ?? null,
         sourceLang: sourceLang ?? null,
         targetLang: targetLang ?? null,
+        projectId: projectId ?? null,
       }).run();
     },
 
@@ -78,15 +80,18 @@ export function createDatabase(dbPath: string) {
         .orderBy(desc(sessions.startedAt))
         .limit(limit)
         .all();
-      return rows.map((r) => ({
-        id: r.id,
-        startedAt: r.startedAt,
-        endedAt: r.endedAt ?? undefined,
-        title: r.title ?? undefined,
-        blockCount: r.blockCount ?? 0,
-        sourceLang: (r.sourceLang as LanguageCode) ?? undefined,
-        targetLang: (r.targetLang as LanguageCode) ?? undefined,
-      }));
+      return rows.map(mapSessionRow);
+    },
+
+    getSessionsForProject(projectId: string, limit = 100): SessionMeta[] {
+      const rows = orm
+        .select()
+        .from(sessions)
+        .where(eq(sessions.projectId, projectId))
+        .orderBy(desc(sessions.startedAt))
+        .limit(limit)
+        .all();
+      return rows.map(mapSessionRow);
     },
 
     getMostRecentSession(): SessionMeta | null {
@@ -97,15 +102,7 @@ export function createDatabase(dbPath: string) {
         .limit(1)
         .all();
       if (!row) return null;
-      return {
-        id: row.id,
-        startedAt: row.startedAt,
-        endedAt: row.endedAt ?? undefined,
-        title: row.title ?? undefined,
-        blockCount: row.blockCount ?? 0,
-        sourceLang: (row.sourceLang as LanguageCode) ?? undefined,
-        targetLang: (row.targetLang as LanguageCode) ?? undefined,
-      };
+      return mapSessionRow(row);
     },
 
     getSession(id: string): SessionMeta | null {
@@ -116,15 +113,7 @@ export function createDatabase(dbPath: string) {
         .limit(1)
         .all();
       if (!row) return null;
-      return {
-        id: row.id,
-        startedAt: row.startedAt,
-        endedAt: row.endedAt ?? undefined,
-        title: row.title ?? undefined,
-        blockCount: row.blockCount ?? 0,
-        sourceLang: (row.sourceLang as LanguageCode) ?? undefined,
-        targetLang: (row.targetLang as LanguageCode) ?? undefined,
-      };
+      return mapSessionRow(row);
     },
 
     isSessionEmpty(id: string): boolean {
@@ -383,6 +372,46 @@ export function createDatabase(dbPath: string) {
       }));
     },
 
+    // Project CRUD
+    createProject(id: string, name: string, instructions?: string): ProjectMeta {
+      const createdAt = Date.now();
+      orm.insert(projects).values({ id, name, instructions: instructions ?? null, createdAt }).run();
+      return { id, name, instructions: instructions ?? undefined, createdAt };
+    },
+
+    getProjects(): ProjectMeta[] {
+      const rows = orm.select().from(projects).orderBy(desc(projects.createdAt)).all();
+      return rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        instructions: r.instructions ?? undefined,
+        createdAt: r.createdAt,
+      }));
+    },
+
+    getProject(id: string): ProjectMeta | null {
+      const [row] = orm.select().from(projects).where(eq(projects.id, id)).limit(1).all();
+      if (!row) return null;
+      return { id: row.id, name: row.name, instructions: row.instructions ?? undefined, createdAt: row.createdAt };
+    },
+
+    updateProject(id: string, patch: { name?: string; instructions?: string }): ProjectMeta | null {
+      const set: Record<string, unknown> = {};
+      if (patch.name !== undefined) set.name = patch.name;
+      if (patch.instructions !== undefined) set.instructions = patch.instructions || null;
+      if (Object.keys(set).length > 0) {
+        orm.update(projects).set(set).where(eq(projects.id, id)).run();
+      }
+      return this.getProject(id);
+    },
+
+    deleteProject(id: string) {
+      orm.transaction((tx) => {
+        tx.update(sessions).set({ projectId: null }).where(eq(sessions.projectId, id)).run();
+        tx.delete(projects).where(eq(projects.id, id)).run();
+      });
+    },
+
     failStaleRunningAgents(reason: string): number {
       const completedAt = Date.now();
       const result = sqlite
@@ -402,6 +431,19 @@ export function createDatabase(dbPath: string) {
     },
 
     raw: sqlite,
+  };
+}
+
+function mapSessionRow(r: typeof sessions.$inferSelect): SessionMeta {
+  return {
+    id: r.id,
+    startedAt: r.startedAt,
+    endedAt: r.endedAt ?? undefined,
+    title: r.title ?? undefined,
+    blockCount: r.blockCount ?? 0,
+    sourceLang: (r.sourceLang as LanguageCode) ?? undefined,
+    targetLang: (r.targetLang as LanguageCode) ?? undefined,
+    projectId: r.projectId ?? undefined,
   };
 }
 
@@ -531,5 +573,21 @@ function runMigrations(db: Database.Database) {
   const agentColNames = new Set(agentCols.map((c) => c.name));
   if (!agentColNames.has("task_context")) {
     db.exec("ALTER TABLE agents ADD COLUMN task_context TEXT");
+  }
+
+  // Projects feature migrations
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      instructions TEXT,
+      created_at INTEGER NOT NULL
+    );
+  `);
+
+  const sessionCols2 = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+  const sessionColNames2 = new Set(sessionCols2.map((c) => c.name));
+  if (!sessionColNames2.has("project_id")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN project_id TEXT REFERENCES projects(id)");
   }
 }

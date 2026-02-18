@@ -10,6 +10,7 @@ import type {
   TodoSuggestion,
   Insight,
   SessionMeta,
+  ProjectMeta,
   Agent,
   AgentStep,
   AgentQuestionSelection,
@@ -30,7 +31,12 @@ import {
 
 export type ElectronAPI = {
   getLanguages: () => Promise<Language[]>;
-  startSession: (sourceLang: LanguageCode, targetLang: LanguageCode, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; sessionId?: string; error?: string }>;
+  startSession: (sourceLang: LanguageCode, targetLang: LanguageCode, appConfig?: AppConfigOverrides, projectId?: string) => Promise<{ ok: boolean; sessionId?: string; error?: string }>;
+
+  getProjects: () => Promise<ProjectMeta[]>;
+  createProject: (name: string, instructions?: string) => Promise<{ ok: boolean; project?: ProjectMeta; error?: string }>;
+  updateProject: (id: string, patch: { name?: string; instructions?: string }) => Promise<{ ok: boolean; project?: ProjectMeta; error?: string }>;
+  deleteProject: (id: string) => Promise<{ ok: boolean; error?: string }>;
   resumeSession: (sessionId: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; sessionId?: string; blocks?: TranscriptBlock[]; todos?: TodoItem[]; insights?: Insight[]; agents?: Agent[]; error?: string }>;
   startRecording: () => Promise<{ ok: boolean; error?: string }>;
   stopRecording: () => Promise<{ ok: boolean; error?: string }>;
@@ -127,7 +133,12 @@ function createListener<T>(channel: string) {
 
 const api: ElectronAPI = {
   getLanguages: () => ipcRenderer.invoke("get-languages"),
-  startSession: (sourceLang, targetLang, appConfig) => ipcRenderer.invoke("start-session", sourceLang, targetLang, appConfig),
+  startSession: (sourceLang, targetLang, appConfig, projectId) => ipcRenderer.invoke("start-session", sourceLang, targetLang, appConfig, projectId),
+
+  getProjects: () => ipcRenderer.invoke("get-projects"),
+  createProject: (name, instructions) => ipcRenderer.invoke("create-project", name, instructions),
+  updateProject: (id, patch) => ipcRenderer.invoke("update-project", id, patch),
+  deleteProject: (id) => ipcRenderer.invoke("delete-project", id),
   resumeSession: (sessionId, appConfig) => ipcRenderer.invoke("resume-session", sessionId, appConfig),
   startRecording: () => ipcRenderer.invoke("start-recording"),
   stopRecording: () => ipcRenderer.invoke("stop-recording"),
