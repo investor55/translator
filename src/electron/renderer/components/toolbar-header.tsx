@@ -3,7 +3,7 @@ import {
   PlayIcon,
   PauseIcon,
 } from "@hugeicons/core-free-icons";
-import { LanguagesIcon, MicIcon, MicOffIcon, PlusIcon, Settings2Icon } from "lucide-react";
+import { ArrowLeftIcon, LanguagesIcon, MicIcon, MicOffIcon, PlusIcon, Settings2Icon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -82,6 +82,19 @@ export function ToolbarHeader({
   const canTranslate = uiState?.canTranslate ?? false;
   const translationEnabled = (uiState?.translationEnabled ?? false) && canTranslate;
   const micEnabled = uiState?.micEnabled ?? false;
+
+  if (settingsOpen) {
+    return (
+      <div className="shrink-0">
+        <div className="titlebar-drag border-b border-border pl-20 pr-4 flex items-center h-11">
+          <Button variant="ghost" size="sm" onClick={onToggleSettings} className="titlebar-no-drag gap-1.5">
+            <ArrowLeftIcon className="size-3.5" />
+            Back
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="shrink-0">

@@ -188,6 +188,9 @@ export class Session {
   private todoScanRequested = false;
   private lastTodoAnalysisAt = 0;
   private lastTodoAnalysisBlockCount = 0;
+  /** Timestamp of last mic speech detection, for system-audio ducking */
+  private micSpeechLastDetectedAt = 0;
+  private readonly MIC_PRIORITY_GRACE_MS = 300;
   private lastSummary: Summary | null = null;
   private lastAnalysisBlockCount = 0;
   private db: AppDatabase | null;
@@ -907,6 +910,15 @@ export class Session {
   private micDebugWindowCount = 0;
 
   private handleAudioData(pipeline: AudioPipeline, data: Buffer) {
+    // Suppress system audio while mic is speaking (mic priority)
+    if (
+      pipeline.source === "system" &&
+      this._micEnabled &&
+      Date.now() - this.micSpeechLastDetectedAt < this.MIC_PRIORITY_GRACE_MS
+    ) {
+      return; // mic is speaking, skip system audio
+    }
+
     if (this.config.transcriptionProvider === "elevenlabs") {
       // Realtime path: stream raw PCM directly, no local VAD or queue
       const connection = pipeline.source === "system"
@@ -939,6 +951,9 @@ export class Session {
         this.events.emit("status", `Mic: peak=${peakRms.toFixed(0)} thr=${silenceThreshold}${speechStarted ? ` speaking ${speechBufMs.toFixed(0)}ms` : ""}`);
         pipeline.vadState.peakRms = 0;
       }
+      if (pipeline.vadState.speechStarted) {
+        this.micSpeechLastDetectedAt = Date.now();
+      }
     }
 
     for (const chunk of chunks) {
@@ -946,6 +961,7 @@ export class Session {
 
       if (pipeline.source === "microphone") {
         log("INFO", `Mic VAD: speech chunk ${durationMs.toFixed(0)}ms rms=${computeRms(chunk).toFixed(0)}, queue=${this.chunkQueue.length}`);
+        this.micSpeechLastDetectedAt = Date.now();
       }
 
       this.enqueueChunk(pipeline, chunk);

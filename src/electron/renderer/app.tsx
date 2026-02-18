@@ -1023,7 +1023,7 @@ export function App() {
             targetLang={targetLang}
             onSourceLangChange={(lang) => { setSourceLang(lang); setLangError(""); }}
             onTargetLangChange={(lang) => { setTargetLang(lang); setLangError(""); }}
-            sessionActive={sessionActive}
+            isRecording={session.uiState?.status === "recording" || session.uiState?.status === "connecting"}
             onConfigChange={handleAppConfigChange}
             onReset={() => setStoredAppConfig(DEFAULT_APP_CONFIG)}
             mcpIntegrations={mcpIntegrations}

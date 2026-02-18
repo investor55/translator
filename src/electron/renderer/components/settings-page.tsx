@@ -29,7 +29,7 @@ type SettingsPageProps = {
   targetLang: LanguageCode;
   onSourceLangChange: (lang: LanguageCode) => void;
   onTargetLangChange: (lang: LanguageCode) => void;
-  sessionActive: boolean;
+  isRecording: boolean;
   onConfigChange: (next: AppConfig) => void;
   onReset: () => void;
   mcpIntegrations: McpIntegrationStatus[];
@@ -114,7 +114,7 @@ export function SettingsPage({
   targetLang,
   onSourceLangChange,
   onTargetLangChange,
-  sessionActive,
+  isRecording,
   onConfigChange,
   onReset,
   mcpIntegrations,
@@ -145,7 +145,7 @@ export function SettingsPage({
     <div className="flex-1 min-h-0 overflow-y-auto bg-background">
       <div className="mx-auto w-full max-w-6xl px-6 py-6">
         <div className="flex items-start justify-between gap-4 mb-6">
-          <div>
+            <div>
             <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
             <p className="text-xs text-muted-foreground mt-1">
               Control appearance and runtime behavior. Session changes apply when you start or resume a session.
@@ -157,9 +157,9 @@ export function SettingsPage({
           </Button>
         </div>
 
-        {sessionActive && (
+        {isRecording && (
           <div className="mb-6 border border-amber-300/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-3 py-2 text-xs rounded-none">
-            Recording is active. Configuration updates will apply to the next session.
+            Currently recording. Configuration updates will apply to the next session.
           </div>
         )}
 
