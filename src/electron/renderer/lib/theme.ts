@@ -1,4 +1,10 @@
-import type { LightVariant, ThemeMode } from "../../../core/types";
+import type { FontSize, LightVariant, ThemeMode } from "../../../core/types";
+
+const FONT_SIZE_PX: Record<FontSize, string> = {
+  sm: "14px",
+  md: "16px",
+  lg: "18px",
+};
 
 const APP_CONFIG_STORAGE_KEY = "ambient-app-config";
 const LIGHT_BACKGROUND = "oklch(0.985 0.002 90)";
@@ -27,7 +33,7 @@ export function resolveShouldUseDark(themeMode: ThemeMode | undefined): boolean 
   return themeMode === "dark" || (themeMode !== "light" && prefersDark);
 }
 
-export function applyThemeClass(shouldUseDark: boolean, lightVariant: LightVariant = "warm") {
+export function applyThemeClass(shouldUseDark: boolean, lightVariant: LightVariant = "warm", fontSize: FontSize = "md") {
   const isLinen = !shouldUseDark && lightVariant === "linen";
   document.documentElement.classList.toggle("dark", shouldUseDark);
   document.documentElement.classList.toggle("light-linen", isLinen);
@@ -37,6 +43,7 @@ export function applyThemeClass(shouldUseDark: boolean, lightVariant: LightVaria
     : isLinen
       ? LINEN_BACKGROUND
       : LIGHT_BACKGROUND;
+  document.documentElement.style.fontSize = FONT_SIZE_PX[fontSize];
   document.body?.classList.toggle("dark", shouldUseDark);
   document.body?.classList.toggle("light-linen", isLinen);
 }

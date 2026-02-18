@@ -112,7 +112,7 @@ export function AgentList({
                   {relativeTime(agent.completedAt ?? agent.createdAt)}
                 </span>
               </div>
-              <p className="text-[11px] text-muted-foreground truncate font-mono pl-5">
+              <p className="text-[11px] text-muted-foreground truncate pl-5">
                 {lastStepSummary(agent)}
               </p>
             </button>

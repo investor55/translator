@@ -165,9 +165,12 @@ export type SessionConfig = {
   micDevice?: string;
 };
 
+export type FontSize = "sm" | "md" | "lg";
+
 export type AppConfig = {
   themeMode: ThemeMode;
   lightVariant: LightVariant;
+  fontSize: FontSize;
   direction: Direction;
   intervalMs: number;
   transcriptionProvider: TranscriptionProvider;
@@ -221,10 +224,12 @@ export const DEFAULT_TODO_MODEL_ID =
 export const DEFAULT_INTERVAL_MS = 2000;
 export const DEFAULT_THEME_MODE: ThemeMode = "system";
 export const DEFAULT_LIGHT_VARIANT: LightVariant = "warm";
+export const DEFAULT_FONT_SIZE: FontSize = "md";
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
   themeMode: DEFAULT_THEME_MODE,
   lightVariant: DEFAULT_LIGHT_VARIANT,
+  fontSize: DEFAULT_FONT_SIZE,
   direction: "auto",
   intervalMs: DEFAULT_INTERVAL_MS,
   transcriptionProvider: "elevenlabs",
@@ -260,6 +265,10 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     merged.lightVariant === "warm" || merged.lightVariant === "linen"
       ? merged.lightVariant
       : DEFAULT_APP_CONFIG.lightVariant;
+  const fontSize: FontSize =
+    merged.fontSize === "sm" || merged.fontSize === "md" || merged.fontSize === "lg"
+      ? merged.fontSize
+      : DEFAULT_APP_CONFIG.fontSize;
   const direction: Direction =
     merged.direction === "source-target" || merged.direction === "auto"
       ? merged.direction
@@ -288,6 +297,7 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     ...merged,
     themeMode,
     lightVariant,
+    fontSize,
     direction,
     transcriptionProvider,
     analysisProvider,

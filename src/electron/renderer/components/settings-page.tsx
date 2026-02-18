@@ -1,6 +1,7 @@
 import type {
   AnalysisProvider,
   AppConfig,
+  FontSize,
   McpIntegrationStatus,
   Direction,
   Language,
@@ -67,6 +68,12 @@ const LIGHT_VARIANT_OPTIONS: Array<{
 }> = [
   { value: "warm", label: "Warm", swatch: "oklch(0.985 0.002 90)" },
   { value: "linen", label: "Linen", swatch: "#EEEEEE" },
+];
+
+const FONT_SIZE_OPTIONS: Array<{ value: FontSize; label: string }> = [
+  { value: "sm", label: "Small" },
+  { value: "md", label: "Default" },
+  { value: "lg", label: "Large" },
 ];
 
 const DIRECTION_OPTIONS: Array<{ value: Direction; label: string }> = [
@@ -279,6 +286,28 @@ export function SettingsPage({
                 }
               />
             )}
+            <SettingRow
+              label="Font Size"
+              description="Scale the entire interface up or down."
+              control={
+                <div className="inline-flex items-center border border-border rounded-none overflow-hidden">
+                  {FONT_SIZE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`h-8 px-2.5 text-xs inline-flex items-center gap-1.5 transition-colors ${
+                        config.fontSize === option.value
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-background text-muted-foreground hover:text-foreground"
+                      }`}
+                      onClick={() => set("fontSize", option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              }
+            />
           </section>
 
           <section className="border border-border bg-card px-4 py-3 rounded-none">
