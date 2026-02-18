@@ -7,4 +7,5 @@ export function log(level: "INFO" | "ERROR" | "WARN", msg: string) {
   const ts = new Date().toISOString();
   const line = `[${ts}] ${level}: ${msg}\n`;
   fs.appendFileSync(LOG_FILE, line);
+  console.log(line);
 }

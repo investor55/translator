@@ -152,6 +152,20 @@ export type AppConfig = {
 
 export type AppConfigOverrides = Partial<AppConfig>;
 
+export type McpIntegrationProvider = "notion" | "linear";
+export type McpIntegrationMode = "oauth" | "token";
+export type McpIntegrationConnection = "connected" | "disconnected" | "error";
+
+export type McpIntegrationStatus = Readonly<{
+  provider: McpIntegrationProvider;
+  mode: McpIntegrationMode;
+  state: McpIntegrationConnection;
+  enabled: boolean;
+  label?: string;
+  error?: string;
+  lastConnectedAt?: number;
+}>;
+
 const ENV = typeof process !== "undefined" ? process.env : undefined;
 
 export const DEFAULT_VERTEX_MODEL_ID =
@@ -275,12 +289,35 @@ export type AgentQuestionSelection = Readonly<{
   selectedOptionIds: string[];
 }>;
 
+export type AgentToolApprovalRequest = Readonly<{
+  id: string;
+  toolName: string;
+  provider: "notion" | "linear";
+  title: string;
+  summary: string;
+  input?: string;
+}>;
+
+export type AgentToolApprovalResponse = Readonly<{
+  approvalId: string;
+  approved: boolean;
+}>;
+
+export type AgentToolApprovalState =
+  | "approval-requested"
+  | "approval-responded"
+  | "output-denied"
+  | "output-available";
+
 export type AgentStep = Readonly<{
   id: string;
   kind: AgentStepKind;
   content: string;
   toolName?: string;
   toolInput?: string;
+  approvalId?: string;
+  approvalState?: AgentToolApprovalState;
+  approvalApproved?: boolean;
   createdAt: number;
 }>;
 

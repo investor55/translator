@@ -1,10 +1,12 @@
-import { streamText, tool, stepCountIs, type ModelMessage } from "ai";
+import { streamText, tool, dynamicTool, stepCountIs, type ModelMessage } from "ai";
 import { z } from "zod";
 import type {
   AgentStep,
   Agent,
   AgentQuestionRequest,
   AgentQuestionSelection,
+  AgentToolApprovalRequest,
+  AgentToolApprovalResponse,
 } from "../types";
 import { log } from "../logger";
 import {
@@ -12,6 +14,7 @@ import {
   getAgentSystemPromptTemplate,
   renderPromptTemplate,
 } from "../prompt-loader";
+import type { AgentExternalToolSet } from "./external-tools";
 
 type ExaClient = {
   search: (
@@ -26,10 +29,15 @@ type AgentDeps = {
   model: Parameters<typeof streamText>[0]["model"];
   exa: ExaClient;
   getTranscriptContext: () => string;
+  getExternalTools?: () => Promise<AgentExternalToolSet>;
   requestClarification: (
     request: AgentQuestionRequest,
     options: { toolCallId: string; abortSignal?: AbortSignal }
   ) => Promise<AgentQuestionSelection[]>;
+  requestToolApproval: (
+    request: AgentToolApprovalRequest,
+    options: { toolCallId: string; abortSignal?: AbortSignal }
+  ) => Promise<AgentToolApprovalResponse>;
   onStep: (step: AgentStep) => void;
   onComplete: (result: string, messages: ModelMessage[]) => void;
   onFail: (error: string) => void;
@@ -87,12 +95,30 @@ export function buildAgentInitialUserPrompt(
   });
 }
 
-function buildTools(
+function buildApprovalTitle(toolName: string, provider: "notion" | "linear"): string {
+  const clean = toolName.includes("__") ? toolName.split("__").slice(1).join("__") : toolName;
+  return `${provider === "notion" ? "Notion" : "Linear"} tool: ${clean}`;
+}
+
+function summarizeApprovalInput(input: unknown): string {
+  try {
+    const text = JSON.stringify(input);
+    if (!text) return "(no input)";
+    return text.length > 600 ? `${text.slice(0, 600)}...` : text;
+  } catch {
+    return String(input ?? "(no input)");
+  }
+}
+
+async function buildTools(
   exa: ExaClient,
   getTranscriptContext: () => string,
-  requestClarification: AgentDeps["requestClarification"]
+  requestClarification: AgentDeps["requestClarification"],
+  requestToolApproval: AgentDeps["requestToolApproval"],
+  onStep: AgentDeps["onStep"],
+  getExternalTools?: AgentDeps["getExternalTools"],
 ) {
-  return {
+  const baseTools: Record<string, unknown> = {
     searchWeb: tool({
       description:
         "Search the web for information when external facts are required. Use specific, targeted queries.",
@@ -139,6 +165,110 @@ function buildTools(
       },
     }),
   };
+
+  if (!getExternalTools) {
+    return baseTools;
+  }
+
+  let externalTools: AgentExternalToolSet = {};
+  try {
+    externalTools = await getExternalTools();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log("WARN", `Failed to load external MCP tools: ${message}`);
+    onStep({
+      id: `mcp-tools:error:${Date.now()}`,
+      kind: "tool-result",
+      content: `MCP tools unavailable: ${message}`,
+      toolName: "mcp",
+      createdAt: Date.now(),
+    });
+    return baseTools;
+  }
+
+  for (const [toolName, external] of Object.entries(externalTools)) {
+    baseTools[toolName] = dynamicTool({
+      description: external.description ?? `External MCP tool: ${toolName}`,
+      inputSchema: external.inputSchema as never,
+      execute: async (input, { toolCallId, abortSignal }) => {
+        const approvalId = `approval:${toolCallId}`;
+        if (external.isMutating) {
+          const request: AgentToolApprovalRequest = {
+            id: approvalId,
+            toolName,
+            provider: external.provider,
+            title: buildApprovalTitle(toolName, external.provider),
+            summary: "This tool can create, update, or delete external data.",
+            input: summarizeApprovalInput(input),
+          };
+
+          onStep({
+            id: `${approvalId}:requested`,
+            kind: "tool-call",
+            toolName,
+            toolInput: request.input,
+            approvalId,
+            approvalState: "approval-requested",
+            content: `Approval required: ${request.title}`,
+            createdAt: Date.now(),
+          });
+
+          const approvalResponse = await requestToolApproval(request, {
+            toolCallId,
+            abortSignal,
+          });
+
+          onStep({
+            id: `${approvalId}:responded`,
+            kind: "tool-result",
+            toolName,
+            toolInput: request.input,
+            approvalId,
+            approvalState: "approval-responded",
+            approvalApproved: approvalResponse.approved,
+            content: approvalResponse.approved ? "Approved by user" : "Rejected by user",
+            createdAt: Date.now(),
+          });
+
+          if (!approvalResponse.approved) {
+            onStep({
+              id: `${approvalId}:denied`,
+              kind: "tool-result",
+              toolName,
+              toolInput: request.input,
+              approvalId,
+              approvalState: "output-denied",
+              approvalApproved: false,
+              content: "Tool execution denied",
+              createdAt: Date.now(),
+            });
+            return {
+              denied: true,
+              reason: "User denied this tool execution.",
+            };
+          }
+        }
+
+        const output = await external.execute(input, { toolCallId, abortSignal });
+        if (external.isMutating) {
+          onStep({
+            id: `${approvalId}:completed`,
+            kind: "tool-result",
+            toolName,
+            toolInput: summarizeApprovalInput(output),
+            approvalId,
+            approvalState: "output-available",
+            approvalApproved: true,
+            content: "Tool execution completed",
+            createdAt: Date.now(),
+          });
+        }
+        return output;
+      },
+    });
+  }
+
+  return baseTools;
 }
 
 function safeJson(value: unknown): string {
@@ -281,7 +411,9 @@ async function runAgentWithMessages(
     model,
     exa,
     getTranscriptContext,
+    getExternalTools,
     requestClarification,
+    requestToolApproval,
     onStep,
     onComplete,
     onFail,
@@ -290,7 +422,14 @@ async function runAgentWithMessages(
 
   try {
     const systemPrompt = buildSystemPrompt(getTranscriptContext());
-    const tools = buildTools(exa, getTranscriptContext, requestClarification);
+    const tools = await buildTools(
+      exa,
+      getTranscriptContext,
+      requestClarification,
+      requestToolApproval,
+      onStep,
+      getExternalTools,
+    );
 
     const result = streamText({
       model,
@@ -298,7 +437,7 @@ async function runAgentWithMessages(
       messages: inputMessages,
       stopWhen: stepCountIs(8),
       abortSignal,
-      tools,
+      tools: tools as Parameters<typeof streamText>[0]["tools"],
     });
 
     const streamedAt = Date.now();
@@ -389,6 +528,20 @@ async function runAgentWithMessages(
             content: `${part.toolName} failed`,
             toolName: part.toolName,
             toolInput: safeJson(part.error),
+            createdAt: Date.now(),
+          });
+          break;
+        }
+        case "tool-output-denied": {
+          const toolStepId = `tool:${part.toolCallId}`;
+          onStep({
+            id: toolStepId,
+            kind: "tool-result",
+            content: `${part.toolName} denied`,
+            toolName: part.toolName,
+            toolInput: safeJson(part),
+            approvalState: "output-denied",
+            approvalApproved: false,
             createdAt: Date.now(),
           });
           break;

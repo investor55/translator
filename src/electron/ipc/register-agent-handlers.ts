@@ -1,5 +1,9 @@
 import { ipcMain } from "electron";
-import type { AppConfigOverrides, AgentQuestionSelection } from "../../core/types";
+import type {
+  AppConfigOverrides,
+  AgentQuestionSelection,
+  AgentToolApprovalResponse,
+} from "../../core/types";
 import type { EnsureSession, IpcDeps } from "./types";
 
 type AgentDeps = IpcDeps & {
@@ -131,6 +135,14 @@ export function registerAgentHandlers({
   });
 
   ipcMain.handle(
+    "respond-agent-tool-approval",
+    (_event, agentId: string, response: AgentToolApprovalResponse) => {
+      if (!sessionRef.current) return { ok: false, error: "No active session" };
+      return sessionRef.current.answerAgentToolApproval(agentId, response);
+    },
+  );
+
+  ipcMain.handle(
     "answer-agent-question-in-session",
     async (
       _event,
@@ -143,6 +155,22 @@ export function registerAgentHandlers({
       if (!ensured.ok) return ensured;
       if (!sessionRef.current) return { ok: false, error: "Could not load session" };
       return sessionRef.current.answerAgentQuestion(agentId, answers);
+    },
+  );
+
+  ipcMain.handle(
+    "respond-agent-tool-approval-in-session",
+    async (
+      _event,
+      sessionId: string,
+      agentId: string,
+      response: AgentToolApprovalResponse,
+      appConfig?: AppConfigOverrides,
+    ) => {
+      const ensured = await ensureSession(sessionId, appConfig);
+      if (!ensured.ok) return ensured;
+      if (!sessionRef.current) return { ok: false, error: "Could not load session" };
+      return sessionRef.current.answerAgentToolApproval(agentId, response);
     },
   );
 

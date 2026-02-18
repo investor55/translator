@@ -1,6 +1,7 @@
 import type {
   AnalysisProvider,
   AppConfig,
+  McpIntegrationStatus,
   Direction,
   Language,
   LanguageCode,
@@ -13,7 +14,7 @@ import {
   DEFAULT_WHISPER_MODEL_ID,
   DEFAULT_VERTEX_MODEL_ID,
 } from "../../../core/types";
-import type { ReactNode } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -31,6 +32,12 @@ type SettingsPageProps = {
   sessionActive: boolean;
   onConfigChange: (next: AppConfig) => void;
   onReset: () => void;
+  mcpIntegrations: McpIntegrationStatus[];
+  mcpBusy?: boolean;
+  onConnectNotionMcp: () => void | Promise<void>;
+  onDisconnectNotionMcp: () => void | Promise<void>;
+  onSetLinearToken: (token: string) => Promise<{ ok: boolean; error?: string }>;
+  onClearLinearToken: () => Promise<{ ok: boolean; error?: string }>;
 };
 
 const THEME_OPTIONS: Array<{ value: ThemeMode; label: string; icon: ReactNode }> = [
@@ -110,7 +117,25 @@ export function SettingsPage({
   sessionActive,
   onConfigChange,
   onReset,
+  mcpIntegrations,
+  mcpBusy = false,
+  onConnectNotionMcp,
+  onDisconnectNotionMcp,
+  onSetLinearToken,
+  onClearLinearToken,
 }: SettingsPageProps) {
+  const [linearTokenInput, setLinearTokenInput] = useState("");
+  const [linearTokenError, setLinearTokenError] = useState("");
+
+  const notionStatus = useMemo(
+    () => mcpIntegrations.find((item) => item.provider === "notion"),
+    [mcpIntegrations],
+  );
+  const linearStatus = useMemo(
+    () => mcpIntegrations.find((item) => item.provider === "linear"),
+    [mcpIntegrations],
+  );
+
   const languagesLoading = languages.length === 0;
   const set = <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
     onConfigChange({ ...config, [key]: value });
@@ -432,6 +457,104 @@ export function SettingsPage({
                   onChange={(e) => set("vertexLocation", e.target.value)}
                   placeholder="global"
                 />
+              </div>
+            </div>
+          </section>
+
+          <section className="border border-border bg-card px-4 py-3 rounded-none lg:col-span-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Integrations</h2>
+            <Separator className="my-3" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="border border-border/70 bg-background px-3 py-3 rounded-none">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-foreground">Notion MCP</p>
+                  <span className="text-[11px] text-muted-foreground">
+                    {notionStatus?.state ?? "disconnected"}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
+                  Hosted MCP via local OAuth callback.
+                </p>
+                {notionStatus?.error && (
+                  <p className="mt-1 text-[11px] text-destructive">{notionStatus.error}</p>
+                )}
+                <div className="mt-2 flex items-center gap-2">
+                  {notionStatus?.state === "connected" ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void onDisconnectNotionMcp()}
+                      disabled={mcpBusy || notionStatus.enabled === false}
+                    >
+                      Disconnect
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={() => void onConnectNotionMcp()}
+                      disabled={mcpBusy || notionStatus?.enabled === false}
+                    >
+                      Connect Notion
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div className="border border-border/70 bg-background px-3 py-3 rounded-none">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-foreground">Linear MCP</p>
+                  <span className="text-[11px] text-muted-foreground">
+                    {linearStatus?.state ?? "disconnected"}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
+                  Token-based access for Linear MCP.
+                </p>
+                {linearStatus?.error && (
+                  <p className="mt-1 text-[11px] text-destructive">{linearStatus.error}</p>
+                )}
+                <div className="mt-2 flex items-center gap-2">
+                  <Input
+                    type="password"
+                    value={linearTokenInput}
+                    onChange={(e) => {
+                      setLinearTokenInput(e.target.value);
+                      setLinearTokenError("");
+                    }}
+                    placeholder="lin_api_..."
+                    className="flex-1"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      const result = await onSetLinearToken(linearTokenInput);
+                      if (!result.ok) {
+                        setLinearTokenError(result.error ?? "Could not save Linear token.");
+                        return;
+                      }
+                      setLinearTokenInput("");
+                    }}
+                    disabled={mcpBusy || linearStatus?.enabled === false}
+                  >
+                    Save
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      const result = await onClearLinearToken();
+                      if (!result.ok) {
+                        setLinearTokenError(result.error ?? "Could not disconnect Linear.");
+                      }
+                    }}
+                    disabled={mcpBusy || linearStatus?.enabled === false}
+                  >
+                    Disconnect
+                  </Button>
+                </div>
+                {linearTokenError && (
+                  <p className="mt-1 text-[11px] text-destructive">{linearTokenError}</p>
+                )}
               </div>
             </div>
           </section>

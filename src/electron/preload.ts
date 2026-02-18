@@ -13,7 +13,9 @@ import type {
   Agent,
   AgentStep,
   AgentQuestionSelection,
+  AgentToolApprovalResponse,
   AppConfigOverrides,
+  McpIntegrationStatus,
 } from "../core/types";
 import type {
   WhisperGpuReadyPayload,
@@ -76,9 +78,22 @@ export type ElectronAPI = {
     answers: AgentQuestionSelection[],
     appConfig?: AppConfigOverrides,
   ) => Promise<{ ok: boolean; error?: string }>;
+  respondAgentToolApproval: (agentId: string, response: AgentToolApprovalResponse) => Promise<{ ok: boolean; error?: string }>;
+  respondAgentToolApprovalInSession: (
+    sessionId: string,
+    agentId: string,
+    response: AgentToolApprovalResponse,
+    appConfig?: AppConfigOverrides,
+  ) => Promise<{ ok: boolean; error?: string }>;
   cancelAgent: (agentId: string) => Promise<{ ok: boolean; error?: string }>;
   getAgents: () => Promise<Agent[]>;
   getSessionAgents: (sessionId: string) => Promise<Agent[]>;
+
+  getMcpIntegrationsStatus: () => Promise<McpIntegrationStatus[]>;
+  connectNotionMcp: () => Promise<{ ok: boolean; error?: string }>;
+  disconnectNotionMcp: () => Promise<{ ok: boolean; error?: string }>;
+  setLinearMcpToken: (token: string) => Promise<{ ok: boolean; error?: string }>;
+  clearLinearMcpToken: () => Promise<{ ok: boolean; error?: string }>;
 
   onStateChange: (callback: (state: UIState) => void) => () => void;
   onBlockAdded: (callback: (block: TranscriptBlock) => void) => () => void;
@@ -153,9 +168,18 @@ const api: ElectronAPI = {
   answerAgentQuestion: (agentId, answers) => ipcRenderer.invoke("answer-agent-question", agentId, answers),
   answerAgentQuestionInSession: (sessionId, agentId, answers, appConfig) =>
     ipcRenderer.invoke("answer-agent-question-in-session", sessionId, agentId, answers, appConfig),
+  respondAgentToolApproval: (agentId, response) =>
+    ipcRenderer.invoke("respond-agent-tool-approval", agentId, response),
+  respondAgentToolApprovalInSession: (sessionId, agentId, response, appConfig) =>
+    ipcRenderer.invoke("respond-agent-tool-approval-in-session", sessionId, agentId, response, appConfig),
   cancelAgent: (agentId) => ipcRenderer.invoke("cancel-agent", agentId),
   getAgents: () => ipcRenderer.invoke("get-agents"),
   getSessionAgents: (sessionId) => ipcRenderer.invoke("get-session-agents", sessionId),
+  getMcpIntegrationsStatus: () => ipcRenderer.invoke("get-mcp-integrations-status"),
+  connectNotionMcp: () => ipcRenderer.invoke("connect-notion-mcp"),
+  disconnectNotionMcp: () => ipcRenderer.invoke("disconnect-notion-mcp"),
+  setLinearMcpToken: (token) => ipcRenderer.invoke("set-linear-mcp-token", token),
+  clearLinearMcpToken: () => ipcRenderer.invoke("clear-linear-mcp-token"),
 
   onStateChange: createListener<UIState>("session:state-change"),
   onBlockAdded: createListener<TranscriptBlock>("session:block-added"),

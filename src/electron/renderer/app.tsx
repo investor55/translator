@@ -10,6 +10,8 @@ import type {
   Insight,
   SessionMeta,
   AgentQuestionSelection,
+  AgentToolApprovalResponse,
+  McpIntegrationStatus,
 } from "../../core/types";
 import { DEFAULT_APP_CONFIG, normalizeAppConfig } from "../../core/types";
 import { useSession } from "./hooks/use-session";
@@ -106,6 +108,8 @@ export function App() {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
+  const [mcpIntegrations, setMcpIntegrations] = useState<McpIntegrationStatus[]>([]);
+  const [mcpBusy, setMcpBusy] = useState(false);
   const pendingNewSessionRouteRef = useRef(false);
   const { refreshSessions, sessionsRef } = useAppBootstrap({
     setSessions,
@@ -215,6 +219,15 @@ export function App() {
     window.electronAPI.getLanguages().then(setLanguages);
   }, []);
 
+  const refreshMcpIntegrations = useCallback(async () => {
+    const statuses = await window.electronAPI.getMcpIntegrationsStatus();
+    setMcpIntegrations(statuses);
+  }, []);
+
+  useEffect(() => {
+    void refreshMcpIntegrations();
+  }, [refreshMcpIntegrations]);
+
   useEffect(() => {
     if (!session.sessionId) return;
 
@@ -267,6 +280,68 @@ export function App() {
       micCapture.stop();
     }
   }, [micCapture]);
+
+  const handleConnectNotionMcp = useCallback(async () => {
+    setMcpBusy(true);
+    try {
+      const result = await window.electronAPI.connectNotionMcp();
+      if (!result.ok) {
+        setRouteNotice(`Notion connection failed: ${result.error ?? "Unknown error"}`);
+      } else {
+        setRouteNotice("Notion MCP connected.");
+      }
+    } finally {
+      await refreshMcpIntegrations();
+      setMcpBusy(false);
+    }
+  }, [refreshMcpIntegrations]);
+
+  const handleDisconnectNotionMcp = useCallback(async () => {
+    setMcpBusy(true);
+    try {
+      const result = await window.electronAPI.disconnectNotionMcp();
+      if (!result.ok) {
+        setRouteNotice(`Could not disconnect Notion: ${result.error ?? "Unknown error"}`);
+      } else {
+        setRouteNotice("Notion MCP disconnected.");
+      }
+    } finally {
+      await refreshMcpIntegrations();
+      setMcpBusy(false);
+    }
+  }, [refreshMcpIntegrations]);
+
+  const handleSetLinearToken = useCallback(async (token: string) => {
+    setMcpBusy(true);
+    try {
+      const result = await window.electronAPI.setLinearMcpToken(token);
+      if (!result.ok) {
+        setRouteNotice(`Linear connection failed: ${result.error ?? "Unknown error"}`);
+      } else {
+        setRouteNotice("Linear MCP connected.");
+      }
+      return result;
+    } finally {
+      await refreshMcpIntegrations();
+      setMcpBusy(false);
+    }
+  }, [refreshMcpIntegrations]);
+
+  const handleClearLinearToken = useCallback(async () => {
+    setMcpBusy(true);
+    try {
+      const result = await window.electronAPI.clearLinearMcpToken();
+      if (!result.ok) {
+        setRouteNotice(`Could not disconnect Linear: ${result.error ?? "Unknown error"}`);
+      } else {
+        setRouteNotice("Linear MCP disconnected.");
+      }
+      return result;
+    } finally {
+      await refreshMcpIntegrations();
+      setMcpBusy(false);
+    }
+  }, [refreshMcpIntegrations]);
 
   const handleStart = useCallback(() => {
     setLangError("");
@@ -829,6 +904,19 @@ export function App() {
     );
   }, [appConfig, selectedSessionId, session.sessionId]);
 
+  const handleAnswerAgentToolApproval = useCallback(async (agent: Agent, response: AgentToolApprovalResponse) => {
+    const targetSessionId = agent.sessionId ?? selectedSessionId ?? session.sessionId ?? null;
+    if (!targetSessionId) {
+      return { ok: false, error: "Missing session id for this agent" };
+    }
+    return window.electronAPI.respondAgentToolApprovalInSession(
+      targetSessionId,
+      agent.id,
+      response,
+      appConfig,
+    );
+  }, [appConfig, selectedSessionId, session.sessionId]);
+
   const handleCancelAgent = useCallback(async (agentId: string) => {
     await window.electronAPI.cancelAgent(agentId);
   }, []);
@@ -890,6 +978,12 @@ export function App() {
             sessionActive={sessionActive}
             onConfigChange={handleAppConfigChange}
             onReset={() => setStoredAppConfig(DEFAULT_APP_CONFIG)}
+            mcpIntegrations={mcpIntegrations}
+            mcpBusy={mcpBusy}
+            onConnectNotionMcp={handleConnectNotionMcp}
+            onDisconnectNotionMcp={handleDisconnectNotionMcp}
+            onSetLinearToken={handleSetLinearToken}
+            onClearLinearToken={handleClearLinearToken}
           />
         ) : (
           <>
@@ -939,6 +1033,7 @@ export function App() {
                     onClose={() => selectAgent(null)}
                     onFollowUp={handleFollowUp}
                     onAnswerQuestion={handleAnswerAgentQuestion}
+                    onAnswerToolApproval={handleAnswerAgentToolApproval}
                     onCancel={handleCancelAgent}
                   />
                 </div>

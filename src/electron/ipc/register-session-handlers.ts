@@ -8,8 +8,13 @@ import type { AppConfigOverrides, LanguageCode } from "../../core/types";
 import { SUPPORTED_LANGUAGES } from "../../core/types";
 import { buildSessionConfig, shutdownCurrentSession, wireSessionEvents } from "./ipc-utils";
 import type { IpcDeps } from "./types";
+import type { AgentExternalToolSet } from "../../core/agents/external-tools";
 
-export function registerSessionHandlers({ db, getWindow, sessionRef }: IpcDeps) {
+type SessionHandlerDeps = IpcDeps & {
+  getExternalTools?: () => Promise<AgentExternalToolSet>;
+};
+
+export function registerSessionHandlers({ db, getWindow, sessionRef, getExternalTools }: SessionHandlerDeps) {
   ipcMain.handle("get-languages", () => {
     return SUPPORTED_LANGUAGES;
   });
@@ -42,7 +47,7 @@ export function registerSessionHandlers({ db, getWindow, sessionRef }: IpcDeps) 
         db.createSession(sessionId, sourceLang, targetLang);
       }
 
-      const activeSession = new Session(config, db, sessionId);
+      const activeSession = new Session(config, db, sessionId, { getExternalTools });
       sessionRef.current = activeSession;
       wireSessionEvents(sessionRef, activeSession, getWindow, db);
 
@@ -80,7 +85,7 @@ export function registerSessionHandlers({ db, getWindow, sessionRef }: IpcDeps) 
         return { ok: false, error: toReadableError(error) };
       }
 
-      const activeSession = new Session(config, db, sessionId);
+      const activeSession = new Session(config, db, sessionId, { getExternalTools });
       sessionRef.current = activeSession;
       wireSessionEvents(sessionRef, activeSession, getWindow, db);
 

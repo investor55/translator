@@ -100,6 +100,10 @@ Optional provider configuration:
 - `GOOGLE_VERTEX_PROJECT_ID`
 - `GOOGLE_VERTEX_PROJECT_LOCATION`
 
+Optional MCP integrations:
+
+- `MCP_INTEGRATIONS_ENABLED=false` to disable Notion/Linear MCP connectors (enabled by default).
+
 ## Notes
 
 - `pnpm` is the source-of-truth package manager.

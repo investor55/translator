@@ -9,7 +9,10 @@ import type {
   SessionEvents,
   AgentQuestionRequest,
   AgentQuestionSelection,
+  AgentToolApprovalRequest,
+  AgentToolApprovalResponse,
 } from "../types";
+import type { AgentExternalToolSet } from "./external-tools";
 
 type TypedEmitter = EventEmitter & {
   emit<K extends keyof SessionEvents>(event: K, ...args: SessionEvents[K]): boolean;
@@ -20,6 +23,7 @@ type AgentManagerDeps = {
   exaApiKey: string;
   events: TypedEmitter;
   getTranscriptContext: () => string;
+  getExternalTools?: () => Promise<AgentExternalToolSet>;
   db?: AppDatabase;
 };
 
@@ -27,6 +31,7 @@ export type AgentManager = {
   launchAgent: (todoId: string, task: string, sessionId?: string, taskContext?: string) => Agent;
   followUpAgent: (agentId: string, question: string) => boolean;
   answerAgentQuestion: (agentId: string, answers: AgentQuestionSelection[]) => { ok: boolean; error?: string };
+  answerAgentToolApproval: (agentId: string, response: AgentToolApprovalResponse) => { ok: boolean; error?: string };
   cancelAgent: (id: string) => boolean;
   hydrateAgents: (items: Agent[]) => void;
   getAgent: (id: string) => Agent | undefined;
@@ -45,6 +50,12 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     toolCallId: string;
     request: AgentQuestionRequest;
     resolve: (answers: AgentQuestionSelection[]) => void;
+    reject: (error: Error) => void;
+  }>();
+  const pendingApprovals = new Map<string, {
+    toolCallId: string;
+    request: AgentToolApprovalRequest;
+    resolve: (response: AgentToolApprovalResponse) => void;
     reject: (error: Error) => void;
   }>();
 
@@ -110,6 +121,13 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     pending.reject(new Error(reason));
   }
 
+  function rejectPendingApproval(agentId: string, reason: string) {
+    const pending = pendingApprovals.get(agentId);
+    if (!pending) return;
+    pendingApprovals.delete(agentId);
+    pending.reject(new Error(reason));
+  }
+
   function requestClarification(
     agentId: string,
     request: AgentQuestionRequest,
@@ -148,6 +166,50 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
             abortSignal.removeEventListener("abort", onAbort);
           }
           pendingQuestions.delete(agentId);
+          reject(error);
+        },
+      });
+    });
+  }
+
+  function requestToolApproval(
+    agentId: string,
+    request: AgentToolApprovalRequest,
+    options: { toolCallId: string; abortSignal?: AbortSignal },
+  ): Promise<AgentToolApprovalResponse> {
+    const { toolCallId, abortSignal } = options;
+    rejectPendingApproval(agentId, "Approval request replaced by a newer request.");
+
+    return new Promise<AgentToolApprovalResponse>((resolve, reject) => {
+      const onAbort = () => {
+        pendingApprovals.delete(agentId);
+        reject(new Error("Cancelled"));
+      };
+
+      if (abortSignal?.aborted) {
+        onAbort();
+        return;
+      }
+
+      if (abortSignal) {
+        abortSignal.addEventListener("abort", onAbort, { once: true });
+      }
+
+      pendingApprovals.set(agentId, {
+        toolCallId,
+        request,
+        resolve: (response) => {
+          if (abortSignal) {
+            abortSignal.removeEventListener("abort", onAbort);
+          }
+          pendingApprovals.delete(agentId);
+          resolve(response);
+        },
+        reject: (error) => {
+          if (abortSignal) {
+            abortSignal.removeEventListener("abort", onAbort);
+          }
+          pendingApprovals.delete(agentId);
           reject(error);
         },
       });
@@ -214,6 +276,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         agent.result = result;
         agent.completedAt = Date.now();
         rejectPendingQuestion(agent.id, "Agent finished before clarification could be answered.");
+        rejectPendingApproval(agent.id, "Agent finished before tool approval could be answered.");
         conversationHistory.set(agent.id, messages);
         abortControllers.delete(agent.id);
         cancelFlush(agent.id);
@@ -226,6 +289,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         agent.result = error;
         agent.completedAt = Date.now();
         rejectPendingQuestion(agent.id, error || "Agent failed before clarification could be answered.");
+        rejectPendingApproval(agent.id, error || "Agent failed before tool approval could be answered.");
         abortControllers.delete(agent.id);
         cancelFlush(agent.id);
         deps.db?.updateAgent(agent.id, { status: "failed", result: error, steps: agent.steps, completedAt: agent.completedAt });
@@ -275,8 +339,11 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       model: deps.model,
       exa,
       getTranscriptContext: deps.getTranscriptContext,
+      getExternalTools: deps.getExternalTools,
       requestClarification: (request, options) =>
         requestClarification(agent.id, request, options),
+      requestToolApproval: (request, options) =>
+        requestToolApproval(agent.id, request, options),
       abortSignal: controller.signal,
       ...callbacks,
     });
@@ -324,8 +391,11 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       model: deps.model,
       exa,
       getTranscriptContext: deps.getTranscriptContext,
+      getExternalTools: deps.getExternalTools,
       requestClarification: (request, options) =>
         requestClarification(agent.id, request, options),
+      requestToolApproval: (request, options) =>
+        requestToolApproval(agent.id, request, options),
       abortSignal: controller.signal,
       ...callbacks,
     });
@@ -381,10 +451,32 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     return { ok: true };
   }
 
+  function answerAgentToolApproval(
+    agentId: string,
+    response: AgentToolApprovalResponse,
+  ): { ok: boolean; error?: string } {
+    const pending = pendingApprovals.get(agentId);
+    if (!pending) {
+      return { ok: false, error: "No pending tool approval for this agent" };
+    }
+
+    if (response.approvalId !== pending.request.id) {
+      return { ok: false, error: "Approval id does not match pending request" };
+    }
+
+    pending.resolve({
+      approvalId: pending.request.id,
+      approved: response.approved === true,
+    });
+    return { ok: true };
+  }
+
   function cancelAgent(id: string): boolean {
     const controller = abortControllers.get(id);
     if (!controller) return false;
     controller.abort();
+    rejectPendingApproval(id, "Cancelled");
+    rejectPendingQuestion(id, "Cancelled");
     return true;
   }
 
@@ -392,6 +484,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     launchAgent,
     followUpAgent,
     answerAgentQuestion,
+    answerAgentToolApproval,
     cancelAgent,
     hydrateAgents,
     getAgent: (id) => agents.get(id),

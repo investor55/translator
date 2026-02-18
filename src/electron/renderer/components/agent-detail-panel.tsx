@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import {
   XIcon,
+  CheckIcon,
   LoaderCircleIcon,
   CheckCircleIcon,
   XCircleIcon,
@@ -31,16 +32,26 @@ import {
   ChainOfThoughtSearchResults,
   ChainOfThoughtStep,
 } from "@/components/ai-elements/chain-of-thought";
+import {
+  Confirmation,
+  ConfirmationAccepted,
+  ConfirmationAction,
+  ConfirmationActions,
+  ConfirmationRejected,
+  ConfirmationRequest,
+} from "@/components/ai-elements/confirmation";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import type {
   Agent,
   AgentStep,
   AgentQuestionRequest,
   AgentQuestionSelection,
+  AgentToolApprovalResponse,
 } from "../../../core/types";
 
 type FollowUpResult = { ok: boolean; error?: string };
 type AnswerQuestionResult = { ok: boolean; error?: string };
+type AnswerToolApprovalResult = { ok: boolean; error?: string };
 
 type AgentDetailPanelProps = {
   agent: Agent;
@@ -52,6 +63,10 @@ type AgentDetailPanelProps = {
     agent: Agent,
     answers: AgentQuestionSelection[],
   ) => Promise<AnswerQuestionResult> | AnswerQuestionResult;
+  onAnswerToolApproval?: (
+    agent: Agent,
+    response: AgentToolApprovalResponse,
+  ) => Promise<AnswerToolApprovalResult> | AnswerToolApprovalResult;
   onCancel?: (agentId: string) => void;
 };
 
@@ -163,6 +178,17 @@ function parseAskQuestionOutput(raw: string | undefined): AskQuestionToolOutput 
 function isAskQuestionStep(step: AgentStep): boolean {
   return step.toolName === "askQuestion"
     && (step.kind === "tool-call" || step.kind === "tool-result");
+}
+
+function isToolApprovalStep(step: AgentStep): boolean {
+  return !!step.approvalState && !!step.approvalId;
+}
+
+function formatToolName(toolName?: string): string {
+  if (!toolName) return "Tool";
+  return toolName
+    .replace(/^notion__/, "Notion / ")
+    .replace(/^linear__/, "Linear / ");
 }
 
 function AskQuestionPendingCard({
@@ -321,10 +347,85 @@ function AskQuestionResolvedCard({ output }: { output: AskQuestionToolOutput }) 
   );
 }
 
+function ToolApprovalCard({
+  agent,
+  step,
+  onAnswerToolApproval,
+}: {
+  agent: Agent;
+  step: AgentStep;
+  onAnswerToolApproval?: (
+    agent: Agent,
+    response: AgentToolApprovalResponse,
+  ) => Promise<AnswerToolApprovalResult> | AnswerToolApprovalResult;
+}) {
+  const [submitting, setSubmitting] = useState<"approve" | "reject" | null>(null);
+  const [submitError, setSubmitError] = useState("");
+  const approvalId = step.approvalId;
+  const approvalState = step.approvalState;
+  if (!approvalId || !approvalState) return null;
+
+  const submitApproval = async (approved: boolean) => {
+    if (!onAnswerToolApproval || approvalState !== "approval-requested") return;
+    setSubmitError("");
+    setSubmitting(approved ? "approve" : "reject");
+    const result = await onAnswerToolApproval(agent, { approvalId, approved });
+    setSubmitting(null);
+    if (!result.ok) {
+      setSubmitError(result.error ?? "Could not submit approval.");
+    }
+  };
+
+  return (
+    <div className="mt-1 border-t border-border pt-2">
+      <Confirmation state={approvalState} approved={step.approvalApproved}>
+        <ConfirmationRequest>
+          <p className="text-[11px] font-semibold">{formatToolName(step.toolName)}</p>
+          <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
+            {step.content}
+          </p>
+          {step.toolInput && (
+            <pre className="mt-1 overflow-x-auto whitespace-pre-wrap border border-border/70 bg-background px-2 py-1 text-[10px] text-muted-foreground">
+              {step.toolInput}
+            </pre>
+          )}
+        </ConfirmationRequest>
+        <ConfirmationAccepted>
+          <CheckIcon className="size-3.5" />
+          <span>{step.content}</span>
+        </ConfirmationAccepted>
+        <ConfirmationRejected>
+          <XIcon className="size-3.5" />
+          <span>{step.content}</span>
+        </ConfirmationRejected>
+        <ConfirmationActions>
+          <ConfirmationAction
+            variant="outline"
+            disabled={!onAnswerToolApproval || submitting !== null}
+            onClick={() => void submitApproval(false)}
+          >
+            Reject
+          </ConfirmationAction>
+          <ConfirmationAction
+            disabled={!onAnswerToolApproval || submitting !== null}
+            onClick={() => void submitApproval(true)}
+          >
+            Approve
+          </ConfirmationAction>
+        </ConfirmationActions>
+        {submitError && (
+          <p className="mt-1 text-[11px] text-destructive">{submitError}</p>
+        )}
+      </Confirmation>
+    </div>
+  );
+}
+
 function StepItem({
   agent,
   step,
   onAnswerQuestion,
+  onAnswerToolApproval,
 }: {
   agent: Agent;
   step: AgentStep;
@@ -332,7 +433,21 @@ function StepItem({
     agent: Agent,
     answers: AgentQuestionSelection[],
   ) => Promise<AnswerQuestionResult> | AnswerQuestionResult;
+  onAnswerToolApproval?: (
+    agent: Agent,
+    response: AgentToolApprovalResponse,
+  ) => Promise<AnswerToolApprovalResult> | AnswerToolApprovalResult;
 }) {
+  if (isToolApprovalStep(step)) {
+    return (
+      <ToolApprovalCard
+        agent={agent}
+        step={step}
+        onAnswerToolApproval={onAnswerToolApproval}
+      />
+    );
+  }
+
   if (step.kind === "tool-call" && step.toolName === "askQuestion") {
     const request = parseAskQuestionRequest(step.toolInput);
     if (!request) return null;
@@ -509,6 +624,7 @@ export function AgentDetailPanel({
   onClose,
   onFollowUp,
   onAnswerQuestion,
+  onAnswerToolApproval,
   onCancel,
 }: AgentDetailPanelProps) {
   const [followUpError, setFollowUpError] = useState("");
@@ -607,6 +723,11 @@ export function AgentDetailPanel({
 
     for (const step of visibleSteps) {
       if (isAskQuestionStep(step)) {
+        flushActivity();
+        items.push({ kind: "step", step });
+        continue;
+      }
+      if (isToolApprovalStep(step)) {
         flushActivity();
         items.push({ kind: "step", step });
         continue;
@@ -728,6 +849,7 @@ export function AgentDetailPanel({
                 agent={agent}
                 step={item.step}
                 onAnswerQuestion={onAnswerQuestion}
+                onAnswerToolApproval={onAnswerToolApproval}
               />
             )
           )}

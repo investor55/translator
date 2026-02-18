@@ -1,4 +1,4 @@
-import type { BrowserWindow } from "electron";
+import { app, type BrowserWindow } from "electron";
 import type { AppDatabase } from "../core/db/db";
 import { validateEnv } from "../core/config";
 import { log } from "../core/logger";
@@ -9,13 +9,17 @@ import type { AppConfigOverrides, LanguageCode } from "../core/types";
 import { registerAgentHandlers } from "./ipc/register-agent-handlers";
 import { registerSessionHandlers } from "./ipc/register-session-handlers";
 import { registerTodoInsightHandlers } from "./ipc/register-todo-insight-handlers";
+import { registerIntegrationHandlers } from "./ipc/register-integration-handlers";
 import { registerElectronWhisperGpuBridge } from "./ipc/whisper-gpu-bridge";
 import { buildSessionConfig, shutdownCurrentSession, wireSessionEvents } from "./ipc/ipc-utils";
 import type { EnsureSession, SessionRef } from "./ipc/types";
+import { createIntegrationManager } from "./integrations";
+import type { IntegrationManager } from "./integrations/types";
 
 const sessionRef: SessionRef = { current: null };
 let registeredDb: AppDatabase | null = null;
 let disposeWhisperGpuBridge: (() => void) | null = null;
+let integrationManager: IntegrationManager | null = null;
 
 export function shutdownSessionOnAppQuit() {
   if (disposeWhisperGpuBridge) {
@@ -25,6 +29,7 @@ export function shutdownSessionOnAppQuit() {
   }
   if (!registeredDb) return;
   void shutdownCurrentSession(sessionRef, registeredDb);
+  void integrationManager?.dispose();
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: AppDatabase) {
@@ -40,6 +45,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     whisperGpuBridge.dispose();
     setWhisperRemoteRuntime(null);
   };
+
+  if (integrationManager) {
+    void integrationManager.dispose();
+  }
+  integrationManager = createIntegrationManager(app.getPath("userData"));
+  const manager = integrationManager;
 
   const ensureSession: EnsureSession = async (
     sessionId: string,
@@ -66,7 +77,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
       return { ok: false, error: toReadableError(error) };
     }
 
-    const activeSession = new Session(config, db, sessionId);
+    const activeSession = new Session(config, db, sessionId, {
+      getExternalTools: manager.getExternalTools,
+    });
     sessionRef.current = activeSession;
     wireSessionEvents(sessionRef, activeSession, getWindow, db);
 
@@ -79,7 +92,13 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     }
   };
 
-  registerSessionHandlers({ db, getWindow, sessionRef });
+  registerSessionHandlers({
+    db,
+    getWindow,
+    sessionRef,
+    getExternalTools: manager.getExternalTools,
+  });
   registerTodoInsightHandlers({ db, getWindow, sessionRef, ensureSession });
   registerAgentHandlers({ db, getWindow, sessionRef, ensureSession });
+  registerIntegrationHandlers(manager);
 }

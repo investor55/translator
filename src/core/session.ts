@@ -6,6 +6,7 @@ import { z } from "zod";
 import type {
   Agent,
   AgentQuestionSelection,
+  AgentToolApprovalResponse,
   AudioSource,
   TranscriptBlock,
   SessionConfig,
@@ -71,6 +72,7 @@ import {
   type AudioRecorder,
 } from "./audio/audio";
 import { createAgentManager, type AgentManager } from "./agents/agent-manager";
+import type { AgentExternalToolSet } from "./agents/external-tools";
 import {
   connectElevenLabsRealtime,
   normalizeElevenLabsLanguageCode,
@@ -107,6 +109,10 @@ type TodoSuggestionDraft = {
   text: string;
   details?: string;
   transcriptExcerpt?: string;
+};
+
+export type SessionExternalDeps = {
+  getExternalTools?: () => Promise<AgentExternalToolSet>;
 };
 
 export class Session {
@@ -186,16 +192,18 @@ export class Session {
   private lastAnalysisBlockCount = 0;
   private db: AppDatabase | null;
   private agentManager: AgentManager | null = null;
+  private getExternalTools?: () => Promise<AgentExternalToolSet>;
 
   private sourceLangLabel: string;
   private targetLangLabel: string;
   private sourceLangName: string;
   private targetLangName: string;
 
-  constructor(config: SessionConfig, db?: AppDatabase, sessionId?: string) {
+  constructor(config: SessionConfig, db?: AppDatabase, sessionId?: string, externalDeps?: SessionExternalDeps) {
     this.config = config;
     this.db = db ?? null;
     this.sessionId = sessionId ?? crypto.randomUUID();
+    this.getExternalTools = externalDeps?.getExternalTools;
     this._translationEnabled = config.translationEnabled;
     this.userContext = loadUserContext(config.contextFile, config.useContext);
 
@@ -214,6 +222,7 @@ export class Session {
         exaApiKey,
         events: this.events,
         getTranscriptContext: () => this.getTranscriptContextForAgent(),
+        getExternalTools: this.getExternalTools,
         db: this.db ?? undefined,
       });
       if (this.db) {
@@ -867,6 +876,10 @@ export class Session {
 
   answerAgentQuestion(agentId: string, answers: AgentQuestionSelection[]): { ok: boolean; error?: string } {
     return this.agentManager?.answerAgentQuestion(agentId, answers) ?? { ok: false, error: "Agent system unavailable" };
+  }
+
+  answerAgentToolApproval(agentId: string, response: AgentToolApprovalResponse): { ok: boolean; error?: string } {
+    return this.agentManager?.answerAgentToolApproval(agentId, response) ?? { ok: false, error: "Agent system unavailable" };
   }
 
   cancelAgent(agentId: string): boolean {
