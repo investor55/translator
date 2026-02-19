@@ -48,15 +48,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-type ResizeHandle = "left" | "agent" | "right";
+type ResizeHandle = "left" | "right" | "agent";
 
 const MIN_TRANSCRIPT_WIDTH = 360;
 const LEFT_PANEL_MIN_WIDTH = 220;
 const LEFT_PANEL_MAX_WIDTH = 520;
 const RIGHT_PANEL_MIN_WIDTH = 240;
 const RIGHT_PANEL_MAX_WIDTH = 560;
-const AGENT_PANEL_MIN_WIDTH = 280;
-const AGENT_PANEL_MAX_WIDTH = 680;
+const AGENT_PANEL_MIN_WIDTH = 320;
+const AGENT_PANEL_MAX_WIDTH = 720;
 
 function clampWidth(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
@@ -103,7 +103,7 @@ export function App() {
   } | null>(null);
   const [leftPanelWidth, setLeftPanelWidth] = useLocalStorage<number>("ambient-left-panel-width", 280);
   const [rightPanelWidth, setRightPanelWidth] = useLocalStorage<number>("ambient-right-panel-width", 300);
-  const [agentPanelWidth, setAgentPanelWidth] = useLocalStorage<number>("ambient-agent-panel-width", 360);
+  const [agentPanelWidth, setAgentPanelWidth] = useLocalStorage<number>("ambient-agent-panel-width", 420);
   const appConfig = useMemo(() => normalizeAppConfig(storedAppConfig), [storedAppConfig]);
 
   const [todos, setTodos] = useState<TodoItem[]>([]);
@@ -1182,6 +1182,17 @@ export function App() {
     onGenerateSummary: sessionActive ? handleGenerateSummary : undefined,
   });
 
+  useEffect(() => {
+    if (!selectedAgent) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        selectAgent(null);
+      }
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [selectAgent, selectedAgent]);
+
   const educationalInsights = insights.filter((i) => i.kind !== "key-point");
   const visibleSessions = activeProjectId
     ? sessions.filter((s) => s.projectId === activeProjectId)
@@ -1284,33 +1295,6 @@ export function App() {
                 onRegenerate={handleRegenerateSummary}
               />
             </main>
-            {selectedAgent && (
-              <>
-                <div
-                  role="separator"
-                  aria-label="Resize transcript and agent panels"
-                  aria-orientation="vertical"
-                  className="group relative w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-border/50"
-                  onMouseDown={handleResizeMouseDown("agent")}
-                >
-                  <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />
-                </div>
-                <div className="shrink-0 min-h-0" style={{ width: agentPanelWidth }}>
-                  <AgentDetailPanel
-                    agent={selectedAgent}
-                    agents={agents}
-                    onSelectAgent={selectAgent}
-                    onClose={() => selectAgent(null)}
-                    onFollowUp={handleFollowUp}
-                    onAnswerQuestion={handleAnswerAgentQuestion}
-                    onAnswerToolApproval={handleAnswerAgentToolApproval}
-                    onCancel={handleCancelAgent}
-                    onRelaunch={handleRelaunchAgent}
-                    onArchive={handleArchiveAgent}
-                  />
-                </div>
-              </>
-            )}
             <div
               role="separator"
               aria-label="Resize right panel"
@@ -1341,6 +1325,33 @@ export function App() {
                 onSubmitTodoInput={handleSubmitTodoInput}
               />
             </div>
+            {selectedAgent && (
+              <>
+                <div
+                  role="separator"
+                  aria-label="Resize agent panel"
+                  aria-orientation="vertical"
+                  className="group relative w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-border/50"
+                  onMouseDown={handleResizeMouseDown("agent")}
+                >
+                  <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />
+                </div>
+                <div className="shrink-0 min-h-0" style={{ width: agentPanelWidth }}>
+                  <AgentDetailPanel
+                    agent={selectedAgent}
+                    agents={agents}
+                    onSelectAgent={selectAgent}
+                    onClose={() => selectAgent(null)}
+                    onFollowUp={handleFollowUp}
+                    onAnswerQuestion={handleAnswerAgentQuestion}
+                    onAnswerToolApproval={handleAnswerAgentToolApproval}
+                    onCancel={handleCancelAgent}
+                    onRelaunch={handleRelaunchAgent}
+                    onArchive={handleArchiveAgent}
+                  />
+                </div>
+              </>
+            )}
           </>
         )}
       </div>

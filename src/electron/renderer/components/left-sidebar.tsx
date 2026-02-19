@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocalStorage } from "usehooks-ts";
 import type { Insight, ProjectMeta, SessionMeta } from "../../../core/types";
 import { Separator } from "@/components/ui/separator";
@@ -48,15 +48,6 @@ function formatDate(ms: number): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-const SUMMARY_MIN_H = 60;
-const SUMMARY_MAX_H = 320;
-const INSIGHTS_MIN_H = 60;
-const INSIGHTS_MAX_H = 480;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
 const INSIGHT_ICONS: Record<string, LucideIcon> = {
   definition: BookOpen,
   context: Link2,
@@ -75,6 +66,33 @@ type ProjectFormMode =
   | { kind: "create" }
   | { kind: "edit"; project: ProjectMeta };
 
+type LeftRailMode = "briefing" | "sessions";
+
+function RailModeButton({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "h-7 rounded-sm text-xs transition-colors",
+        active
+          ? "bg-background text-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground hover:bg-background/70",
+      ].join(" ")}
+    >
+      {label}
+    </button>
+  );
+}
+
 export function LeftSidebar({
   rollingKeyPoints,
   insights,
@@ -89,61 +107,11 @@ export function LeftSidebar({
   onEditProject,
   onDeleteProject,
 }: LeftSidebarProps) {
-  const summaryBottomRef = useRef<HTMLDivElement>(null);
-  const insightsBottomRef = useRef<HTMLDivElement>(null);
   const [formMode, setFormMode] = useState<ProjectFormMode>({ kind: "none" });
-  const [summaryHeight, setSummaryHeight] = useLocalStorage("ambient-summary-section-height", 112);
-  const [insightsHeight, setInsightsHeight] = useLocalStorage("ambient-insights-section-height", 192);
-  const resizeRef = useRef<{
-    handle: "summary" | "insights";
-    startY: number;
-    startSummary: number;
-    startInsights: number;
-  } | null>(null);
-
-  const startResize = useCallback((handle: "summary" | "insights") => (e: React.MouseEvent) => {
-    e.preventDefault();
-    resizeRef.current = { handle, startY: e.clientY, startSummary: summaryHeight, startInsights: insightsHeight };
-    document.body.style.cursor = "row-resize";
-    document.body.style.userSelect = "none";
-  }, [summaryHeight, insightsHeight]);
-
-  useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
-      const active = resizeRef.current;
-      if (!active) return;
-      const delta = e.clientY - active.startY;
-      if (active.handle === "summary") {
-        setSummaryHeight(Math.round(clamp(active.startSummary + delta, SUMMARY_MIN_H, SUMMARY_MAX_H)));
-      } else {
-        setInsightsHeight(Math.round(clamp(active.startInsights + delta, INSIGHTS_MIN_H, INSIGHTS_MAX_H)));
-      }
-    };
-    const onMouseUp = () => {
-      if (!resizeRef.current) return;
-      resizeRef.current = null;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-      onMouseUp();
-    };
-  }, [setSummaryHeight, setInsightsHeight]);
+  const [mode, setMode] = useLocalStorage<LeftRailMode>("ambient-left-rail-mode", "briefing");
   const [formName, setFormName] = useState("");
   const [formInstructions, setFormInstructions] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    summaryBottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [rollingKeyPoints.length]);
-
-  useEffect(() => {
-    insightsBottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [insights.length]);
 
   useEffect(() => {
     if (formMode.kind !== "none") {
@@ -273,125 +241,117 @@ export function LeftSidebar({
 
       <Separator />
 
-      {/* Summary section — resizable height */}
-      <div className="px-3 shrink-0 flex flex-col overflow-hidden" style={{ height: summaryHeight }}>
-        <SectionLabel className="pt-2.5 pb-2 shrink-0">Summary</SectionLabel>
-        <div className="overflow-y-auto pb-2.5">
-          {rollingKeyPoints.length > 0 ? (
-            <ul className="space-y-1">
-              {rollingKeyPoints.map((point, i) => (
-                <li key={i} className="text-xs text-foreground leading-relaxed">
-                  <span className="text-muted-foreground mr-1">•</span>
-                  {point}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-xs text-muted-foreground italic">
-              Summary will appear during recording...
-            </p>
-          )}
-          <div ref={summaryBottomRef} />
+      <div className="px-2 py-2 shrink-0">
+        <div className="grid grid-cols-2 gap-1 rounded-md bg-muted/50 p-1">
+          <RailModeButton
+            label="Briefing"
+            active={mode === "briefing"}
+            onClick={() => setMode("briefing")}
+          />
+          <RailModeButton
+            label={`Sessions (${sessions.length})`}
+            active={mode === "sessions"}
+            onClick={() => setMode("sessions")}
+          />
         </div>
       </div>
 
-      <div
-        role="separator"
-        aria-label="Resize summary section"
-        aria-orientation="horizontal"
-        className="group relative h-1.5 shrink-0 cursor-row-resize bg-transparent transition-colors hover:bg-border/50"
-        onMouseDown={startResize("summary")}
-      >
-        <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />
-      </div>
-
-      {/* Insights feed — resizable height */}
-      <div className="px-3 shrink-0 flex flex-col overflow-hidden" style={{ height: insightsHeight }}>
-        <SectionLabel className="pt-2.5 pb-2 shrink-0">Insights</SectionLabel>
-        <div className="overflow-y-auto pb-2.5">
-          {insights.length > 0 ? (
-            <ul className="space-y-1.5">
-              {insights.map((insight) => (
-                <li key={insight.id} className="text-xs leading-relaxed flex gap-1.5 items-start">
-                  <span className="text-muted-foreground shrink-0">
-                    <InsightIcon kind={insight.kind} />
-                  </span>
-                  <span className="text-foreground">{insight.text}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-xs text-muted-foreground italic">
-              AI insights will appear here...
-            </p>
-          )}
-          <div ref={insightsBottomRef} />
-        </div>
-      </div>
-
-      <div
-        role="separator"
-        aria-label="Resize insights section"
-        aria-orientation="horizontal"
-        className="group relative h-1.5 shrink-0 cursor-row-resize bg-transparent transition-colors hover:bg-border/50"
-        onMouseDown={startResize("insights")}
-      >
-        <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />
-      </div>
-
-      {/* Session timeline — takes remaining space */}
       <div className="px-3 py-2.5 flex-1 min-h-0 flex flex-col">
-        <SectionLabel className="mb-2 shrink-0">Sessions</SectionLabel>
-        <div className="flex-1 min-h-0 overflow-y-auto">
-        {sessions.length > 0 ? (
-          <ul className="space-y-1">
-            {sessions.map((session) => (
-              <li key={session.id} className="group">
-                <button
-                  type="button"
-                  onClick={() => onSelectSession?.(session.id)}
-                  className={`w-full text-left px-2 py-1.5 rounded-sm text-xs transition-colors ${activeSessionId === session.id ? "bg-sidebar-accent" : "hover:bg-sidebar-accent"}`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-foreground font-medium truncate">
-                      {session.title ?? "Untitled Session"}
-                    </span>
-                    <span className="shrink-0 flex items-center justify-end w-5">
-                      {onDeleteSession ? (
-                        <>
-                          <span className="text-muted-foreground text-2xs font-mono group-hover:hidden">
-                            {session.blockCount}
-                          </span>
-                          <span
-                            role="button"
-                            onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
-                            className="hidden group-hover:flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
-                            title="Delete session"
-                          >
-                            <Trash2Icon className="size-3" />
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-muted-foreground text-2xs font-mono">
-                          {session.blockCount}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                  <div className="text-muted-foreground text-2xs font-mono">
-                    {formatDate(session.startedAt)} · {formatTime(session.startedAt)}
-                    {session.agentCount > 0 && ` · ${session.agentCount} agent${session.agentCount !== 1 ? "s" : ""}`}
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
+        {mode === "briefing" ? (
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
+            <section>
+              <SectionLabel className="mb-2">Live Summary</SectionLabel>
+              {rollingKeyPoints.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {rollingKeyPoints.map((point, i) => (
+                    <li key={i} className="text-xs text-foreground leading-relaxed">
+                      <span className="text-muted-foreground mr-1">•</span>
+                      {point}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">
+                  Summary will appear during recording...
+                </p>
+              )}
+            </section>
+            <Separator />
+            <section>
+              <SectionLabel className="mb-2">Insights</SectionLabel>
+              {insights.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {insights.map((insight) => (
+                    <li key={insight.id} className="text-xs leading-relaxed flex gap-1.5 items-start">
+                      <span className="text-muted-foreground shrink-0">
+                        <InsightIcon kind={insight.kind} />
+                      </span>
+                      <span className="text-foreground">{insight.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">
+                  AI insights will appear here...
+                </p>
+              )}
+            </section>
+          </div>
         ) : (
-          <p className="text-xs text-muted-foreground italic">
-            No previous sessions
-          </p>
+          <>
+            <SectionLabel className="mb-2 shrink-0">Session Timeline</SectionLabel>
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {sessions.length > 0 ? (
+                <ul className="space-y-1">
+                  {sessions.map((session) => (
+                    <li key={session.id} className="group">
+                      <button
+                        type="button"
+                        onClick={() => onSelectSession?.(session.id)}
+                        className={`w-full text-left px-2 py-1.5 rounded-sm text-xs transition-colors ${activeSessionId === session.id ? "bg-sidebar-accent" : "hover:bg-sidebar-accent"}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-foreground font-medium truncate">
+                            {session.title ?? "Untitled Session"}
+                          </span>
+                          <span className="shrink-0 flex items-center justify-end w-5">
+                            {onDeleteSession ? (
+                              <>
+                                <span className="text-muted-foreground text-2xs font-mono group-hover:hidden">
+                                  {session.blockCount}
+                                </span>
+                                <span
+                                  role="button"
+                                  onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
+                                  className="hidden group-hover:flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
+                                  title="Delete session"
+                                >
+                                  <Trash2Icon className="size-3" />
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-muted-foreground text-2xs font-mono">
+                                {session.blockCount}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="text-muted-foreground text-2xs font-mono">
+                          {formatDate(session.startedAt)} · {formatTime(session.startedAt)}
+                          {session.agentCount > 0 && ` · ${session.agentCount} agent${session.agentCount !== 1 ? "s" : ""}`}
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">
+                  No previous sessions
+                </p>
+              )}
+            </div>
+          </>
         )}
-        </div>
       </div>
     </div>
   );

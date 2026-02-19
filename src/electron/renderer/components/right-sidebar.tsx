@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useLocalStorage } from "usehooks-ts";
 import type { TodoItem, TodoSuggestion, Agent } from "../../../core/types";
 import {
   ChevronDownIcon,
@@ -21,10 +22,10 @@ import {
 import { AgentList } from "./agent-list";
 import { AgentDebriefPanel } from "./agent-debrief-panel";
 import { useAgentsSummary } from "../hooks/use-agents-summary";
-import { Separator } from "@/components/ui/separator";
 import { SectionLabel } from "@/components/ui/section-label";
 
 const SUGGESTION_TTL_MS = 30_000;
+type RightRailMode = "work" | "agents";
 
 type RightSidebarProps = {
   todos: TodoItem[];
@@ -230,6 +231,31 @@ function EditableTodoItem({
   );
 }
 
+function RailModeButton({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "h-7 rounded-sm text-xs transition-colors",
+        active
+          ? "bg-background text-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground hover:bg-background/70",
+      ].join(" ")}
+    >
+      {label}
+    </button>
+  );
+}
+
 export function RightSidebar({
   todos,
   suggestions,
@@ -249,6 +275,7 @@ export function RightSidebar({
   onRemoveTranscriptRef,
   onSubmitTodoInput,
 }: RightSidebarProps) {
+  const [mode, setMode] = useLocalStorage<RightRailMode>("ambient-right-rail-mode", "work");
   const [completedOpen, setCompletedOpen] = useState(false);
   const processingTodoIdSet = new Set(processingTodoIds);
 
@@ -289,6 +316,16 @@ export function RightSidebar({
   useEffect(() => {
     if (isViewingPast && completedHaveAgents) setCompletedOpen(true);
   }, [isViewingPast, completedHaveAgents]);
+  useEffect(() => {
+    if (transcriptRefs.length > 0 && mode !== "work") {
+      setMode("work");
+    }
+  }, [mode, setMode, transcriptRefs.length]);
+  useEffect(() => {
+    if (selectedAgentId && mode !== "agents") {
+      setMode("agents");
+    }
+  }, [mode, selectedAgentId, setMode]);
 
   const handleSubmit = useCallback(
     ({ text }: { text: string }) => {
@@ -300,158 +337,181 @@ export function RightSidebar({
   );
 
   const hasRefs = transcriptRefs.length > 0;
+  const runningAgentsCount = (agents ?? []).filter((agent) => agent.status === "running").length;
 
   return (
     <div className="w-full h-full shrink-0 border-l border-border flex flex-col min-h-0 bg-sidebar">
+      <div className="px-2 py-2 shrink-0 border-b border-border/70">
+        <div className="grid grid-cols-2 gap-1 rounded-md bg-muted/50 p-1">
+          <RailModeButton
+            active={mode === "work"}
+            onClick={() => setMode("work")}
+            label={`Work (${activeTodos.length + suggestions.length})`}
+          />
+          <RailModeButton
+            active={mode === "agents"}
+            onClick={() => setMode("agents")}
+            label={runningAgentsCount > 0 ? `Agents (${runningAgentsCount} live)` : `Agents (${(agents ?? []).length})`}
+          />
+        </div>
+      </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3">
-        {/* AI Suggestions */}
-        {suggestions.length > 0 && (
-          <div className="mb-3">
-            <SectionLabel className="sticky top-0 bg-sidebar z-10 -mx-3 px-3 py-1.5 block">Suggested</SectionLabel>
-            <ul className="space-y-1">
-              {suggestions.map((s) => (
-                <SuggestionItem
-                  key={s.id}
-                  suggestion={s}
-                  onAccept={() => onAcceptSuggestion?.(s)}
-                  onDismiss={() => onDismissSuggestion?.(s.id)}
-                />
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Agents summary + list */}
-        {agents && onSelectAgent && agents.length > 0 && (
+        {mode === "work" ? (
           <>
-            <AgentDebriefPanel
-              state={debriefState}
-              onGenerate={generateDebrief}
-              canGenerate={canGenerateDebrief}
-              onAddTodo={onAddTodo}
-            />
-            <AgentList
-              agents={agents}
-              selectedAgentId={selectedAgentId ?? null}
-              onSelectAgent={onSelectAgent}
-            />
-            <Separator className="my-3" />
-          </>
-        )}
+            {/* AI Suggestions */}
+            {suggestions.length > 0 && (
+              <div className="mb-3">
+                <SectionLabel className="sticky top-0 bg-sidebar z-10 -mx-3 px-3 py-1.5 block">Suggested</SectionLabel>
+                <ul className="space-y-1">
+                  {suggestions.map((s) => (
+                    <SuggestionItem
+                      key={s.id}
+                      suggestion={s}
+                      onAccept={() => onAcceptSuggestion?.(s)}
+                      onDismiss={() => onDismissSuggestion?.(s.id)}
+                    />
+                  ))}
+                </ul>
+              </div>
+            )}
 
-        {/* Active todos */}
-        <div className="mb-3">
-          <div className="sticky top-0 bg-sidebar z-10 -mx-3 px-3 py-1.5 flex items-center justify-between mb-1.5">
-            <SectionLabel as="span">
-              {pendingInAgentsCount > 0 ? `Todos · ${pendingInAgentsCount} in agents` : "Todos"}
-            </SectionLabel>
-            {(() => {
-              const completedByAgent = activeTodos.filter(
-                (t) => agentByTodoId.get(t.id)?.status === "completed"
-              );
-              if (completedByAgent.length === 0) return null;
-              return (
+            {/* Active todos */}
+            <div className="mb-3">
+              <div className="sticky top-0 bg-sidebar z-10 -mx-3 px-3 py-1.5 flex items-center justify-between mb-1.5">
+                <SectionLabel as="span">
+                  {pendingInAgentsCount > 0 ? `Todos · ${pendingInAgentsCount} in agents` : "Todos"}
+                </SectionLabel>
+                {(() => {
+                  const completedByAgent = activeTodos.filter(
+                    (t) => agentByTodoId.get(t.id)?.status === "completed"
+                  );
+                  if (completedByAgent.length === 0) return null;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => completedByAgent.forEach((t) => onToggleTodo?.(t.id))}
+                      className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Complete all ({completedByAgent.length})
+                    </button>
+                  );
+                })()}
+              </div>
+              {activeTodos.length > 0 ? (
+                <ul className="space-y-px">
+                  {activeTodos.map((todo) => (
+                    <EditableTodoItem
+                      key={todo.id}
+                      todo={todo}
+                      isProcessing={processingTodoIdSet.has(todo.id)}
+                      agent={agentByTodoId.get(todo.id)}
+                      onToggle={() => onToggleTodo?.(todo.id)}
+                      onDelete={() => onDeleteTodo?.(todo.id)}
+                      onUpdate={onUpdateTodo ? (text) => onUpdateTodo(todo.id, text) : undefined}
+                      onLaunchAgent={onLaunchAgent ? () => onLaunchAgent(todo) : undefined}
+                      onSelectAgent={onSelectAgent ?? undefined}
+                    />
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">
+                  No active todos
+                </p>
+              )}
+            </div>
+
+            {/* Completed todos */}
+            {completedTodos.length > 0 && (
+              <div>
                 <button
                   type="button"
-                  onClick={() => completedByAgent.forEach((t) => onToggleTodo?.(t.id))}
-                  className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setCompletedOpen((prev) => !prev)}
+                  className="flex items-center gap-1 text-2xs font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
                 >
-                  Complete all ({completedByAgent.length})
+                  <ChevronDownIcon
+                    className={`size-3 transition-transform ${completedOpen ? "" : "-rotate-90"}`}
+                  />
+                  Completed ({completedTodos.length})
                 </button>
-              );
-            })()}
-          </div>
-          {activeTodos.length > 0 ? (
-            <ul className="space-y-px">
-              {activeTodos.map((todo) => (
-                <EditableTodoItem
-                  key={todo.id}
-                  todo={todo}
-                  isProcessing={processingTodoIdSet.has(todo.id)}
-                  agent={agentByTodoId.get(todo.id)}
-                  onToggle={() => onToggleTodo?.(todo.id)}
-                  onDelete={() => onDeleteTodo?.(todo.id)}
-                  onUpdate={onUpdateTodo ? (text) => onUpdateTodo(todo.id, text) : undefined}
-                  onLaunchAgent={onLaunchAgent ? () => onLaunchAgent(todo) : undefined}
-                  onSelectAgent={onSelectAgent ?? undefined}
+                {completedOpen && (
+                  <ul className="mt-1.5 space-y-px">
+                    {completedTodos.map((todo) => {
+                      const todoAgent = agentByTodoId.get(todo.id);
+                      return (
+                        <li key={todo.id} className="flex items-center gap-2 h-7 group px-1 -mx-1 rounded-sm hover:bg-muted/30 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked
+                            onChange={() => onToggleTodo?.(todo.id)}
+                            className="size-3 shrink-0 rounded-sm border-border accent-primary cursor-pointer"
+                          />
+                          {todoAgent && onSelectAgent ? (
+                            <button
+                              type="button"
+                              onClick={() => onSelectAgent(todoAgent.id)}
+                              className="text-xs text-muted-foreground/60 truncate flex-1 text-left line-through hover:text-muted-foreground transition-colors"
+                            >
+                              {todo.text}
+                            </button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground/60 truncate flex-1 line-through">
+                              {todo.text}
+                            </span>
+                          )}
+                          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                            {todoAgent && onSelectAgent && (
+                              <button
+                                type="button"
+                                onClick={() => onSelectAgent(todoAgent.id)}
+                                className="p-0.5 text-muted-foreground hover:text-primary transition-colors"
+                                aria-label="View agent results"
+                              >
+                                <HugeiconsIcon icon={WorkoutRunIcon} className="size-3" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => onDeleteTodo?.(todo.id)}
+                              className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"
+                              aria-label="Delete todo"
+                            >
+                              <Trash2Icon className="size-3" />
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="pt-2">
+            {agents && onSelectAgent && agents.length > 0 ? (
+              <>
+                <AgentDebriefPanel
+                  state={debriefState}
+                  onGenerate={generateDebrief}
+                  canGenerate={canGenerateDebrief}
+                  onAddTodo={onAddTodo}
                 />
-              ))}
-            </ul>
-          ) : (
-            <p className="text-xs text-muted-foreground italic">
-              No active todos
-            </p>
-          )}
-        </div>
-
-        {/* Completed todos */}
-        {completedTodos.length > 0 && (
-          <div>
-            <button
-              type="button"
-              onClick={() => setCompletedOpen((prev) => !prev)}
-              className="flex items-center gap-1 text-2xs font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
-            >
-              <ChevronDownIcon
-                className={`size-3 transition-transform ${completedOpen ? "" : "-rotate-90"}`}
-              />
-              Completed ({completedTodos.length})
-            </button>
-            {completedOpen && (
-              <ul className="mt-1.5 space-y-px">
-                {completedTodos.map((todo) => {
-                  const todoAgent = agentByTodoId.get(todo.id);
-                  return (
-                    <li key={todo.id} className="flex items-center gap-2 h-7 group px-1 -mx-1 rounded-sm hover:bg-muted/30 transition-colors">
-                      <input
-                        type="checkbox"
-                        checked
-                        onChange={() => onToggleTodo?.(todo.id)}
-                        className="size-3 shrink-0 rounded-sm border-border accent-primary cursor-pointer"
-                      />
-                      {todoAgent && onSelectAgent ? (
-                        <button
-                          type="button"
-                          onClick={() => onSelectAgent(todoAgent.id)}
-                          className="text-xs text-muted-foreground/60 truncate flex-1 text-left line-through hover:text-muted-foreground transition-colors"
-                        >
-                          {todo.text}
-                        </button>
-                      ) : (
-                        <span className="text-xs text-muted-foreground/60 truncate flex-1 line-through">
-                          {todo.text}
-                        </span>
-                      )}
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                        {todoAgent && onSelectAgent && (
-                          <button
-                            type="button"
-                            onClick={() => onSelectAgent(todoAgent.id)}
-                            className="p-0.5 text-muted-foreground hover:text-primary transition-colors"
-                            aria-label="View agent results"
-                          >
-                            <HugeiconsIcon icon={WorkoutRunIcon} className="size-3" />
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => onDeleteTodo?.(todo.id)}
-                          className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"
-                          aria-label="Delete todo"
-                        >
-                          <Trash2Icon className="size-3" />
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
+                <AgentList
+                  agents={agents}
+                  selectedAgentId={selectedAgentId ?? null}
+                  onSelectAgent={onSelectAgent}
+                />
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground italic">
+                Agent activity will appear here once you run a task.
+              </p>
             )}
           </div>
         )}
       </div>
 
-      {onSubmitTodoInput && (
+      {onSubmitTodoInput && mode === "work" && (
         <div className="px-2 pt-2 pb-2 shrink-0">
           <PromptInput onSubmit={handleSubmit}>
             <PromptInputHeader className="px-2 pt-1.5 pb-1 gap-1 min-h-[28px]">
@@ -487,6 +547,18 @@ export function RightSidebar({
               <PromptInputSubmit size="icon-sm" />
             </PromptInputFooter>
           </PromptInput>
+        </div>
+      )}
+      {onSubmitTodoInput && mode === "agents" && hasRefs && (
+        <div className="px-3 py-2 border-t border-border text-2xs text-muted-foreground">
+          {transcriptRefs.length} selected snippet{transcriptRefs.length !== 1 ? "s" : ""} ready for todo input.
+          <button
+            type="button"
+            onClick={() => setMode("work")}
+            className="ml-1 text-foreground hover:text-primary transition-colors"
+          >
+            Open Work
+          </button>
         </div>
       )}
     </div>
