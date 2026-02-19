@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocalStorage } from "usehooks-ts";
 import type { Insight, ProjectMeta, SessionMeta } from "../../../core/types";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,15 @@ function formatDate(ms: number): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+const SUMMARY_MIN_H = 60;
+const SUMMARY_MAX_H = 320;
+const INSIGHTS_MIN_H = 60;
+const INSIGHTS_MAX_H = 480;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
 const INSIGHT_ICONS: Record<string, LucideIcon> = {
   definition: BookOpen,
   context: Link2,
@@ -82,6 +92,47 @@ export function LeftSidebar({
   const summaryBottomRef = useRef<HTMLDivElement>(null);
   const insightsBottomRef = useRef<HTMLDivElement>(null);
   const [formMode, setFormMode] = useState<ProjectFormMode>({ kind: "none" });
+  const [summaryHeight, setSummaryHeight] = useLocalStorage("ambient-summary-section-height", 112);
+  const [insightsHeight, setInsightsHeight] = useLocalStorage("ambient-insights-section-height", 192);
+  const resizeRef = useRef<{
+    handle: "summary" | "insights";
+    startY: number;
+    startSummary: number;
+    startInsights: number;
+  } | null>(null);
+
+  const startResize = useCallback((handle: "summary" | "insights") => (e: React.MouseEvent) => {
+    e.preventDefault();
+    resizeRef.current = { handle, startY: e.clientY, startSummary: summaryHeight, startInsights: insightsHeight };
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+  }, [summaryHeight, insightsHeight]);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      const active = resizeRef.current;
+      if (!active) return;
+      const delta = e.clientY - active.startY;
+      if (active.handle === "summary") {
+        setSummaryHeight(Math.round(clamp(active.startSummary + delta, SUMMARY_MIN_H, SUMMARY_MAX_H)));
+      } else {
+        setInsightsHeight(Math.round(clamp(active.startInsights + delta, INSIGHTS_MIN_H, INSIGHTS_MAX_H)));
+      }
+    };
+    const onMouseUp = () => {
+      if (!resizeRef.current) return;
+      resizeRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      onMouseUp();
+    };
+  }, [setSummaryHeight, setInsightsHeight]);
   const [formName, setFormName] = useState("");
   const [formInstructions, setFormInstructions] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -222,51 +273,71 @@ export function LeftSidebar({
 
       <Separator />
 
-      {/* Summary section — fixed small height */}
-      <div className="px-3 py-2.5 shrink-0 max-h-28 overflow-y-auto">
-        <SectionLabel className="mb-2">Summary</SectionLabel>
-        {rollingKeyPoints.length > 0 ? (
-          <ul className="space-y-1">
-            {rollingKeyPoints.map((point, i) => (
-              <li key={i} className="text-xs text-foreground leading-relaxed">
-                <span className="text-muted-foreground mr-1">•</span>
-                {point}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-xs text-muted-foreground italic">
-            Summary will appear during recording...
-          </p>
-        )}
-        <div ref={summaryBottomRef} />
+      {/* Summary section — resizable height */}
+      <div className="px-3 shrink-0 flex flex-col overflow-hidden" style={{ height: summaryHeight }}>
+        <SectionLabel className="pt-2.5 pb-2 shrink-0">Summary</SectionLabel>
+        <div className="overflow-y-auto pb-2.5">
+          {rollingKeyPoints.length > 0 ? (
+            <ul className="space-y-1">
+              {rollingKeyPoints.map((point, i) => (
+                <li key={i} className="text-xs text-foreground leading-relaxed">
+                  <span className="text-muted-foreground mr-1">•</span>
+                  {point}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground italic">
+              Summary will appear during recording...
+            </p>
+          )}
+          <div ref={summaryBottomRef} />
+        </div>
       </div>
 
-      <Separator />
-
-      {/* Insights feed — bounded height */}
-      <div className="px-3 py-2.5 shrink-0 max-h-48 overflow-y-auto">
-        <SectionLabel className="mb-2">Insights</SectionLabel>
-        {insights.length > 0 ? (
-          <ul className="space-y-1.5">
-            {insights.map((insight) => (
-              <li key={insight.id} className="text-xs leading-relaxed flex gap-1.5 items-start">
-                <span className="text-muted-foreground shrink-0">
-                  <InsightIcon kind={insight.kind} />
-                </span>
-                <span className="text-foreground">{insight.text}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-xs text-muted-foreground italic">
-            AI insights will appear here...
-          </p>
-        )}
-        <div ref={insightsBottomRef} />
+      <div
+        role="separator"
+        aria-label="Resize summary section"
+        aria-orientation="horizontal"
+        className="group relative h-1.5 shrink-0 cursor-row-resize bg-transparent transition-colors hover:bg-border/50"
+        onMouseDown={startResize("summary")}
+      >
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />
       </div>
 
-      <Separator />
+      {/* Insights feed — resizable height */}
+      <div className="px-3 shrink-0 flex flex-col overflow-hidden" style={{ height: insightsHeight }}>
+        <SectionLabel className="pt-2.5 pb-2 shrink-0">Insights</SectionLabel>
+        <div className="overflow-y-auto pb-2.5">
+          {insights.length > 0 ? (
+            <ul className="space-y-1.5">
+              {insights.map((insight) => (
+                <li key={insight.id} className="text-xs leading-relaxed flex gap-1.5 items-start">
+                  <span className="text-muted-foreground shrink-0">
+                    <InsightIcon kind={insight.kind} />
+                  </span>
+                  <span className="text-foreground">{insight.text}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground italic">
+              AI insights will appear here...
+            </p>
+          )}
+          <div ref={insightsBottomRef} />
+        </div>
+      </div>
+
+      <div
+        role="separator"
+        aria-label="Resize insights section"
+        aria-orientation="horizontal"
+        className="group relative h-1.5 shrink-0 cursor-row-resize bg-transparent transition-colors hover:bg-border/50"
+        onMouseDown={startResize("insights")}
+      >
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />
+      </div>
 
       {/* Session timeline — takes remaining space */}
       <div className="px-3 py-2.5 flex-1 min-h-0 flex flex-col">

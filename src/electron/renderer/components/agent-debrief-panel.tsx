@@ -244,7 +244,7 @@ export function AgentDebriefPanel({
 
   return (
     <div className="mb-3">
-      <div className="flex items-center justify-between mb-1.5">
+      <div className="sticky top-0 bg-sidebar z-10 -mx-3 px-3 py-1.5 flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-1">
           <HugeiconsIcon icon={WorkoutRunIcon} className="size-3 text-muted-foreground" />
           <SectionLabel as="span">Agents Summary</SectionLabel>

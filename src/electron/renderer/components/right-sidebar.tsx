@@ -307,8 +307,8 @@ export function RightSidebar({
         {/* AI Suggestions */}
         {suggestions.length > 0 && (
           <div className="mb-3">
-            <SectionLabel as="span">Suggested</SectionLabel>
-            <ul className="mt-1.5 space-y-1">
+            <SectionLabel className="sticky top-0 bg-sidebar z-10 -mx-3 px-3 py-1.5 block">Suggested</SectionLabel>
+            <ul className="space-y-1">
               {suggestions.map((s) => (
                 <SuggestionItem
                   key={s.id}
@@ -341,7 +341,7 @@ export function RightSidebar({
 
         {/* Active todos */}
         <div className="mb-3">
-          <div className="flex items-center justify-between mb-1.5">
+          <div className="sticky top-0 bg-sidebar z-10 -mx-3 px-3 py-1.5 flex items-center justify-between mb-1.5">
             <SectionLabel as="span">
               {pendingInAgentsCount > 0 ? `Todos · ${pendingInAgentsCount} in agents` : "Todos"}
             </SectionLabel>
