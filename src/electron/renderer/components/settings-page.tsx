@@ -31,8 +31,18 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { Laptop2Icon, MoonIcon, RotateCcwIcon, ServerIcon, SunIcon } from "lucide-react";
-import { NotionIcon, LinearIcon, resolveProviderIcon } from "./integration-icons";
+import {
+  Laptop2Icon,
+  MoonIcon,
+  RotateCcwIcon,
+  ServerIcon,
+  SunIcon,
+} from "lucide-react";
+import {
+  NotionIcon,
+  LinearIcon,
+  resolveProviderIcon,
+} from "./integration-icons";
 
 type SettingsPageProps = {
   config: AppConfig;
@@ -51,10 +61,21 @@ type SettingsPageProps = {
   onSetLinearToken: (token: string) => Promise<{ ok: boolean; error?: string }>;
   onClearLinearToken: () => Promise<{ ok: boolean; error?: string }>;
   customMcpServers: CustomMcpStatus[];
-  onAddCustomServer: (cfg: { name: string; url: string; transport: "streamable" | "sse"; bearerToken?: string }) => Promise<{ ok: boolean; error?: string; id?: string }>;
-  onRemoveCustomServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
-  onConnectCustomServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
-  onDisconnectCustomServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  onAddCustomServer: (cfg: {
+    name: string;
+    url: string;
+    transport: "streamable" | "sse";
+    bearerToken?: string;
+  }) => Promise<{ ok: boolean; error?: string; id?: string }>;
+  onRemoveCustomServer: (
+    id: string
+  ) => Promise<{ ok: boolean; error?: string }>;
+  onConnectCustomServer: (
+    id: string
+  ) => Promise<{ ok: boolean; error?: string }>;
+  onDisconnectCustomServer: (
+    id: string
+  ) => Promise<{ ok: boolean; error?: string }>;
   mcpToolsByProvider: Record<string, McpProviderToolSummary>;
 };
 
@@ -133,18 +154,16 @@ const ANALYSIS_PROVIDERS: Array<{ value: AnalysisProvider; label: string }> = [
 type AnalysisModelPreset = {
   label: string;
   modelId: string;
-  providerOnly: string;
+  providerOnly?: string;
 };
 const ANALYSIS_MODEL_PRESETS: AnalysisModelPreset[] = [
   {
     label: "Kimi K2 0905",
     modelId: "moonshotai/kimi-k2-0905:exacto",
-    providerOnly: "groq",
   },
   {
     label: "Kimi K2.5",
     modelId: "moonshotai/kimi-k2.5",
-    providerOnly: "basten",
   },
 ];
 
@@ -191,7 +210,9 @@ function ToolList({ tools }: { tools: McpToolInfo[] }) {
   return (
     <details className="mt-2 group">
       <summary className="text-2xs text-muted-foreground cursor-pointer select-none list-none flex items-center gap-1 hover:text-foreground transition-colors">
-        <span className="inline-block transition-transform group-open:rotate-90">▶</span>
+        <span className="inline-block transition-transform group-open:rotate-90">
+          ▶
+        </span>
         {tools.length} tool{tools.length !== 1 ? "s" : ""}
       </summary>
       <ul className="mt-1.5 space-y-0.5 max-h-48 overflow-y-auto">
@@ -203,7 +224,12 @@ function ToolList({ tools }: { tools: McpToolInfo[] }) {
               }`}
               title={tool.isMutating ? "write" : "read-only"}
             />
-            <span className="font-mono text-foreground/80 truncate" title={tool.description}>{tool.name}</span>
+            <span
+              className="font-mono text-foreground/80 truncate"
+              title={tool.description}
+            >
+              {tool.name}
+            </span>
           </li>
         ))}
       </ul>
@@ -238,7 +264,9 @@ export function SettingsPage({
   const [linearTokenError, setLinearTokenError] = useState("");
   const [customServerName, setCustomServerName] = useState("");
   const [customServerUrl, setCustomServerUrl] = useState("");
-  const [customServerTransport, setCustomServerTransport] = useState<"streamable" | "sse">("streamable");
+  const [customServerTransport, setCustomServerTransport] = useState<
+    "streamable" | "sse"
+  >("streamable");
   const [customServerToken, setCustomServerToken] = useState("");
   const [customServerError, setCustomServerError] = useState("");
   const addFormRef = useRef<HTMLFormElement>(null);
@@ -473,9 +501,7 @@ export function SettingsPage({
                 </Select>
               </div>
               <div className="space-y-1">
-                <label className="text-2xs text-muted-foreground">
-                  Model
-                </label>
+                <label className="text-2xs text-muted-foreground">Model</label>
                 <Input
                   value={config.transcriptionModelId}
                   onChange={(e) => set("transcriptionModelId", e.target.value)}
@@ -693,11 +719,15 @@ export function SettingsPage({
                 </div>
               )}
               <div className="space-y-1">
-                <label className="text-2xs text-muted-foreground">Todo Model</label>
+                <label className="text-2xs text-muted-foreground">
+                  Todo Model
+                </label>
                 <Select
                   value={config.todoModelId}
                   onValueChange={(modelId) => {
-                    const preset = TODO_MODEL_PRESETS.find((p) => p.modelId === modelId);
+                    const preset = TODO_MODEL_PRESETS.find(
+                      (p) => p.modelId === modelId
+                    );
                     onConfigChange({
                       ...config,
                       todoModelId: modelId,
@@ -938,7 +968,9 @@ export function SettingsPage({
                     bearerToken: customServerToken || undefined,
                   });
                   if (!result.ok) {
-                    setCustomServerError(result.error ?? "Failed to add server.");
+                    setCustomServerError(
+                      result.error ?? "Failed to add server."
+                    );
                     return;
                   }
                   setCustomServerName("");
@@ -965,7 +997,9 @@ export function SettingsPage({
                 />
                 <Select
                   value={customServerTransport}
-                  onValueChange={(v) => setCustomServerTransport(v as "streamable" | "sse")}
+                  onValueChange={(v) =>
+                    setCustomServerTransport(v as "streamable" | "sse")
+                  }
                   disabled={mcpBusy}
                 >
                   <SelectTrigger className="w-36 shrink-0">
@@ -989,12 +1023,15 @@ export function SettingsPage({
                 </Button>
               </form>
               {customServerError && (
-                <p className="mb-2 text-2xs text-destructive">{customServerError}</p>
+                <p className="mb-2 text-2xs text-destructive">
+                  {customServerError}
+                </p>
               )}
               {customMcpServers.length > 0 && (
                 <div className="space-y-1.5">
                   {customMcpServers.map((server) => {
-                    const serverTools = mcpToolsByProvider[`custom:${server.id}`]?.tools ?? [];
+                    const serverTools =
+                      mcpToolsByProvider[`custom:${server.id}`]?.tools ?? [];
                     const ProviderIcon = resolveProviderIcon(server.url);
                     return (
                       <div
@@ -1002,14 +1039,22 @@ export function SettingsPage({
                         className="border border-border/70 bg-background px-3 py-2 rounded-sm"
                       >
                         <div className="flex items-center gap-2">
-                          {ProviderIcon
-                            ? <ProviderIcon className="w-4 h-4 shrink-0" />
-                            : <ServerIcon className="w-4 h-4 shrink-0 text-muted-foreground" />}
+                          {ProviderIcon ? (
+                            <ProviderIcon className="w-4 h-4 shrink-0" />
+                          ) : (
+                            <ServerIcon className="w-4 h-4 shrink-0 text-muted-foreground" />
+                          )}
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-foreground truncate">{server.name}</p>
-                            <p className="text-2xs text-muted-foreground truncate">{server.url}</p>
+                            <p className="text-xs font-medium text-foreground truncate">
+                              {server.name}
+                            </p>
+                            <p className="text-2xs text-muted-foreground truncate">
+                              {server.url}
+                            </p>
                             {server.error && (
-                              <p className="text-2xs text-destructive truncate">{server.error}</p>
+                              <p className="text-2xs text-destructive truncate">
+                                {server.error}
+                              </p>
                             )}
                           </div>
                           <span
@@ -1017,8 +1062,8 @@ export function SettingsPage({
                               server.state === "connected"
                                 ? "bg-green-500/15 text-green-600 dark:text-green-400"
                                 : server.state === "error"
-                                ? "bg-destructive/15 text-destructive"
-                                : "bg-muted text-muted-foreground"
+                                  ? "bg-destructive/15 text-destructive"
+                                  : "bg-muted text-muted-foreground"
                             }`}
                           >
                             {server.state}
@@ -1027,7 +1072,9 @@ export function SettingsPage({
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => void onDisconnectCustomServer(server.id)}
+                              onClick={() =>
+                                void onDisconnectCustomServer(server.id)
+                              }
                               disabled={mcpBusy}
                             >
                               Disconnect
@@ -1036,7 +1083,9 @@ export function SettingsPage({
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => void onConnectCustomServer(server.id)}
+                              onClick={() =>
+                                void onConnectCustomServer(server.id)
+                              }
                               disabled={mcpBusy}
                             >
                               Connect

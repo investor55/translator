@@ -13,7 +13,8 @@
       "WebFetch(domain:github.com)",
       "WebSearch",
       "Bash(node -e:*)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "Bash(find:*)"
     ]
   }
 }

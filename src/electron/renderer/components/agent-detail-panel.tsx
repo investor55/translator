@@ -10,8 +10,13 @@ import {
   SearchIcon,
   RotateCcwIcon,
   ArchiveIcon,
+  CopyIcon,
+  RefreshCwIcon,
 } from "lucide-react";
-import { MessageResponse } from "@/components/ai-elements/message";
+import {
+  CitedMessageResponse,
+  MessageResponse,
+} from "@/components/ai-elements/message";
 import {
   PromptInput,
   PromptInputTextarea,
@@ -440,11 +445,52 @@ function ToolApprovalCard({
   );
 }
 
+function TextStepActions({
+  content,
+  onRegenerate,
+}: {
+  content: string;
+  onRegenerate?: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    void navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [content]);
+
+  return (
+    <div className="mt-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="rounded-sm p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        aria-label={copied ? "Copied" : "Copy message"}
+      >
+        {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+      </button>
+      {onRegenerate && (
+        <button
+          type="button"
+          onClick={onRegenerate}
+          className="rounded-sm p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          aria-label="Regenerate response"
+        >
+          <RefreshCwIcon className="size-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 function StepItem({
   agent,
   step,
   onAnswerQuestion,
   onAnswerToolApproval,
+  onRegenerate,
 }: {
   agent: Agent;
   step: AgentStep;
@@ -456,6 +502,7 @@ function StepItem({
     agent: Agent,
     response: AgentToolApprovalResponse,
   ) => Promise<AnswerToolApprovalResult> | AnswerToolApprovalResult;
+  onRegenerate?: () => void;
 }) {
   if (isToolApprovalStep(step)) {
     return (
@@ -488,10 +535,11 @@ function StepItem({
   switch (step.kind) {
     case "text":
       return (
-        <div className="py-2 border-t border-border mt-1">
+        <div className="group py-2 border-t border-border mt-1">
           <div className="text-xs text-foreground leading-relaxed [&_a]:text-primary [&_a]:underline">
-            <MessageResponse>{step.content}</MessageResponse>
+            <CitedMessageResponse>{step.content}</CitedMessageResponse>
           </div>
+          <TextStepActions content={step.content} onRegenerate={onRegenerate} />
         </div>
       );
     case "user":
@@ -846,6 +894,16 @@ export function AgentDetailPanel({
     return items;
   }, [activeTurnStartAt, agent.id, isRunning, visibleSteps]);
 
+  const lastTextStepId = useMemo(() => {
+    for (let i = timelineItems.length - 1; i >= 0; i--) {
+      const item = timelineItems[i];
+      if (item.kind === "step" && item.step.kind === "text") {
+        return item.step.id;
+      }
+    }
+    return null;
+  }, [timelineItems]);
+
   const handleFollowUpSubmit = useCallback(
     async (message: PromptInputMessage) => {
       const text = message.text.trim();
@@ -957,6 +1015,11 @@ export function AgentDetailPanel({
                 step={item.step}
                 onAnswerQuestion={onAnswerQuestion}
                 onAnswerToolApproval={onAnswerToolApproval}
+                onRegenerate={
+                  !isRunning && onRelaunch && item.step.id === lastTextStepId
+                    ? () => onRelaunch(agent)
+                    : undefined
+                }
               />
             )
           )}

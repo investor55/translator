@@ -216,9 +216,12 @@ async function buildTools(
           isMutating: t.isMutating,
           inputSchema: t.inputSchema,
         }));
-      return matches.length > 0
-        ? matches
-        : { message: "No tools matched. Try broader keywords." };
+      if (matches.length === 0) {
+        throw new Error(
+          `No tools matched "${query}". Available tool name prefixes: ${[...new Set(Object.keys(externalTools).map(n => n.split("__")[0]))].join(", ")}`
+        );
+      }
+      return matches;
     },
   });
 
@@ -248,12 +251,15 @@ async function buildTools(
 
       const external = externalTools[name];
       if (!external) {
-        return { error: `Tool "${name}" not found. Use searchMcpTools to find available tools.` };
+        return {
+          error: `Tool "${name}" not found.`,
+          hint: "Call searchMcpTools with relevant keywords to find the correct tool name.",
+        };
       }
 
       const approvalId = `approval:${toolCallId}`;
 
-      if (external.isMutating && !autoApprove) {
+      if (external.isMutating && !autoApprove && !allowAutoApprove) {
         const request: AgentToolApprovalRequest = {
           id: approvalId,
           toolName: name,
@@ -307,7 +313,16 @@ async function buildTools(
         }
       }
 
-      const output = await external.execute(args, { toolCallId, abortSignal });
+      let output: unknown;
+      try {
+        output = await external.execute(args, { toolCallId, abortSignal });
+      } catch (execError) {
+        const message = execError instanceof Error ? execError.message : String(execError);
+        return {
+          error: `Tool "${name}" failed: ${message}`,
+          hint: "Check the tool's inputSchema and fix the arguments, or call askQuestion to ask the user for the required information.",
+        };
+      }
 
       if (external.isMutating && !autoApprove) {
         onStep({
@@ -533,6 +548,7 @@ async function runAgentWithMessages(
     const streamedAt = Date.now();
     let textStepId: string | null = null;
     let streamedText = "";
+    let lastNonEmptyText = ""; // survives start-step resets; used as finalText fallback
     let deltaCount = 0;
     let firstDeltaAfterMs: number | null = null;
     const reasoningById = new Map<string, string>();
@@ -612,12 +628,13 @@ async function runAgentWithMessages(
         }
         case "tool-error": {
           const toolStepId = `tool:${part.toolCallId}`;
+          const errorMessage = part.error instanceof Error ? part.error.message : safeJson(part.error);
           onStep({
             id: toolStepId,
             kind: "tool-result",
-            content: `${part.toolName} failed`,
+            content: `${part.toolName} failed: ${errorMessage}`,
             toolName: part.toolName,
-            toolInput: safeJson(part.error),
+            toolInput: errorMessage,
             createdAt: Date.now(),
           });
           break;
@@ -636,6 +653,13 @@ async function runAgentWithMessages(
           });
           break;
         }
+        case "start-step": {
+          // Preserve last step's text before resetting for the new step
+          if (streamedText) lastNonEmptyText = streamedText;
+          streamedText = "";
+          textStepId = null;
+          break;
+        }
         case "abort": {
           return;
         }
@@ -645,15 +669,23 @@ async function runAgentWithMessages(
       }
     }
 
-    const finalText =
-      (await result.text).trim() || streamedText || "No results found.";
-    const finalStepId = textStepId ?? crypto.randomUUID();
-    onStep({
-      id: finalStepId,
-      kind: "text",
-      content: finalText,
-      createdAt: streamedAt,
-    });
+    // result.text resolves to the last step's text only (SDK design).
+    // Fall back to lastNonEmptyText so tool-only final steps don't clobber earlier output.
+    if (streamedText) lastNonEmptyText = streamedText;
+    const lastStepText = (await result.text).trim();
+    const finalText = lastStepText || lastNonEmptyText || "No results found.";
+
+    // Only emit the final text step if result.text has content — it finalises the
+    // last streamed text block. If the final step was tool-only, streaming already
+    // emitted the correct content and we don't need to overwrite anything.
+    if (lastStepText && textStepId) {
+      onStep({
+        id: textStepId,
+        kind: "text",
+        content: lastStepText,
+        createdAt: streamedAt,
+      });
+    }
 
     // Build full conversation history for future follow-ups
     const response = await result.response;

@@ -265,7 +265,6 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   transcriptionModelId: DEFAULT_TRANSCRIPTION_MODEL_ID,
   analysisProvider: "openrouter",
   analysisModelId: "moonshotai/kimi-k2-0905:exacto",
-  analysisProviderOnly: "Groq",
   analysisReasoning: false,
   todoModelId: DEFAULT_TODO_MODEL_ID,
   todoProviders: ["sambanova"],
@@ -325,6 +324,13 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
       : DEFAULT_APP_CONFIG.intervalMs;
   const transcriptionModelId =
     merged.transcriptionModelId?.trim() || DEFAULT_APP_CONFIG.transcriptionModelId;
+  const rawAnalysisProviderOnly = merged.analysisProviderOnly?.trim();
+  // Backward compatibility: older defaults used "Groq" (capitalized), which can
+  // break provider filtering. Treat that legacy value as "no provider pin".
+  const analysisProviderOnly =
+    rawAnalysisProviderOnly && rawAnalysisProviderOnly !== "Groq"
+      ? rawAnalysisProviderOnly.toLowerCase()
+      : undefined;
 
   return {
     ...merged,
@@ -348,7 +354,7 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     legacyAudio: !!merged.legacyAudio,
     translationEnabled: !!merged.translationEnabled,
     agentAutoApprove: !!merged.agentAutoApprove,
-    analysisProviderOnly: merged.analysisProviderOnly?.trim() || undefined,
+    analysisProviderOnly,
     analysisReasoning: !!merged.analysisReasoning,
     todoProviders: Array.isArray(merged.todoProviders) && merged.todoProviders.length > 0
       ? merged.todoProviders

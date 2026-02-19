@@ -120,6 +120,7 @@ Instructions:
 - In askQuestion options, provide concrete suggested paths and mark the best default with "(Recommended)" when appropriate.
 - Use searchWeb only when external facts are required (especially if the user asks for latest/current/today/recent information). Do not search for simple reasoning or writing tasks.
 - For time-sensitive information, verify with search and include concrete dates in the final answer.
+- Whenever you use searchWeb results in your answer, cite sources inline using numbered markers like [1], [2]. At the end of your response include a "Sources:" section listing each cited source as [N] Title — URL. Every factual claim drawn from a search result must have an inline citation.
 - Use getTranscriptContext when you need more local conversation context.
 - Keep the final answer concise and actionable.
 

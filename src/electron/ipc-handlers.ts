@@ -5,7 +5,7 @@ import { log } from "../core/logger";
 import { Session } from "../core/session";
 import { setWhisperRemoteRuntime } from "../core/transcription/whisper-local";
 import { toReadableError } from "../core/text/text-utils";
-import type { AppConfigOverrides, LanguageCode } from "../core/types";
+import type { AppConfigOverrides } from "../core/types";
 import { registerAgentHandlers } from "./ipc/register-agent-handlers";
 import { registerProjectHandlers } from "./ipc/register-project-handlers";
 import { registerSessionHandlers } from "./ipc/register-session-handlers";
@@ -57,8 +57,44 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     sessionId: string,
     appConfig?: AppConfigOverrides,
   ) => {
-    if (sessionRef.current && sessionRef.current.sessionId === sessionId) {
-      return { ok: true };
+    if (sessionRef.current?.sessionId === sessionId) {
+      if (!appConfig) {
+        return { ok: true };
+      }
+
+      const currentSession = sessionRef.current;
+      const desiredConfig = buildSessionConfig(
+        currentSession.config.sourceLang,
+        currentSession.config.targetLang,
+        appConfig,
+      );
+      const currentConfigSerialized = JSON.stringify(currentSession.config);
+      const desiredConfigSerialized = JSON.stringify(desiredConfig);
+      if (currentConfigSerialized === desiredConfigSerialized) {
+        return { ok: true };
+      }
+
+      await shutdownCurrentSession(sessionRef, db);
+
+      try {
+        validateEnv(desiredConfig);
+      } catch (error) {
+        return { ok: false, error: toReadableError(error) };
+      }
+
+      const activeSession = new Session(desiredConfig, db, sessionId, {
+        getExternalTools: manager.getExternalTools,
+      });
+      sessionRef.current = activeSession;
+      wireSessionEvents(sessionRef, activeSession, getWindow, db);
+
+      try {
+        await activeSession.initialize();
+        return { ok: true };
+      } catch (error) {
+        log("ERROR", `Session ensure failed: ${toReadableError(error)}`);
+        return { ok: false, error: toReadableError(error) };
+      }
     }
 
     await shutdownCurrentSession(sessionRef, db);
@@ -68,8 +104,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
       return { ok: false, error: `Session ${sessionId} not found` };
     }
 
-    const sourceLang = (meta.sourceLang as LanguageCode) ?? "ko";
-    const targetLang = (meta.targetLang as LanguageCode) ?? "en";
+    const sourceLang = meta.sourceLang ?? "ko";
+    const targetLang = meta.targetLang ?? "en";
     const config = buildSessionConfig(sourceLang, targetLang, appConfig);
 
     try {
