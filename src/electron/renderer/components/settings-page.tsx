@@ -5,6 +5,8 @@ import type {
   FontFamily,
   FontSize,
   McpIntegrationStatus,
+  McpProviderToolSummary,
+  McpToolInfo,
   Direction,
   Language,
   LanguageCode,
@@ -53,6 +55,7 @@ type SettingsPageProps = {
   onRemoveCustomServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
   onConnectCustomServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
   onDisconnectCustomServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  mcpToolsByProvider: Record<string, McpProviderToolSummary>;
 };
 
 const THEME_OPTIONS: Array<{
@@ -183,6 +186,31 @@ function renderLanguageLabel(languages: Language[], code: LanguageCode) {
     : code.toUpperCase();
 }
 
+function ToolList({ tools }: { tools: McpToolInfo[] }) {
+  if (tools.length === 0) return null;
+  return (
+    <details className="mt-2 group">
+      <summary className="text-2xs text-muted-foreground cursor-pointer select-none list-none flex items-center gap-1 hover:text-foreground transition-colors">
+        <span className="inline-block transition-transform group-open:rotate-90">▶</span>
+        {tools.length} tool{tools.length !== 1 ? "s" : ""}
+      </summary>
+      <ul className="mt-1.5 space-y-0.5 max-h-48 overflow-y-auto">
+        {tools.map((tool) => (
+          <li key={tool.name} className="flex items-start gap-1.5 text-2xs">
+            <span
+              className={`mt-0.5 shrink-0 w-1.5 h-1.5 rounded-full ${
+                tool.isMutating ? "bg-amber-400" : "bg-green-500"
+              }`}
+              title={tool.isMutating ? "write" : "read-only"}
+            />
+            <span className="font-mono text-foreground/80 truncate" title={tool.description}>{tool.name}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 export function SettingsPage({
   config,
   languages,
@@ -204,6 +232,7 @@ export function SettingsPage({
   onRemoveCustomServer,
   onConnectCustomServer,
   onDisconnectCustomServer,
+  mcpToolsByProvider,
 }: SettingsPageProps) {
   const [linearTokenInput, setLinearTokenInput] = useState("");
   const [linearTokenError, setLinearTokenError] = useState("");
@@ -816,6 +845,7 @@ export function SettingsPage({
                     </Button>
                   )}
                 </div>
+                <ToolList tools={mcpToolsByProvider["notion"]?.tools ?? []} />
               </div>
 
               <div className="border border-border/70 bg-background px-3 py-3 rounded-sm">
@@ -886,6 +916,7 @@ export function SettingsPage({
                     {linearTokenError}
                   </p>
                 )}
+                <ToolList tools={mcpToolsByProvider["linear"]?.tools ?? []} />
               </div>
             </div>
 
@@ -962,65 +993,69 @@ export function SettingsPage({
               )}
               {customMcpServers.length > 0 && (
                 <div className="space-y-1.5">
-                  {customMcpServers.map((server) => (
-                    <div
-                      key={server.id}
-                      className="flex items-center gap-2 border border-border/70 bg-background px-3 py-2 rounded-sm"
-                    >
-                      {(() => {
-                        const Icon = resolveProviderIcon(server.url);
-                        return Icon
-                          ? <Icon className="w-4 h-4 shrink-0" />
-                          : <ServerIcon className="w-4 h-4 shrink-0 text-muted-foreground" />;
-                      })()}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-foreground truncate">{server.name}</p>
-                        <p className="text-2xs text-muted-foreground truncate">{server.url}</p>
-                        {server.error && (
-                          <p className="text-2xs text-destructive truncate">{server.error}</p>
-                        )}
+                  {customMcpServers.map((server) => {
+                    const serverTools = mcpToolsByProvider[`custom:${server.id}`]?.tools ?? [];
+                    const ProviderIcon = resolveProviderIcon(server.url);
+                    return (
+                      <div
+                        key={server.id}
+                        className="border border-border/70 bg-background px-3 py-2 rounded-sm"
+                      >
+                        <div className="flex items-center gap-2">
+                          {ProviderIcon
+                            ? <ProviderIcon className="w-4 h-4 shrink-0" />
+                            : <ServerIcon className="w-4 h-4 shrink-0 text-muted-foreground" />}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-foreground truncate">{server.name}</p>
+                            <p className="text-2xs text-muted-foreground truncate">{server.url}</p>
+                            {server.error && (
+                              <p className="text-2xs text-destructive truncate">{server.error}</p>
+                            )}
+                          </div>
+                          <span
+                            className={`shrink-0 text-2xs px-1.5 py-0.5 rounded-full ${
+                              server.state === "connected"
+                                ? "bg-green-500/15 text-green-600 dark:text-green-400"
+                                : server.state === "error"
+                                ? "bg-destructive/15 text-destructive"
+                                : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {server.state}
+                          </span>
+                          {server.state === "connected" ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void onDisconnectCustomServer(server.id)}
+                              disabled={mcpBusy}
+                            >
+                              Disconnect
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void onConnectCustomServer(server.id)}
+                              disabled={mcpBusy}
+                            >
+                              Connect
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void onRemoveCustomServer(server.id)}
+                            disabled={mcpBusy}
+                            className="text-muted-foreground hover:text-destructive shrink-0"
+                          >
+                            ✕
+                          </Button>
+                        </div>
+                        <ToolList tools={serverTools} />
                       </div>
-                      <span
-                        className={`shrink-0 text-2xs px-1.5 py-0.5 rounded-full ${
-                          server.state === "connected"
-                            ? "bg-green-500/15 text-green-600 dark:text-green-400"
-                            : server.state === "error"
-                            ? "bg-destructive/15 text-destructive"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {server.state}
-                      </span>
-                      {server.state === "connected" ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void onDisconnectCustomServer(server.id)}
-                          disabled={mcpBusy}
-                        >
-                          Disconnect
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void onConnectCustomServer(server.id)}
-                          disabled={mcpBusy}
-                        >
-                          Connect
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => void onRemoveCustomServer(server.id)}
-                        disabled={mcpBusy}
-                        className="text-muted-foreground hover:text-destructive shrink-0"
-                      >
-                        ✕
-                      </Button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

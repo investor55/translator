@@ -3,7 +3,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { ListToolsResult } from "@modelcontextprotocol/sdk/types.js";
-import type { McpIntegrationStatus, McpIntegrationConnection, CustomMcpStatus, CustomMcpTransport } from "../../core/types";
+import type { McpIntegrationStatus, McpIntegrationConnection, CustomMcpStatus, CustomMcpTransport, McpProviderToolSummary, McpToolInfo } from "../../core/types";
 import type { AgentExternalToolSet, AgentExternalToolProvider } from "../../core/agents/external-tools";
 import type { CustomMcpServerRecord } from "./types";
 import { log } from "../../core/logger";
@@ -554,6 +554,37 @@ export function createMcpToolRegistry(options: {
     return merged;
   }
 
+  async function getMcpToolsInfo(): Promise<McpProviderToolSummary[]> {
+    const result: McpProviderToolSummary[] = [];
+
+    async function collectTools(provider: string, runtime: ProviderRuntime): Promise<void> {
+      try {
+        const { tools } = await runtime.client.listTools();
+        const mapped: McpToolInfo[] = tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          isMutating: classifyMutatingTool(provider, t),
+        }));
+        result.push({ provider, tools: mapped });
+      } catch {
+        // runtime disconnected or unresponsive — skip silently
+      }
+    }
+
+    // Use ensure* so saved credentials get a live runtime even before the first agent run.
+    const [notion, linear] = await Promise.all([
+      ensureNotionRuntime().catch(() => undefined),
+      ensureLinearRuntime().catch(() => undefined),
+    ]);
+    if (notion) await collectTools("notion", notion);
+    if (linear) await collectTools("linear", linear);
+    for (const [id, runtime] of customRuntimes) {
+      await collectTools(`custom:${id}`, runtime);
+    }
+
+    return result;
+  }
+
   async function dispose(): Promise<void> {
     await closeRuntime(notionRuntime);
     notionRuntime = undefined;
@@ -579,5 +610,6 @@ export function createMcpToolRegistry(options: {
     connectCustomMcpServer,
     disconnectCustomMcpServer,
     getCustomMcpServersStatus,
+    getMcpToolsInfo,
   };
 }

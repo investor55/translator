@@ -41,4 +41,8 @@ export function registerIntegrationHandlers(integrations: IntegrationManager) {
   ipcMain.handle("get-custom-mcp-servers-status", async () => {
     return integrations.getCustomMcpServersStatus();
   });
+
+  ipcMain.handle("get-mcp-tools-info", async () => {
+    return integrations.getMcpToolsInfo();
+  });
 }

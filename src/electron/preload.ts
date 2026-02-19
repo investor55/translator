@@ -20,6 +20,7 @@ import type {
   AppConfigOverrides,
   McpIntegrationStatus,
   CustomMcpStatus,
+  McpProviderToolSummary,
   AudioSource,
 } from "../core/types";
 import type {
@@ -119,6 +120,7 @@ export type ElectronAPI = {
   connectCustomMcpServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
   disconnectCustomMcpServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
   getCustomMcpServersStatus: () => Promise<CustomMcpStatus[]>;
+  getMcpToolsInfo: () => Promise<McpProviderToolSummary[]>;
 
   onStateChange: (callback: (state: UIState) => void) => () => void;
   onBlockAdded: (callback: (block: TranscriptBlock) => void) => () => void;
@@ -227,6 +229,7 @@ const api: ElectronAPI = {
   connectCustomMcpServer: (id) => ipcRenderer.invoke("connect-custom-mcp-server", id),
   disconnectCustomMcpServer: (id) => ipcRenderer.invoke("disconnect-custom-mcp-server", id),
   getCustomMcpServersStatus: () => ipcRenderer.invoke("get-custom-mcp-servers-status"),
+  getMcpToolsInfo: () => ipcRenderer.invoke("get-mcp-tools-info"),
 
   onStateChange: createListener<UIState>("session:state-change"),
   onBlockAdded: createListener<TranscriptBlock>("session:block-added"),

@@ -213,6 +213,18 @@ export type McpIntegrationStatus = Readonly<{
 
 export type CustomMcpTransport = "streamable" | "sse";
 
+export type McpToolInfo = {
+  name: string;
+  description?: string;
+  isMutating: boolean;
+};
+
+export type McpProviderToolSummary = {
+  /** "notion" | "linear" | "custom:<uuid>" */
+  provider: string;
+  tools: McpToolInfo[];
+};
+
 export type CustomMcpStatus = {
   id: string;
   name: string;

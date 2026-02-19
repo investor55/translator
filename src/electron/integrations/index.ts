@@ -33,5 +33,6 @@ export function createIntegrationManager(userDataPath: string): IntegrationManag
     connectCustomMcpServer: registry.connectCustomMcpServer,
     disconnectCustomMcpServer: registry.disconnectCustomMcpServer,
     getCustomMcpServersStatus: registry.getCustomMcpServersStatus,
+    getMcpToolsInfo: registry.getMcpToolsInfo,
   };
 }

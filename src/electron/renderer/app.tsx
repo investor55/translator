@@ -7,6 +7,7 @@ import type {
   FinalSummary,
   Language,
   LanguageCode,
+  McpProviderToolSummary,
   TodoItem,
   TodoSuggestion,
   Insight,
@@ -115,6 +116,7 @@ export function App() {
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
   const [mcpIntegrations, setMcpIntegrations] = useState<McpIntegrationStatus[]>([]);
   const [customMcpServers, setCustomMcpServers] = useState<CustomMcpStatus[]>([]);
+  const [mcpToolsByProvider, setMcpToolsByProvider] = useState<Record<string, McpProviderToolSummary>>({});
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [activeProjectId, setActiveProjectId] = useLocalStorage<string | null>("ambient-active-project-id", null);
   const [mcpBusy, setMcpBusy] = useState(false);
@@ -247,10 +249,18 @@ export function App() {
     setCustomMcpServers(servers);
   }, []);
 
+  const refreshMcpToolsInfo = useCallback(async () => {
+    const summaries = await window.electronAPI.getMcpToolsInfo();
+    const byProvider: Record<string, McpProviderToolSummary> = {};
+    for (const s of summaries) byProvider[s.provider] = s;
+    setMcpToolsByProvider(byProvider);
+  }, []);
+
   useEffect(() => {
     void refreshMcpIntegrations();
     void refreshCustomMcpServers();
-  }, [refreshMcpIntegrations, refreshCustomMcpServers]);
+    void refreshMcpToolsInfo();
+  }, [refreshMcpIntegrations, refreshCustomMcpServers, refreshMcpToolsInfo]);
 
   const refreshProjects = useCallback(async () => {
     const list = await window.electronAPI.getProjects();
@@ -341,10 +351,10 @@ export function App() {
         setRouteNotice("Notion MCP connected.");
       }
     } finally {
-      await refreshMcpIntegrations();
+      await Promise.all([refreshMcpIntegrations(), refreshMcpToolsInfo()]);
       setMcpBusy(false);
     }
-  }, [refreshMcpIntegrations]);
+  }, [refreshMcpIntegrations, refreshMcpToolsInfo]);
 
   const handleDisconnectNotionMcp = useCallback(async () => {
     setMcpBusy(true);
@@ -356,10 +366,10 @@ export function App() {
         setRouteNotice("Notion MCP disconnected.");
       }
     } finally {
-      await refreshMcpIntegrations();
+      await Promise.all([refreshMcpIntegrations(), refreshMcpToolsInfo()]);
       setMcpBusy(false);
     }
-  }, [refreshMcpIntegrations]);
+  }, [refreshMcpIntegrations, refreshMcpToolsInfo]);
 
   const handleSetLinearToken = useCallback(async (token: string) => {
     setMcpBusy(true);
@@ -372,10 +382,10 @@ export function App() {
       }
       return result;
     } finally {
-      await refreshMcpIntegrations();
+      await Promise.all([refreshMcpIntegrations(), refreshMcpToolsInfo()]);
       setMcpBusy(false);
     }
-  }, [refreshMcpIntegrations]);
+  }, [refreshMcpIntegrations, refreshMcpToolsInfo]);
 
   const handleClearLinearToken = useCallback(async () => {
     setMcpBusy(true);
@@ -388,10 +398,10 @@ export function App() {
       }
       return result;
     } finally {
-      await refreshMcpIntegrations();
+      await Promise.all([refreshMcpIntegrations(), refreshMcpToolsInfo()]);
       setMcpBusy(false);
     }
-  }, [refreshMcpIntegrations]);
+  }, [refreshMcpIntegrations, refreshMcpToolsInfo]);
 
   const handleAddCustomServer = useCallback(async (cfg: { name: string; url: string; transport: "streamable" | "sse"; bearerToken?: string }) => {
     setMcpBusy(true);
@@ -402,10 +412,10 @@ export function App() {
       }
       return result;
     } finally {
-      await refreshCustomMcpServers();
+      await Promise.all([refreshCustomMcpServers(), refreshMcpToolsInfo()]);
       setMcpBusy(false);
     }
-  }, [refreshCustomMcpServers]);
+  }, [refreshCustomMcpServers, refreshMcpToolsInfo]);
 
   const handleRemoveCustomServer = useCallback(async (id: string) => {
     setMcpBusy(true);
@@ -416,10 +426,10 @@ export function App() {
       }
       return result;
     } finally {
-      await refreshCustomMcpServers();
+      await Promise.all([refreshCustomMcpServers(), refreshMcpToolsInfo()]);
       setMcpBusy(false);
     }
-  }, [refreshCustomMcpServers]);
+  }, [refreshCustomMcpServers, refreshMcpToolsInfo]);
 
   const handleConnectCustomServer = useCallback(async (id: string) => {
     setMcpBusy(true);
@@ -430,10 +440,10 @@ export function App() {
       }
       return result;
     } finally {
-      await refreshCustomMcpServers();
+      await Promise.all([refreshCustomMcpServers(), refreshMcpToolsInfo()]);
       setMcpBusy(false);
     }
-  }, [refreshCustomMcpServers]);
+  }, [refreshCustomMcpServers, refreshMcpToolsInfo]);
 
   const handleDisconnectCustomServer = useCallback(async (id: string) => {
     setMcpBusy(true);
@@ -444,10 +454,10 @@ export function App() {
       }
       return result;
     } finally {
-      await refreshCustomMcpServers();
+      await Promise.all([refreshCustomMcpServers(), refreshMcpToolsInfo()]);
       setMcpBusy(false);
     }
-  }, [refreshCustomMcpServers]);
+  }, [refreshCustomMcpServers, refreshMcpToolsInfo]);
 
   const handleSelectProject = useCallback((id: string | null) => {
     setActiveProjectId(id);
@@ -1229,6 +1239,7 @@ export function App() {
             onRemoveCustomServer={handleRemoveCustomServer}
             onConnectCustomServer={handleConnectCustomServer}
             onDisconnectCustomServer={handleDisconnectCustomServer}
+            mcpToolsByProvider={mcpToolsByProvider}
           />
         ) : (
           <>

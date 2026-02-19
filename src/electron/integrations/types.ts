@@ -2,7 +2,7 @@ import type {
   OAuthClientInformationMixed,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import type { McpIntegrationStatus, CustomMcpTransport, CustomMcpStatus } from "../../core/types";
+import type { McpIntegrationStatus, CustomMcpTransport, CustomMcpStatus, McpProviderToolSummary } from "../../core/types";
 import type { AgentExternalToolSet } from "../../core/agents/external-tools";
 
 export type IntegrationProvider = "notion" | "linear";
@@ -63,4 +63,5 @@ export type IntegrationManager = {
   connectCustomMcpServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
   disconnectCustomMcpServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
   getCustomMcpServersStatus: () => Promise<CustomMcpStatus[]>;
+  getMcpToolsInfo: () => Promise<McpProviderToolSummary[]>;
 };
