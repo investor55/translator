@@ -41,9 +41,13 @@ export function createAnalysisModel(config: SessionConfig): LanguageModel {
       const openrouter = createOpenRouter({
         apiKey: process.env.OPENROUTER_API_KEY,
       });
+      const provider = {
+        sort: "throughput" as const,
+        ...(config.analysisProviderOnly ? { only: [config.analysisProviderOnly] } : {}),
+      };
       return openrouter(config.analysisModelId, {
         reasoning: config.analysisReasoning ? { max_tokens: 4096, exclude: false } : undefined,
-        provider: config.analysisProviderOnly ? { only: [config.analysisProviderOnly] } : undefined,
+        provider,
       });
     }
     case "google": {
@@ -71,8 +75,12 @@ export function createTodoModel(config: SessionConfig): LanguageModel {
   const openrouter = createOpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY,
   });
+  const provider = {
+    sort: "throughput" as const,
+    ...(config.todoProviders?.length ? { only: config.todoProviders } : {}),
+  };
   return openrouter(config.todoModelId, {
     reasoning: { max_tokens: 1024, exclude: false },
-    provider: config.todoProviders?.length ? { only: config.todoProviders } : undefined,
+    provider,
   });
 }
