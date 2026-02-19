@@ -104,6 +104,12 @@ Optional MCP integrations:
 
 - `MCP_INTEGRATIONS_ENABLED=false` to disable Notion/Linear MCP connectors (enabled by default).
 
+Optional shared agent memory (Mem0 API):
+
+- `MEM0_API_KEY` enables cross-agent shared memory recall/writeback.
+- `MEM0_ORG_ID` optional Mem0 org scope override.
+- `MEM0_PROJECT_ID` optional Mem0 project scope override.
+
 ## Notes
 
 - `pnpm` is the source-of-truth package manager.

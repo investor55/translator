@@ -24,6 +24,21 @@ type AgentManagerDeps = {
   events: TypedEmitter;
   getTranscriptContext: () => string;
   getProjectInstructions?: () => string | undefined;
+  getProjectId?: () => string | undefined;
+  getSharedMemoryContext?: (input: {
+    query: string;
+    projectId?: string;
+    sessionId?: string;
+    agentId?: string;
+  }) => Promise<string | undefined>;
+  rememberSharedMemory?: (input: {
+    task: string;
+    result: string;
+    taskContext?: string;
+    projectId?: string;
+    sessionId?: string;
+    agentId?: string;
+  }) => Promise<void>;
   getExternalTools?: () => Promise<AgentExternalToolSet>;
   allowAutoApprove: boolean;
   db?: AppDatabase;
@@ -287,6 +302,21 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         deps.db?.updateAgent(agent.id, { status: "completed", result, steps: agent.steps, completedAt: agent.completedAt });
         deps.events.emit("agent-completed", agent.id, result);
         log("INFO", `Agent completed: ${agent.id}`);
+        if (deps.rememberSharedMemory) {
+          void deps
+            .rememberSharedMemory({
+              task: agent.task,
+              result,
+              taskContext: agent.taskContext,
+              sessionId: agent.sessionId,
+              projectId: deps.getProjectId?.(),
+              agentId: agent.id,
+            })
+            .catch((error) => {
+              const message = error instanceof Error ? error.message : String(error);
+              log("WARN", `Shared memory write failed for ${agent.id}: ${message}`);
+            });
+        }
       },
       onFail: (error: string) => {
         agent.status = "failed" as const;
@@ -339,20 +369,38 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
     const callbacks = makeAgentCallbacks(agent);
 
-    void runAgent(agent, {
-      model: deps.model,
-      exa,
-      getTranscriptContext: deps.getTranscriptContext,
-      projectInstructions: deps.getProjectInstructions?.(),
-      getExternalTools: deps.getExternalTools,
-      allowAutoApprove: deps.allowAutoApprove,
-      requestClarification: (request, options) =>
-        requestClarification(agent.id, request, options),
-      requestToolApproval: (request, options) =>
-        requestToolApproval(agent.id, request, options),
-      abortSignal: controller.signal,
-      ...callbacks,
-    });
+    void (async () => {
+      let sharedMemoryContext: string | undefined;
+      if (deps.getSharedMemoryContext) {
+        try {
+          sharedMemoryContext = await deps.getSharedMemoryContext({
+            query: task,
+            projectId: deps.getProjectId?.(),
+            sessionId,
+            agentId: agent.id,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log("WARN", `Shared memory lookup failed for ${agent.id}: ${message}`);
+        }
+      }
+
+      await runAgent(agent, {
+        model: deps.model,
+        exa,
+        getTranscriptContext: deps.getTranscriptContext,
+        projectInstructions: deps.getProjectInstructions?.(),
+        sharedMemoryContext,
+        getExternalTools: deps.getExternalTools,
+        allowAutoApprove: deps.allowAutoApprove,
+        requestClarification: (request, options) =>
+          requestClarification(agent.id, request, options),
+        requestToolApproval: (request, options) =>
+          requestToolApproval(agent.id, request, options),
+        abortSignal: controller.signal,
+        ...callbacks,
+      });
+    })();
 
     return agent;
   }
@@ -393,20 +441,38 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
     const callbacks = makeAgentCallbacks(agent);
 
-    void continueAgent(agent, history, question, {
-      model: deps.model,
-      exa,
-      getTranscriptContext: deps.getTranscriptContext,
-      projectInstructions: deps.getProjectInstructions?.(),
-      getExternalTools: deps.getExternalTools,
-      allowAutoApprove: deps.allowAutoApprove,
-      requestClarification: (request, options) =>
-        requestClarification(agent.id, request, options),
-      requestToolApproval: (request, options) =>
-        requestToolApproval(agent.id, request, options),
-      abortSignal: controller.signal,
-      ...callbacks,
-    });
+    void (async () => {
+      let sharedMemoryContext: string | undefined;
+      if (deps.getSharedMemoryContext) {
+        try {
+          sharedMemoryContext = await deps.getSharedMemoryContext({
+            query: question,
+            projectId: deps.getProjectId?.(),
+            sessionId: agent.sessionId,
+            agentId: agent.id,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log("WARN", `Shared memory lookup failed for ${agent.id}: ${message}`);
+        }
+      }
+
+      await continueAgent(agent, history, question, {
+        model: deps.model,
+        exa,
+        getTranscriptContext: deps.getTranscriptContext,
+        projectInstructions: deps.getProjectInstructions?.(),
+        sharedMemoryContext,
+        getExternalTools: deps.getExternalTools,
+        allowAutoApprove: deps.allowAutoApprove,
+        requestClarification: (request, options) =>
+          requestClarification(agent.id, request, options),
+        requestToolApproval: (request, options) =>
+          requestToolApproval(agent.id, request, options),
+        abortSignal: controller.signal,
+        ...callbacks,
+      });
+    })();
 
     log("INFO", `Agent follow-up: ${agentId}`);
     return true;
@@ -543,18 +609,36 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     const controller = new AbortController();
     abortControllers.set(agentId, controller);
 
-    void runAgent(agent, {
-      model: deps.model,
-      exa,
-      getTranscriptContext: deps.getTranscriptContext,
-      projectInstructions: deps.getProjectInstructions?.(),
-      getExternalTools: deps.getExternalTools,
-      allowAutoApprove: deps.allowAutoApprove,
-      requestClarification: (request, options) => requestClarification(agentId, request, options),
-      requestToolApproval: (request, options) => requestToolApproval(agentId, request, options),
-      abortSignal: controller.signal,
-      ...makeAgentCallbacks(agent),
-    });
+    void (async () => {
+      let sharedMemoryContext: string | undefined;
+      if (deps.getSharedMemoryContext) {
+        try {
+          sharedMemoryContext = await deps.getSharedMemoryContext({
+            query: agent.task,
+            projectId: deps.getProjectId?.(),
+            sessionId: agent.sessionId,
+            agentId: agent.id,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log("WARN", `Shared memory lookup failed for ${agent.id}: ${message}`);
+        }
+      }
+
+      await runAgent(agent, {
+        model: deps.model,
+        exa,
+        getTranscriptContext: deps.getTranscriptContext,
+        projectInstructions: deps.getProjectInstructions?.(),
+        sharedMemoryContext,
+        getExternalTools: deps.getExternalTools,
+        allowAutoApprove: deps.allowAutoApprove,
+        requestClarification: (request, options) => requestClarification(agentId, request, options),
+        requestToolApproval: (request, options) => requestToolApproval(agentId, request, options),
+        abortSignal: controller.signal,
+        ...makeAgentCallbacks(agent),
+      });
+    })();
 
     return agent;
   }

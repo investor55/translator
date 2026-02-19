@@ -35,6 +35,7 @@ type AgentDeps = {
   exa: ExaClient;
   getTranscriptContext: () => string;
   projectInstructions?: string;
+  sharedMemoryContext?: string;
   getExternalTools?: () => Promise<AgentExternalToolSet>;
   allowAutoApprove: boolean;
   requestClarification: (
@@ -84,13 +85,26 @@ function formatCurrentDateForPrompt(now: Date): string {
   return `${longDate} (ISO: ${now.toISOString().slice(0, 10)})`;
 }
 
-const buildSystemPrompt = (transcriptContext: string, projectInstructions?: string) => {
+const buildSystemPrompt = (
+  transcriptContext: string,
+  projectInstructions?: string,
+  sharedMemoryContext?: string,
+) => {
   const base = renderPromptTemplate(getAgentSystemPromptTemplate(), {
     today: formatCurrentDateForPrompt(new Date()),
     transcript_context: transcriptContext,
   });
-  if (!projectInstructions?.trim()) return base;
-  return `## Project Instructions\n\n${projectInstructions.trim()}\n\n---\n\n${base}`;
+
+  const sections: string[] = [];
+  if (projectInstructions?.trim()) {
+    sections.push(`## Project Instructions\n\n${projectInstructions.trim()}`);
+  }
+  if (sharedMemoryContext?.trim()) {
+    sections.push(`## Shared Memory\n\n${sharedMemoryContext.trim()}`);
+  }
+  sections.push(base);
+
+  return sections.join("\n\n---\n\n");
 };
 
 export function buildAgentInitialUserPrompt(
@@ -759,6 +773,7 @@ async function runAgentWithMessages(
     exa,
     getTranscriptContext,
     projectInstructions,
+    sharedMemoryContext,
     getExternalTools,
     allowAutoApprove,
     requestClarification,
@@ -772,7 +787,11 @@ async function runAgentWithMessages(
   let streamError: string | null = null;
 
   try {
-    const systemPrompt = buildSystemPrompt(getTranscriptContext(), projectInstructions);
+    const systemPrompt = buildSystemPrompt(
+      getTranscriptContext(),
+      projectInstructions,
+      sharedMemoryContext,
+    );
     const tools = await buildTools(
       exa,
       getTranscriptContext,

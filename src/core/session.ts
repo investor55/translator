@@ -82,6 +82,11 @@ import {
 import { createAgentManager, type AgentManager } from "./agents/agent-manager";
 import type { AgentExternalToolSet } from "./agents/external-tools";
 import {
+  createMem0SharedMemoryFromEnv,
+  safeGetSharedMemoryContext,
+  safeRememberSharedMemory,
+} from "./agents/shared-memory";
+import {
   connectElevenLabsRealtime,
   normalizeElevenLabsLanguageCode,
   RealtimeEvents,
@@ -203,6 +208,7 @@ export class Session {
   private titleGenerated = false;
   private db: AppDatabase | null;
   private agentManager: AgentManager | null = null;
+  private sharedMemory = createMem0SharedMemoryFromEnv();
   private getExternalTools?: () => Promise<AgentExternalToolSet>;
 
   private sourceLangLabel: string;
@@ -234,10 +240,22 @@ export class Session {
         events: this.events,
         getTranscriptContext: () => this.getTranscriptContextForAgent(),
         getProjectInstructions: () => {
-          const meta = this.db?.getSession(this.sessionId);
-          if (!meta?.projectId) return undefined;
-          return this.db?.getProject(meta.projectId)?.instructions ?? undefined;
+          const projectId = this.getCurrentProjectId();
+          if (!projectId) return undefined;
+          return this.db?.getProject(projectId)?.instructions ?? undefined;
         },
+        getProjectId: () => this.getCurrentProjectId(),
+        getSharedMemoryContext: ({ query, projectId, sessionId, agentId }) =>
+          safeGetSharedMemoryContext(this.sharedMemory, { query, projectId, sessionId, agentId }),
+        rememberSharedMemory: ({ task, result, taskContext, projectId, sessionId, agentId }) =>
+          safeRememberSharedMemory(this.sharedMemory, {
+            task,
+            result,
+            taskContext,
+            projectId,
+            sessionId,
+            agentId,
+          }),
         getExternalTools: this.getExternalTools,
         allowAutoApprove: config.agentAutoApprove,
         db: this.db ?? undefined,
@@ -249,6 +267,9 @@ export class Session {
         }
       }
       log("INFO", "AgentManager initialized (EXA_API_KEY present)");
+    }
+    if (this.sharedMemory) {
+      log("INFO", "Shared agent memory enabled (MEM0_API_KEY present)");
     }
 
     this.sourceLangLabel = getLanguageLabel(config.sourceLang);
@@ -1057,6 +1078,12 @@ export class Session {
         return src + translation;
       })
       .join("\n");
+  }
+
+  private getCurrentProjectId(): string | undefined {
+    if (!this.db) return undefined;
+    const meta = this.db.getSession(this.sessionId);
+    return meta?.projectId;
   }
 
   private micDebugWindowCount = 0;
