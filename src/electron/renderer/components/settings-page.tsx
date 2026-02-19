@@ -1,6 +1,7 @@
 import type {
   AnalysisProvider,
   AppConfig,
+  CustomMcpStatus,
   FontFamily,
   FontSize,
   McpIntegrationStatus,
@@ -16,7 +17,7 @@ import {
   DEFAULT_WHISPER_MODEL_ID,
   DEFAULT_VERTEX_MODEL_ID,
 } from "../../../core/types";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -28,7 +29,8 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { Laptop2Icon, MoonIcon, RotateCcwIcon, SunIcon } from "lucide-react";
+import { Laptop2Icon, MoonIcon, RotateCcwIcon, ServerIcon, SunIcon } from "lucide-react";
+import { NotionIcon, LinearIcon, resolveProviderIcon } from "./integration-icons";
 
 type SettingsPageProps = {
   config: AppConfig;
@@ -46,6 +48,11 @@ type SettingsPageProps = {
   onDisconnectNotionMcp: () => void | Promise<void>;
   onSetLinearToken: (token: string) => Promise<{ ok: boolean; error?: string }>;
   onClearLinearToken: () => Promise<{ ok: boolean; error?: string }>;
+  customMcpServers: CustomMcpStatus[];
+  onAddCustomServer: (cfg: { name: string; url: string; transport: "streamable" | "sse"; bearerToken?: string }) => Promise<{ ok: boolean; error?: string; id?: string }>;
+  onRemoveCustomServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  onConnectCustomServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  onDisconnectCustomServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
 const THEME_OPTIONS: Array<{
@@ -192,9 +199,20 @@ export function SettingsPage({
   onDisconnectNotionMcp,
   onSetLinearToken,
   onClearLinearToken,
+  customMcpServers,
+  onAddCustomServer,
+  onRemoveCustomServer,
+  onConnectCustomServer,
+  onDisconnectCustomServer,
 }: SettingsPageProps) {
   const [linearTokenInput, setLinearTokenInput] = useState("");
   const [linearTokenError, setLinearTokenError] = useState("");
+  const [customServerName, setCustomServerName] = useState("");
+  const [customServerUrl, setCustomServerUrl] = useState("");
+  const [customServerTransport, setCustomServerTransport] = useState<"streamable" | "sse">("streamable");
+  const [customServerToken, setCustomServerToken] = useState("");
+  const [customServerError, setCustomServerError] = useState("");
+  const addFormRef = useRef<HTMLFormElement>(null);
 
   const notionStatus = useMemo(
     () => mcpIntegrations.find((item) => item.provider === "notion"),
@@ -228,7 +246,7 @@ export function SettingsPage({
         </div>
 
         {isRecording && (
-          <div className="mb-6 border border-amber-300/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-3 py-2 text-xs rounded-none">
+          <div className="mb-6 border border-amber-300/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-3 py-2 text-xs rounded-sm">
             Currently recording. Configuration updates will apply to the next
             session.
           </div>
@@ -236,7 +254,7 @@ export function SettingsPage({
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* ── Row 1: Appearance + Session ── */}
-          <section className="border border-border bg-card px-4 py-3 rounded-none">
+          <section className="border border-border bg-card px-4 py-3 rounded-sm">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Appearance
             </h2>
@@ -245,7 +263,7 @@ export function SettingsPage({
               label="Theme"
               description="Choose light, dark, or follow your system theme."
               control={
-                <div className="inline-flex items-center border border-border rounded-none overflow-hidden">
+                <div className="inline-flex items-center border border-border rounded-sm overflow-hidden">
                   {THEME_OPTIONS.map((option) => (
                     <button
                       key={option.value}
@@ -269,7 +287,7 @@ export function SettingsPage({
                 label="Light Style"
                 description="Color palette used in light mode."
                 control={
-                  <div className="inline-flex items-center border border-border rounded-none overflow-hidden">
+                  <div className="inline-flex items-center border border-border rounded-sm overflow-hidden">
                     {LIGHT_VARIANT_OPTIONS.map((option) => (
                       <button
                         key={option.value}
@@ -296,7 +314,7 @@ export function SettingsPage({
               label="Font Size"
               description="Scale the entire interface up or down."
               control={
-                <div className="inline-flex items-center border border-border rounded-none overflow-hidden">
+                <div className="inline-flex items-center border border-border rounded-sm overflow-hidden">
                   {FONT_SIZE_OPTIONS.map((option) => (
                     <button
                       key={option.value}
@@ -318,7 +336,7 @@ export function SettingsPage({
               label="UI Font"
               description="Sans-serif for a clean look; monospace for a terminal aesthetic."
               control={
-                <div className="inline-flex items-center border border-border rounded-none overflow-hidden">
+                <div className="inline-flex items-center border border-border rounded-sm overflow-hidden">
                   {FONT_FAMILY_OPTIONS.map((option) => (
                     <button
                       key={option.value}
@@ -338,7 +356,7 @@ export function SettingsPage({
             />
           </section>
 
-          <section className="border border-border bg-card px-4 py-3 rounded-none">
+          <section className="border border-border bg-card px-4 py-3 rounded-sm">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Session
             </h2>
@@ -388,7 +406,7 @@ export function SettingsPage({
           </section>
 
           {/* ── Row 2: Audio & Transcription (full width) ── */}
-          <section className="border border-border bg-card px-4 py-3 rounded-none lg:col-span-2">
+          <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Audio & Transcription
             </h2>
@@ -575,7 +593,7 @@ export function SettingsPage({
           </section>
 
           {/* ── Row 3: AI Models (full width) ── */}
-          <section className="border border-border bg-card px-4 py-3 rounded-none lg:col-span-2">
+          <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               AI Models
             </h2>
@@ -688,7 +706,7 @@ export function SettingsPage({
           </section>
 
           {/* ── Row 4: Advanced (full width) ── */}
-          <section className="border border-border bg-card px-4 py-3 rounded-none lg:col-span-2">
+          <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Advanced
             </h2>
@@ -752,17 +770,20 @@ export function SettingsPage({
           </section>
 
           {/* ── Row 5: Integrations (full width) ── */}
-          <section className="border border-border bg-card px-4 py-3 rounded-none lg:col-span-2">
+          <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Integrations
             </h2>
             <Separator className="my-3" />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="border border-border/70 bg-background px-3 py-3 rounded-none">
+              <div className="border border-border/70 bg-background px-3 py-3 rounded-sm">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-foreground">
-                    Notion MCP
-                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <NotionIcon className="w-4 h-4 shrink-0" />
+                    <p className="text-xs font-semibold text-foreground">
+                      Notion MCP
+                    </p>
+                  </div>
                   <span className="text-2xs text-muted-foreground">
                     {notionStatus?.state ?? "disconnected"}
                   </span>
@@ -797,11 +818,14 @@ export function SettingsPage({
                 </div>
               </div>
 
-              <div className="border border-border/70 bg-background px-3 py-3 rounded-none">
+              <div className="border border-border/70 bg-background px-3 py-3 rounded-sm">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-foreground">
-                    Linear MCP
-                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <LinearIcon className="w-4 h-4 shrink-0" />
+                    <p className="text-xs font-semibold text-foreground">
+                      Linear MCP
+                    </p>
+                  </div>
                   <span className="text-2xs text-muted-foreground">
                     {linearStatus?.state ?? "disconnected"}
                   </span>
@@ -863,6 +887,142 @@ export function SettingsPage({
                   </p>
                 )}
               </div>
+            </div>
+
+            {/* ── Custom MCP Servers ── */}
+            <div className="mt-4">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                Custom MCP Servers
+              </p>
+              <form
+                ref={addFormRef}
+                className="flex flex-wrap gap-2 mb-3"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setCustomServerError("");
+                  const result = await onAddCustomServer({
+                    name: customServerName,
+                    url: customServerUrl,
+                    transport: customServerTransport,
+                    bearerToken: customServerToken || undefined,
+                  });
+                  if (!result.ok) {
+                    setCustomServerError(result.error ?? "Failed to add server.");
+                    return;
+                  }
+                  setCustomServerName("");
+                  setCustomServerUrl("");
+                  setCustomServerToken("");
+                  setCustomServerTransport("streamable");
+                }}
+              >
+                <Input
+                  value={customServerName}
+                  onChange={(e) => setCustomServerName(e.target.value)}
+                  placeholder="Name"
+                  className="w-28 shrink-0"
+                  required
+                  disabled={mcpBusy}
+                />
+                <Input
+                  value={customServerUrl}
+                  onChange={(e) => setCustomServerUrl(e.target.value)}
+                  placeholder="https://mcp.example.com/mcp"
+                  className="flex-1 min-w-40"
+                  required
+                  disabled={mcpBusy}
+                />
+                <Select
+                  value={customServerTransport}
+                  onValueChange={(v) => setCustomServerTransport(v as "streamable" | "sse")}
+                  disabled={mcpBusy}
+                >
+                  <SelectTrigger className="w-36 shrink-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="streamable">Streamable HTTP</SelectItem>
+                    <SelectItem value="sse">SSE</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="password"
+                  value={customServerToken}
+                  onChange={(e) => setCustomServerToken(e.target.value)}
+                  placeholder="Bearer token (optional)"
+                  className="w-44 shrink-0"
+                  disabled={mcpBusy}
+                />
+                <Button type="submit" size="sm" disabled={mcpBusy}>
+                  Add
+                </Button>
+              </form>
+              {customServerError && (
+                <p className="mb-2 text-2xs text-destructive">{customServerError}</p>
+              )}
+              {customMcpServers.length > 0 && (
+                <div className="space-y-1.5">
+                  {customMcpServers.map((server) => (
+                    <div
+                      key={server.id}
+                      className="flex items-center gap-2 border border-border/70 bg-background px-3 py-2 rounded-sm"
+                    >
+                      {(() => {
+                        const Icon = resolveProviderIcon(server.url);
+                        return Icon
+                          ? <Icon className="w-4 h-4 shrink-0" />
+                          : <ServerIcon className="w-4 h-4 shrink-0 text-muted-foreground" />;
+                      })()}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-foreground truncate">{server.name}</p>
+                        <p className="text-2xs text-muted-foreground truncate">{server.url}</p>
+                        {server.error && (
+                          <p className="text-2xs text-destructive truncate">{server.error}</p>
+                        )}
+                      </div>
+                      <span
+                        className={`shrink-0 text-2xs px-1.5 py-0.5 rounded-full ${
+                          server.state === "connected"
+                            ? "bg-green-500/15 text-green-600 dark:text-green-400"
+                            : server.state === "error"
+                            ? "bg-destructive/15 text-destructive"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {server.state}
+                      </span>
+                      {server.state === "connected" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void onDisconnectCustomServer(server.id)}
+                          disabled={mcpBusy}
+                        >
+                          Disconnect
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void onConnectCustomServer(server.id)}
+                          disabled={mcpBusy}
+                        >
+                          Connect
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void onRemoveCustomServer(server.id)}
+                        disabled={mcpBusy}
+                        className="text-muted-foreground hover:text-destructive shrink-0"
+                      >
+                        ✕
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
         </div>

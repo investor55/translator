@@ -100,7 +100,7 @@ export function ToolHeader({
   return (
     <CollapsibleTrigger
       className={cn(
-        "group/tool-trigger flex w-full items-center gap-1 rounded-none px-0 py-0 text-left text-2xs text-muted-foreground transition-colors hover:text-foreground",
+        "group/tool-trigger flex w-full items-center gap-1 rounded-sm px-0 py-0 text-left text-2xs text-muted-foreground transition-colors hover:text-foreground",
         className
       )}
       {...props}

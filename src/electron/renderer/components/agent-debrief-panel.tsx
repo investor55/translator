@@ -253,7 +253,7 @@ export function AgentDebriefPanel({
           <button
             type="button"
             onClick={onGenerate}
-            className="rounded-none p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            className="rounded-sm p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             aria-label="Regenerate debrief"
           >
             <RefreshCwIcon className="size-3" />

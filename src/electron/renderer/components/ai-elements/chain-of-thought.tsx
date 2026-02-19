@@ -107,7 +107,7 @@ export function ChainOfThoughtHeader({
   return (
     <CollapsibleTrigger
       className={cn(
-        "group/cot-trigger flex w-full items-center gap-1 rounded-none px-0 py-0 text-left text-2xs text-muted-foreground transition-colors hover:text-foreground",
+        "group/cot-trigger flex w-full items-center gap-1 rounded-sm px-0 py-0 text-left text-2xs text-muted-foreground transition-colors hover:text-foreground",
         className
       )}
       {...props}
@@ -168,7 +168,7 @@ export function ChainOfThoughtStep({
   return (
     <div
       className={cn(
-        "rounded-none border border-border/50 px-1.5 py-1",
+        "rounded-sm border border-border/50 px-1.5 py-1",
         className
       )}
       {...props}

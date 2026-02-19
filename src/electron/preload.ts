@@ -19,6 +19,7 @@ import type {
   AgentToolApprovalResponse,
   AppConfigOverrides,
   McpIntegrationStatus,
+  CustomMcpStatus,
   AudioSource,
 } from "../core/types";
 import type {
@@ -113,6 +114,11 @@ export type ElectronAPI = {
   disconnectNotionMcp: () => Promise<{ ok: boolean; error?: string }>;
   setLinearMcpToken: (token: string) => Promise<{ ok: boolean; error?: string }>;
   clearLinearMcpToken: () => Promise<{ ok: boolean; error?: string }>;
+  addCustomMcpServer: (cfg: { name: string; url: string; transport: "streamable" | "sse"; bearerToken?: string }) => Promise<{ ok: boolean; error?: string; id?: string }>;
+  removeCustomMcpServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  connectCustomMcpServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  disconnectCustomMcpServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  getCustomMcpServersStatus: () => Promise<CustomMcpStatus[]>;
 
   onStateChange: (callback: (state: UIState) => void) => () => void;
   onBlockAdded: (callback: (block: TranscriptBlock) => void) => () => void;
@@ -216,6 +222,11 @@ const api: ElectronAPI = {
   disconnectNotionMcp: () => ipcRenderer.invoke("disconnect-notion-mcp"),
   setLinearMcpToken: (token) => ipcRenderer.invoke("set-linear-mcp-token", token),
   clearLinearMcpToken: () => ipcRenderer.invoke("clear-linear-mcp-token"),
+  addCustomMcpServer: (cfg) => ipcRenderer.invoke("add-custom-mcp-server", cfg),
+  removeCustomMcpServer: (id) => ipcRenderer.invoke("remove-custom-mcp-server", id),
+  connectCustomMcpServer: (id) => ipcRenderer.invoke("connect-custom-mcp-server", id),
+  disconnectCustomMcpServer: (id) => ipcRenderer.invoke("disconnect-custom-mcp-server", id),
+  getCustomMcpServersStatus: () => ipcRenderer.invoke("get-custom-mcp-servers-status"),
 
   onStateChange: createListener<UIState>("session:state-change"),
   onBlockAdded: createListener<TranscriptBlock>("session:block-added"),

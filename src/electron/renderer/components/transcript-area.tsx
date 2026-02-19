@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import type { TranscriptBlock } from "../../../core/types";
-import { ChevronDownIcon, ChevronUpIcon, PencilIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronUpIcon, MicIcon, PencilIcon, Volume2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SectionLabel } from "@/components/ui/section-label";
@@ -99,6 +99,11 @@ function Paragraph({ blocks, isLast, canTranslate }: { blocks: TranscriptBlock[]
   return (
     <div className={`pb-3 ${isLast ? "" : "mb-3 border-b border-border/50"}`}>
       <div className="font-mono text-muted-foreground text-2xs mb-1 flex items-center gap-1.5">
+        {first.audioSource === "microphone" ? (
+          <MicIcon className="size-3 text-mic-source" />
+        ) : (
+          <Volume2Icon className="size-3 text-system-source" />
+        )}
         {formatTimestamp(first.createdAt)}
       </div>
       <div className="text-sm">
@@ -348,7 +353,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
         >
           {/* "Added" confirmation toast */}
           {addedFeedback && (
-            <div className="sticky top-2 z-20 float-right mr-0 mb-0 flex items-center gap-1 px-2 py-1 text-2xs bg-background border border-border shadow-sm text-muted-foreground">
+            <div className="sticky top-2 z-20 float-right mr-0 mb-0 flex items-center gap-1 px-2 py-1 text-2xs bg-background border border-border shadow-sm rounded-sm text-muted-foreground">
               Added to todo input
             </div>
           )}
@@ -361,7 +366,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
             >
               <button
                 type="button"
-                className="flex items-center gap-1.5 px-2 py-1 text-2xs bg-background border border-border shadow-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+                className="flex items-center gap-1.5 px-2 py-1 text-2xs bg-background border border-border shadow-sm rounded-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
                 onClick={() => addRef(selectionText)}
                 onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                 onMouseUp={(e) => e.stopPropagation()}

@@ -28,5 +28,10 @@ export function createIntegrationManager(userDataPath: string): IntegrationManag
     clearLinearToken: registry.clearLinearToken,
     getExternalTools: registry.getExternalTools,
     dispose: registry.dispose,
+    addCustomMcpServer: registry.addCustomMcpServer,
+    removeCustomMcpServer: registry.removeCustomMcpServer,
+    connectCustomMcpServer: registry.connectCustomMcpServer,
+    disconnectCustomMcpServer: registry.disconnectCustomMcpServer,
+    getCustomMcpServersStatus: registry.getCustomMcpServersStatus,
   };
 }

@@ -460,7 +460,7 @@ export function RightSidebar({
                   <button
                     key={i}
                     type="button"
-                    className="flex items-center gap-1 pl-1.5 pr-1 py-0.5 text-2xs bg-muted/50 border border-border/60 text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors max-w-full"
+                    className="flex items-center gap-1 pl-1.5 pr-1 py-0.5 text-2xs bg-muted/50 border border-border/60 rounded-sm text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors max-w-full"
                     onClick={() => onRemoveTranscriptRef?.(i)}
                     title={ref}
                   >

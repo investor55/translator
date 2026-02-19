@@ -48,7 +48,7 @@ export function AgentList({
             <button
               type="button"
               onClick={() => onSelectAgent(agent.id)}
-              className={`w-full text-left rounded-none px-2 py-1 transition-colors ${
+              className={`w-full text-left rounded-sm px-2 py-1 transition-colors ${
                 selectedAgentId === agent.id
                   ? "bg-primary/10 border-l-2 border-l-primary"
                   : "hover:bg-muted/50 border-l-2 border-l-transparent"

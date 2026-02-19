@@ -70,21 +70,21 @@ function StatusBadge({ status }: { status: Agent["status"] }) {
   switch (status) {
     case "running":
       return (
-        <span className="inline-flex items-center gap-1 rounded-none bg-primary/10 px-1.5 py-0.5 text-2xs font-medium text-primary">
+        <span className="inline-flex items-center gap-1 rounded-sm bg-primary/10 px-1.5 py-0.5 text-2xs font-medium text-primary">
           <LoaderCircleIcon className="size-3 animate-spin" />
           Running
         </span>
       );
     case "completed":
       return (
-        <span className="inline-flex items-center gap-1 rounded-none bg-green-500/10 px-1.5 py-0.5 text-2xs font-medium text-green-600">
+        <span className="inline-flex items-center gap-1 rounded-sm bg-green-500/10 px-1.5 py-0.5 text-2xs font-medium text-green-600">
           <CheckCircleIcon className="size-3" />
           Done
         </span>
       );
     case "failed":
       return (
-        <span className="inline-flex items-center gap-1 rounded-none bg-destructive/10 px-1.5 py-0.5 text-2xs font-medium text-destructive">
+        <span className="inline-flex items-center gap-1 rounded-sm bg-destructive/10 px-1.5 py-0.5 text-2xs font-medium text-destructive">
           <XCircleIcon className="size-3" />
           Failed
         </span>
@@ -259,7 +259,7 @@ function AskQuestionPendingCard({
 
   return (
     <div className="mt-1 border-t border-border pt-2">
-      <div className="rounded-none border border-border bg-muted/20 px-2 py-2">
+      <div className="rounded-sm border border-border bg-muted/20 px-2 py-2">
         <p className="text-2xs font-semibold text-foreground">
           {request.title || "Questions"}
         </p>
@@ -280,7 +280,7 @@ function AskQuestionPendingCard({
                         type="button"
                         onClick={() => toggleOption(question.id, option.id, !!question.allow_multiple)}
                         className={[
-                          "flex items-center gap-2 rounded-none border px-2 py-1 text-left text-2xs transition-colors",
+                          "flex items-center gap-2 rounded-sm border px-2 py-1 text-left text-2xs transition-colors",
                           isSelected
                             ? "border-primary bg-primary/10 text-primary"
                             : "border-border/80 text-muted-foreground hover:border-border hover:text-foreground",
@@ -310,7 +310,7 @@ function AskQuestionPendingCard({
             type="button"
             onClick={() => void handleSubmit()}
             disabled={!onAnswerQuestion || !canSubmit || submitting}
-            className="rounded-none border border-border px-2 py-1 text-2xs font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-50"
+            className="rounded-sm border border-border px-2 py-1 text-2xs font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-50"
           >
             {submitting ? "Submitting..." : "Continue"}
           </button>
@@ -327,7 +327,7 @@ function AskQuestionResolvedCard({ output }: { output: AskQuestionToolOutput }) 
 
   return (
     <div className="mt-1 border-t border-border pt-2">
-      <div className="rounded-none border border-border/70 bg-muted/10 px-2 py-2">
+      <div className="rounded-sm border border-border/70 bg-muted/10 px-2 py-2">
         <p className="text-2xs font-semibold text-foreground">
           {output.title || "Clarification received"}
         </p>
@@ -651,7 +651,7 @@ function TaskContextCard({ task, taskContext }: { task: string; taskContext?: st
         <summary className="cursor-pointer text-2xs font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">
           Context
         </summary>
-        <div className="mt-1 max-h-40 overflow-y-auto rounded-none border border-border/60 bg-background px-2 py-1.5">
+        <div className="mt-1 max-h-40 overflow-y-auto rounded-sm border border-border/60 bg-background px-2 py-1.5">
           <p className="whitespace-pre-wrap text-2xs leading-relaxed text-muted-foreground">
             {contextText}
           </p>
@@ -881,7 +881,7 @@ export function AgentDetailPanel({
                   type="button"
                   onClick={() => hasPrev && onSelectAgent(agents[currentIndex + 1].id)}
                   disabled={!hasPrev}
-                  className="rounded-none p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:opacity-30"
+                  className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:opacity-30"
                   aria-label="Previous agent"
                 >
                   <ChevronLeftIcon className="size-3.5" />
@@ -893,7 +893,7 @@ export function AgentDetailPanel({
                   type="button"
                   onClick={() => hasNext && onSelectAgent(agents[currentIndex - 1].id)}
                   disabled={!hasNext}
-                  className="rounded-none p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:opacity-30"
+                  className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:opacity-30"
                   aria-label="Next agent"
                 >
                   <ChevronRightIcon className="size-3.5" />
@@ -904,7 +904,7 @@ export function AgentDetailPanel({
               <button
                 type="button"
                 onClick={() => onRelaunch(agent)}
-                className="rounded-none p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 aria-label="Relaunch agent"
               >
                 <RotateCcwIcon className="size-3.5" />
@@ -914,7 +914,7 @@ export function AgentDetailPanel({
               <button
                 type="button"
                 onClick={() => onArchive(agent)}
-                className="rounded-none p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+                className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
                 aria-label="Archive agent"
               >
                 <ArchiveIcon className="size-3.5" />
@@ -923,7 +923,7 @@ export function AgentDetailPanel({
             <button
               type="button"
               onClick={onClose}
-              className="ml-1 rounded-none p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="ml-1 rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               aria-label="Close panel"
             >
               <XIcon className="size-3.5" />

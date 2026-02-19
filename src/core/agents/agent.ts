@@ -100,9 +100,10 @@ export function buildAgentInitialUserPrompt(
   });
 }
 
-function buildApprovalTitle(toolName: string, provider: "notion" | "linear"): string {
+function buildApprovalTitle(toolName: string, provider: string): string {
   const clean = toolName.includes("__") ? toolName.split("__").slice(1).join("__") : toolName;
-  return `${provider === "notion" ? "Notion" : "Linear"} tool: ${clean}`;
+  const label = provider === "notion" ? "Notion" : provider === "linear" ? "Linear" : "MCP";
+  return `${label} tool: ${clean}`;
 }
 
 function summarizeApprovalInput(input: unknown): string {

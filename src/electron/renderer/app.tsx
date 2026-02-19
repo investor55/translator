@@ -3,6 +3,7 @@ import { useLocalStorage } from "usehooks-ts";
 import type {
   Agent,
   AppConfig,
+  CustomMcpStatus,
   FinalSummary,
   Language,
   LanguageCode,
@@ -113,6 +114,7 @@ export function App() {
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
   const [mcpIntegrations, setMcpIntegrations] = useState<McpIntegrationStatus[]>([]);
+  const [customMcpServers, setCustomMcpServers] = useState<CustomMcpStatus[]>([]);
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [activeProjectId, setActiveProjectId] = useLocalStorage<string | null>("ambient-active-project-id", null);
   const [mcpBusy, setMcpBusy] = useState(false);
@@ -240,9 +242,15 @@ export function App() {
     setMcpIntegrations(statuses);
   }, []);
 
+  const refreshCustomMcpServers = useCallback(async () => {
+    const servers = await window.electronAPI.getCustomMcpServersStatus();
+    setCustomMcpServers(servers);
+  }, []);
+
   useEffect(() => {
     void refreshMcpIntegrations();
-  }, [refreshMcpIntegrations]);
+    void refreshCustomMcpServers();
+  }, [refreshMcpIntegrations, refreshCustomMcpServers]);
 
   const refreshProjects = useCallback(async () => {
     const list = await window.electronAPI.getProjects();
@@ -384,6 +392,62 @@ export function App() {
       setMcpBusy(false);
     }
   }, [refreshMcpIntegrations]);
+
+  const handleAddCustomServer = useCallback(async (cfg: { name: string; url: string; transport: "streamable" | "sse"; bearerToken?: string }) => {
+    setMcpBusy(true);
+    try {
+      const result = await window.electronAPI.addCustomMcpServer(cfg);
+      if (!result.ok) {
+        setRouteNotice(`Custom MCP server add failed: ${result.error ?? "Unknown error"}`);
+      }
+      return result;
+    } finally {
+      await refreshCustomMcpServers();
+      setMcpBusy(false);
+    }
+  }, [refreshCustomMcpServers]);
+
+  const handleRemoveCustomServer = useCallback(async (id: string) => {
+    setMcpBusy(true);
+    try {
+      const result = await window.electronAPI.removeCustomMcpServer(id);
+      if (!result.ok) {
+        setRouteNotice(`Could not remove custom server: ${result.error ?? "Unknown error"}`);
+      }
+      return result;
+    } finally {
+      await refreshCustomMcpServers();
+      setMcpBusy(false);
+    }
+  }, [refreshCustomMcpServers]);
+
+  const handleConnectCustomServer = useCallback(async (id: string) => {
+    setMcpBusy(true);
+    try {
+      const result = await window.electronAPI.connectCustomMcpServer(id);
+      if (!result.ok) {
+        setRouteNotice(`Custom MCP server connect failed: ${result.error ?? "Unknown error"}`);
+      }
+      return result;
+    } finally {
+      await refreshCustomMcpServers();
+      setMcpBusy(false);
+    }
+  }, [refreshCustomMcpServers]);
+
+  const handleDisconnectCustomServer = useCallback(async (id: string) => {
+    setMcpBusy(true);
+    try {
+      const result = await window.electronAPI.disconnectCustomMcpServer(id);
+      if (!result.ok) {
+        setRouteNotice(`Could not disconnect custom server: ${result.error ?? "Unknown error"}`);
+      }
+      return result;
+    } finally {
+      await refreshCustomMcpServers();
+      setMcpBusy(false);
+    }
+  }, [refreshCustomMcpServers]);
 
   const handleSelectProject = useCallback((id: string | null) => {
     setActiveProjectId(id);
@@ -1160,6 +1224,11 @@ export function App() {
             onDisconnectNotionMcp={handleDisconnectNotionMcp}
             onSetLinearToken={handleSetLinearToken}
             onClearLinearToken={handleClearLinearToken}
+            customMcpServers={customMcpServers}
+            onAddCustomServer={handleAddCustomServer}
+            onRemoveCustomServer={handleRemoveCustomServer}
+            onConnectCustomServer={handleConnectCustomServer}
+            onDisconnectCustomServer={handleDisconnectCustomServer}
           />
         ) : (
           <>
@@ -1280,7 +1349,7 @@ export function App() {
               This todo was classified as large and needs human approval before the agent can run.
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-none border border-border bg-muted/40 px-3 py-2 text-xs text-foreground">
+          <div className="rounded-sm border border-border bg-muted/40 px-3 py-2 text-xs text-foreground">
             {pendingApprovalTodo?.text}
           </div>
           <DialogFooter>

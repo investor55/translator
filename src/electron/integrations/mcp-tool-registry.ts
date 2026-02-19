@@ -3,8 +3,9 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { ListToolsResult } from "@modelcontextprotocol/sdk/types.js";
-import type { McpIntegrationStatus } from "../../core/types";
+import type { McpIntegrationStatus, McpIntegrationConnection, CustomMcpStatus, CustomMcpTransport } from "../../core/types";
 import type { AgentExternalToolSet, AgentExternalToolProvider } from "../../core/agents/external-tools";
+import type { CustomMcpServerRecord } from "./types";
 import { log } from "../../core/logger";
 import {
   createNotionOAuthProvider,
@@ -90,6 +91,18 @@ export function createMcpToolRegistry(options: {
 
   let notionRuntime: ProviderRuntime | undefined;
   let linearRuntime: ProviderRuntime | undefined;
+  const customRuntimes = new Map<string, ProviderRuntime>();
+
+  function createCustomRuntime(record: CustomMcpServerRecord, token?: string): ProviderRuntime {
+    const requestInit: RequestInit | undefined = token
+      ? { headers: { Authorization: `Bearer ${token}` } }
+      : undefined;
+    const transport = record.transport === "streamable"
+      ? new StreamableHTTPClientTransport(new URL(record.url), requestInit ? { requestInit } : {})
+      : new SSEClientTransport(new URL(record.url), requestInit ? { requestInit } : {});
+    const client = new Client(CLIENT_INFO);
+    return { client, transport };
+  }
 
   function createNotionRuntime(kind: NotionTransportKind): ProviderRuntime {
     const provider = createNotionOAuthProvider({ store, openExternal });
@@ -324,6 +337,121 @@ export function createMcpToolRegistry(options: {
     return { ok: true };
   }
 
+  async function addCustomMcpServer(cfg: {
+    name: string;
+    url: string;
+    transport: CustomMcpTransport;
+    bearerToken?: string;
+  }): Promise<{ ok: boolean; error?: string; id?: string }> {
+    if (!enabled) {
+      return { ok: false, error: "MCP integrations are disabled. Set MCP_INTEGRATIONS_ENABLED=true (or remove MCP_INTEGRATIONS_ENABLED=false)." };
+    }
+    try {
+      store.ensureEncryptionAvailable();
+      const id = crypto.randomUUID();
+      const rawToken = cfg.bearerToken?.trim();
+      const tokenEncrypted = rawToken ? store.encryptToken(rawToken) : undefined;
+      const record: CustomMcpServerRecord = {
+        id,
+        name: cfg.name.trim(),
+        url: cfg.url.trim(),
+        transport: cfg.transport,
+        tokenEncrypted,
+      };
+      await store.addCustomServer(record);
+      const runtime = createCustomRuntime(record, rawToken);
+      await runtime.client.connect(runtime.transport);
+      await runtime.client.listTools();
+      customRuntimes.set(id, runtime);
+      await store.updateCustomServerMetadata(id, {
+        label: cfg.name.trim(),
+        lastConnectedAt: Date.now(),
+        lastError: undefined,
+      });
+      return { ok: true, id };
+    } catch (error) {
+      const message = formatError(error);
+      log("ERROR", `Custom MCP server add failed: ${message}`);
+      return { ok: false, error: message };
+    }
+  }
+
+  async function removeCustomMcpServer(id: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      await closeRuntime(customRuntimes.get(id));
+      customRuntimes.delete(id);
+      await store.removeCustomServer(id);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: formatError(error) };
+    }
+  }
+
+  async function connectCustomMcpServer(id: string): Promise<{ ok: boolean; error?: string }> {
+    if (!enabled) {
+      return { ok: false, error: "MCP integrations are disabled. Set MCP_INTEGRATIONS_ENABLED=true (or remove MCP_INTEGRATIONS_ENABLED=false)." };
+    }
+    try {
+      const records = await store.getCustomServers();
+      const record = records.find((r) => r.id === id);
+      if (!record) return { ok: false, error: "Custom server not found." };
+      await closeRuntime(customRuntimes.get(id));
+      customRuntimes.delete(id);
+      const token = await store.getCustomServerToken(id);
+      const runtime = createCustomRuntime(record, token);
+      await runtime.client.connect(runtime.transport);
+      await runtime.client.listTools();
+      customRuntimes.set(id, runtime);
+      await store.updateCustomServerMetadata(id, {
+        lastConnectedAt: Date.now(),
+        lastError: undefined,
+      });
+      return { ok: true };
+    } catch (error) {
+      const message = formatError(error);
+      await store.updateCustomServerMetadata(id, {
+        lastConnectedAt: undefined,
+        lastError: message,
+      });
+      return { ok: false, error: message };
+    }
+  }
+
+  async function disconnectCustomMcpServer(id: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      await closeRuntime(customRuntimes.get(id));
+      customRuntimes.delete(id);
+      await store.updateCustomServerMetadata(id, {
+        lastConnectedAt: undefined,
+        lastError: undefined,
+      });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: formatError(error) };
+    }
+  }
+
+  async function getCustomMcpServersStatus(): Promise<CustomMcpStatus[]> {
+    const records = await store.getCustomServers();
+    return records.map((record) => {
+      const isConnected = customRuntimes.has(record.id);
+      const state: McpIntegrationConnection = record.lastError
+        ? "error"
+        : isConnected
+        ? "connected"
+        : "disconnected";
+      return {
+        id: record.id,
+        name: record.name,
+        url: record.url,
+        transport: record.transport as CustomMcpTransport,
+        state,
+        error: record.lastError,
+        lastConnectedAt: record.lastConnectedAt,
+      };
+    });
+  }
+
   async function getStatus(): Promise<McpIntegrationStatus[]> {
     const data = await store.readFile();
     let notionHasTokens = false;
@@ -410,6 +538,19 @@ export function createMcpToolRegistry(options: {
       log("WARN", `Linear MCP tools unavailable: ${message}`);
     }
 
+    for (const [id, runtime] of customRuntimes) {
+      try {
+        Object.assign(merged, await buildAgentToolsForProvider(`custom:${id}` as AgentExternalToolProvider, runtime));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await store.updateCustomServerMetadata(id, {
+          lastConnectedAt: undefined,
+          lastError: message,
+        });
+        log("WARN", `Custom MCP server ${id} tools unavailable: ${message}`);
+      }
+    }
+
     return merged;
   }
 
@@ -418,6 +559,10 @@ export function createMcpToolRegistry(options: {
     notionRuntime = undefined;
     await closeRuntime(linearRuntime);
     linearRuntime = undefined;
+    for (const [id, runtime] of customRuntimes) {
+      await closeRuntime(runtime);
+      customRuntimes.delete(id);
+    }
   }
 
   return {
@@ -429,5 +574,10 @@ export function createMcpToolRegistry(options: {
     getStatus,
     getExternalTools,
     dispose,
+    addCustomMcpServer,
+    removeCustomMcpServer,
+    connectCustomMcpServer,
+    disconnectCustomMcpServer,
+    getCustomMcpServersStatus,
   };
 }

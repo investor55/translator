@@ -193,7 +193,7 @@ export function LeftSidebar({
               onChange={(e) => setFormInstructions(e.target.value)}
               placeholder="Agent instructions (optional)"
               rows={3}
-              className="w-full resize-none rounded-none border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="w-full resize-none rounded-sm border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               onKeyDown={(e) => {
                 if (e.key === "Escape") cancelForm();
               }}
@@ -279,7 +279,7 @@ export function LeftSidebar({
                 <button
                   type="button"
                   onClick={() => onSelectSession?.(session.id)}
-                  className={`w-full text-left px-2 py-1.5 rounded-none text-xs transition-colors ${activeSessionId === session.id ? "bg-sidebar-accent" : "hover:bg-sidebar-accent"}`}
+                  className={`w-full text-left px-2 py-1.5 rounded-sm text-xs transition-colors ${activeSessionId === session.id ? "bg-sidebar-accent" : "hover:bg-sidebar-accent"}`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-foreground font-medium truncate">

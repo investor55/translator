@@ -1,4 +1,4 @@
-export type AgentExternalToolProvider = "notion" | "linear";
+export type AgentExternalToolProvider = string;
 
 export type AgentToolExecutionOptions = {
   toolCallId: string;

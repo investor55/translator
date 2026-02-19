@@ -211,6 +211,18 @@ export type McpIntegrationStatus = Readonly<{
   lastConnectedAt?: number;
 }>;
 
+export type CustomMcpTransport = "streamable" | "sse";
+
+export type CustomMcpStatus = {
+  id: string;
+  name: string;
+  url: string;
+  transport: CustomMcpTransport;
+  state: McpIntegrationConnection;
+  error?: string;
+  lastConnectedAt?: number;
+};
+
 const ENV = typeof process !== "undefined" ? process.env : undefined;
 
 export const DEFAULT_VERTEX_MODEL_ID =
@@ -361,7 +373,7 @@ export type AgentQuestionSelection = Readonly<{
 export type AgentToolApprovalRequest = Readonly<{
   id: string;
   toolName: string;
-  provider: "notion" | "linear";
+  provider: string;
   title: string;
   summary: string;
   input?: string;

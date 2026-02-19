@@ -61,7 +61,7 @@ export function ConversationScrollButton({
     <Button
       aria-label="Scroll to bottom"
       className={cn(
-        "absolute bottom-2 left-1/2 -translate-x-1/2 rounded-none border border-border bg-background/90 hover:bg-muted",
+        "absolute bottom-2 left-1/2 -translate-x-1/2 rounded-sm border border-border bg-background/90 hover:bg-muted",
         className
       )}
       onClick={(event) => {

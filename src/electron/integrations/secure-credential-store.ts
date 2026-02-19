@@ -6,6 +6,7 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type {
+  CustomMcpServerRecord,
   IntegrationCredentialsFile,
   LinearCredentialRecord,
   NotionCredentialRecord,
@@ -201,5 +202,49 @@ export class SecureCredentialStore {
       };
       return current;
     });
+  }
+
+  encryptToken(token: string): string {
+    return this.encryptString(token);
+  }
+
+  async getCustomServers(): Promise<CustomMcpServerRecord[]> {
+    const data = await this.readFile();
+    return data.customServers ?? [];
+  }
+
+  async addCustomServer(record: CustomMcpServerRecord): Promise<void> {
+    await this.mutate((current) => {
+      current.customServers = [...(current.customServers ?? []), record];
+      return current;
+    });
+  }
+
+  async updateCustomServerMetadata(
+    id: string,
+    meta: { label?: string; lastConnectedAt?: number; lastError?: string },
+  ): Promise<void> {
+    await this.mutate((current) => {
+      const servers = current.customServers ?? [];
+      const idx = servers.findIndex((s) => s.id === id);
+      if (idx >= 0) {
+        servers[idx] = { ...servers[idx], ...meta };
+        current.customServers = servers;
+      }
+      return current;
+    });
+  }
+
+  async removeCustomServer(id: string): Promise<void> {
+    await this.mutate((current) => {
+      current.customServers = (current.customServers ?? []).filter((s) => s.id !== id);
+      return current;
+    });
+  }
+
+  async getCustomServerToken(id: string): Promise<string | undefined> {
+    const data = await this.readFile();
+    const record = (data.customServers ?? []).find((s) => s.id === id);
+    return this.decryptString(record?.tokenEncrypted);
   }
 }
