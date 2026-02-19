@@ -73,6 +73,22 @@ function formatError(error: unknown): string {
   return String(error);
 }
 
+function extractCallToolErrorText(result: unknown): string | null {
+  if (!result || typeof result !== "object") return null;
+  const record = result as { content?: unknown };
+  if (!Array.isArray(record.content)) return null;
+  const textParts = record.content
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const typed = part as { type?: unknown; text?: unknown };
+      if (typed.type !== "text" || typeof typed.text !== "string") return "";
+      return typed.text.trim();
+    })
+    .filter(Boolean);
+  if (textParts.length === 0) return null;
+  return textParts.join("\n");
+}
+
 async function closeRuntime(runtime?: ProviderRuntime): Promise<void> {
   if (!runtime) return;
   try {
@@ -170,6 +186,15 @@ export function createMcpToolRegistry(options: {
             undefined,
             { signal: execOptions.abortSignal },
           );
+
+          if ("isError" in result && result.isError === true) {
+            const detail = extractCallToolErrorText(result);
+            throw new Error(
+              detail
+                ? `MCP tool "${tool.name}" returned an error: ${detail}`
+                : `MCP tool "${tool.name}" returned an error.`,
+            );
+          }
 
           if ("structuredContent" in result && result.structuredContent != null) {
             return result.structuredContent;

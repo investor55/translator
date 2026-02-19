@@ -519,6 +519,9 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     agent.result = undefined;
     agent.completedAt = undefined;
     agent.createdAt = Date.now();
+    // Refresh task context so the agent starts with current transcript, not the
+    // stale snapshot captured when the todo was originally created.
+    agent.taskContext = deps.getTranscriptContext();
 
     deps.db?.updateAgent(agentId, { status: "running", steps: [], result: undefined, completedAt: undefined });
     deps.events.emit("agent-started", agent);

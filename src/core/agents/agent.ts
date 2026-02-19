@@ -1,4 +1,4 @@
-import { streamText, tool, stepCountIs, type ModelMessage } from "ai";
+import { generateText, streamText, tool, stepCountIs, type ModelMessage } from "ai";
 import { z } from "zod";
 import type {
   AgentStep,
@@ -15,6 +15,11 @@ import {
   renderPromptTemplate,
 } from "../prompt-loader";
 import type { AgentExternalToolSet } from "./external-tools";
+import {
+  rankExternalTools,
+  resolveExternalToolName,
+  shouldRequireApproval,
+} from "./mcp-tool-resolution";
 
 type ExaClient = {
   search: (
@@ -116,6 +121,207 @@ function summarizeApprovalInput(input: unknown): string {
   }
 }
 
+function getLatestUserMessageText(messages: ModelMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== "user") continue;
+    const { content } = message;
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) {
+      return content
+        .map((part) => {
+          if (typeof part === "string") return part;
+          if (part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part) {
+            const text = (part as { text?: unknown }).text;
+            return typeof text === "string" ? text : "";
+          }
+          return "";
+        })
+        .join(" ")
+        .trim();
+    }
+  }
+  return "";
+}
+
+function shouldForceMcpToolLoop(userText: string): boolean {
+  if (!userText.trim()) return false;
+  const hasIntegrationNoun =
+    /\b(notion|linear|workspace|database|page|issue|project|task|ticket|mcp)\b/i.test(
+      userText,
+    );
+  const hasActionVerb =
+    /\b(create|add|update|edit|delete|archive|find|search|list|look\s*up|open|append|move|set)\b/i.test(
+      userText,
+    );
+  return hasIntegrationNoun && hasActionVerb;
+}
+
+function isContinuationPrompt(userText: string): boolean {
+  const normalized = userText.toLowerCase().trim();
+  if (!normalized) return false;
+  return /^(continue|go on|proceed|keep going|again|try again|yes|yep|ok|okay)\.?$/.test(
+    normalized,
+  );
+}
+
+function hasRecentMcpContextInMessages(messages: ModelMessage[]): boolean {
+  for (let i = messages.length - 1; i >= 0 && i >= messages.length - 8; i--) {
+    const message = messages[i];
+    if (!message) continue;
+
+    if (typeof message.content === "string") {
+      if (/searchMcpTools|callMcpTool|notion__|linear__/i.test(message.content)) {
+        return true;
+      }
+      continue;
+    }
+
+    if (!Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (!part || typeof part !== "object") continue;
+      const maybeToolName = (part as { toolName?: unknown }).toolName;
+      if (
+        maybeToolName === "searchMcpTools" ||
+        maybeToolName === "callMcpTool"
+      ) {
+        return true;
+      }
+
+      const maybeType = (part as { type?: unknown }).type;
+      if (maybeType === "tool-call" || maybeType === "tool-result") {
+        const toolName = (part as { toolName?: unknown }).toolName;
+        if (
+          toolName === "searchMcpTools" ||
+          toolName === "callMcpTool"
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function shouldEnforceMcpLoop(userText: string, messages: ModelMessage[]): boolean {
+  if (shouldForceMcpToolLoop(userText)) return true;
+  if (isContinuationPrompt(userText) && hasRecentMcpContextInMessages(messages)) {
+    return true;
+  }
+  return false;
+}
+
+function hasMcpMetaTools(tools: Record<string, unknown>): boolean {
+  return !!tools.searchMcpTools && !!tools.callMcpTool;
+}
+
+type CallMcpToolErrorCode =
+  | "tool_name_required"
+  | "tool_ambiguous"
+  | "tool_not_found"
+  | "no_tools_available"
+  | "missing_or_invalid_args"
+  | "tool_execution_failed"
+  | "tool_denied";
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function classifyToolExecutionError(message: string): CallMcpToolErrorCode {
+  if (/missing|required|invalid|argument|parameter|schema|input/i.test(message)) {
+    return "missing_or_invalid_args";
+  }
+  return "tool_execution_failed";
+}
+
+function getMcpCallResultCode(output: unknown): CallMcpToolErrorCode | null {
+  const record = asObject(output);
+  if (!record) return null;
+  const code = record.errorCode;
+  return typeof code === "string" ? (code as CallMcpToolErrorCode) : null;
+}
+
+function getMcpCallResultStatus(output: unknown): "success" | "error" | "denied" {
+  const code = getMcpCallResultCode(output);
+  if (code === "tool_denied") return "denied";
+  if (code) return "error";
+
+  const record = asObject(output);
+  if (!record) return "success";
+  if (record.isError === true) return "error";
+  if (record.denied === true) return "denied";
+  if (typeof record.error === "string" && record.error.trim().length > 0) {
+    return "error";
+  }
+  return "success";
+}
+
+function getMcpCallResultHint(output: unknown): string {
+  const record = asObject(output);
+  if (!record) return "";
+  const hint = record.hint;
+  const error = record.error;
+  const content = record.content;
+  const hintText = typeof hint === "string" ? hint : "";
+  const errorText = typeof error === "string" ? error : "";
+  const contentText = Array.isArray(content)
+    ? content
+      .map((item) => {
+        if (!item || typeof item !== "object") return "";
+        const typed = item as { type?: unknown; text?: unknown };
+        if (typed.type !== "text" || typeof typed.text !== "string") return "";
+        return typed.text;
+      })
+      .filter(Boolean)
+      .join(" ")
+    : "";
+  return `${errorText} ${hintText} ${contentText}`.trim().toLowerCase();
+}
+
+function getMcpCallResultErrorText(output: unknown): string {
+  const record = asObject(output);
+  if (!record) return "";
+  const error = record.error;
+  if (typeof error === "string" && error.trim()) {
+    return error.trim();
+  }
+  return "";
+}
+
+function looksLikeIntentOnlyText(text: string): boolean {
+  const normalized = text.trim();
+  if (!normalized || normalized === "No results found.") {
+    return true;
+  }
+
+  const lower = normalized.toLowerCase();
+  const hasIntentLead = /\b(let me|i'll|i will|i need to|i can|i'm going to)\b/.test(lower);
+  const hasFutureAction =
+    /\b(search|check|look up|look for|find|get|fetch|retrieve|call|try)\b/.test(lower);
+  const hasConcreteResultSignal =
+    /\b(found|here(?:'s| is| are)|results?|according to|based on|it shows|i checked)\b/.test(lower);
+
+  return hasIntentLead && hasFutureAction && !hasConcreteResultSignal;
+}
+
+function hasSuccessfulMcpToolResultFromSteps(
+  steps: Array<{
+    toolResults: Array<{ toolName: string; output: unknown }>;
+  }>,
+): boolean {
+  return steps.some((step) =>
+    step.toolResults.some(
+      (result) =>
+        result.toolName === "callMcpTool" &&
+        getMcpCallResultStatus(result.output) === "success",
+    ),
+  );
+}
+
 
 async function buildTools(
   exa: ExaClient,
@@ -203,24 +409,15 @@ async function buildTools(
       query: z.string().describe("Keywords to search for, e.g. 'create page', 'list issues', 'search'"),
     }),
     execute: async ({ query }) => {
-      const q = query.toLowerCase();
-      const matches = Object.entries(externalTools)
-        .filter(([name, t]) =>
-          name.toLowerCase().includes(q) ||
-          (t.description ?? "").toLowerCase().includes(q)
-        )
-        .slice(0, 10)
-        .map(([name, t]) => ({
+      if (Object.keys(externalTools).length === 0) {
+        throw new Error("No MCP tools are currently available. Connect an integration first.");
+      }
+      const matches = rankExternalTools(query, externalTools, 10).map(({ name, tool: t }) => ({
           name,
           description: t.description ?? `MCP tool: ${name}`,
           isMutating: t.isMutating,
           inputSchema: t.inputSchema,
-        }));
-      if (matches.length === 0) {
-        throw new Error(
-          `No tools matched "${query}". Available tool name prefixes: ${[...new Set(Object.keys(externalTools).map(n => n.split("__")[0]))].join(", ")}`
-        );
-      }
+      }));
       return matches;
     },
   });
@@ -249,22 +446,45 @@ async function buildTools(
         _autoApprove?: boolean;
       };
 
-      const external = externalTools[name];
+      const resolution = resolveExternalToolName(name, externalTools);
+      if (resolution.ok === false) {
+        return resolution.suggestions
+          ? {
+            errorCode: resolution.code,
+            error: resolution.error,
+            hint: resolution.hint,
+            suggestions: resolution.suggestions,
+          }
+          : {
+            errorCode: resolution.code,
+            error: resolution.error,
+            hint: resolution.hint,
+          };
+      }
+
+      const resolvedName = resolution.toolName;
+      const external = externalTools[resolvedName];
       if (!external) {
         return {
-          error: `Tool "${name}" not found.`,
-          hint: "Call searchMcpTools with relevant keywords to find the correct tool name.",
+          errorCode: "tool_not_found" as const,
+          error: `Tool "${resolvedName}" not found.`,
+          hint: "Call searchMcpTools with relevant keywords and use the exact tool name returned.",
         };
       }
 
       const approvalId = `approval:${toolCallId}`;
+      const requiresApproval = shouldRequireApproval(
+        external.isMutating,
+        allowAutoApprove,
+        autoApprove,
+      );
 
-      if (external.isMutating && !autoApprove && !allowAutoApprove) {
+      if (requiresApproval) {
         const request: AgentToolApprovalRequest = {
           id: approvalId,
-          toolName: name,
+          toolName: resolvedName,
           provider: external.provider,
-          title: buildApprovalTitle(name, external.provider),
+          title: buildApprovalTitle(resolvedName, external.provider),
           summary: "This tool can create, update, or delete external data.",
           input: summarizeApprovalInput(args),
         };
@@ -272,7 +492,7 @@ async function buildTools(
         onStep({
           id: `${approvalId}:requested`,
           kind: "tool-call",
-          toolName: name,
+          toolName: resolvedName,
           toolInput: request.input,
           approvalId,
           approvalState: "approval-requested",
@@ -288,7 +508,7 @@ async function buildTools(
         onStep({
           id: `${approvalId}:responded`,
           kind: "tool-result",
-          toolName: name,
+          toolName: resolvedName,
           toolInput: request.input,
           approvalId,
           approvalState: "approval-responded",
@@ -301,7 +521,7 @@ async function buildTools(
           onStep({
             id: `${approvalId}:denied`,
             kind: "tool-result",
-            toolName: name,
+            toolName: resolvedName,
             toolInput: request.input,
             approvalId,
             approvalState: "output-denied",
@@ -309,7 +529,11 @@ async function buildTools(
             content: "Tool execution denied",
             createdAt: Date.now(),
           });
-          return { denied: true, reason: "User denied this tool execution." };
+          return {
+            denied: true,
+            reason: "User denied this tool execution.",
+            errorCode: "tool_denied" as const,
+          };
         }
       }
 
@@ -319,16 +543,17 @@ async function buildTools(
       } catch (execError) {
         const message = execError instanceof Error ? execError.message : String(execError);
         return {
-          error: `Tool "${name}" failed: ${message}`,
+          errorCode: classifyToolExecutionError(message),
+          error: `Tool "${resolvedName}" failed: ${message}`,
           hint: "Check the tool's inputSchema and fix the arguments, or call askQuestion to ask the user for the required information.",
         };
       }
 
-      if (external.isMutating && !autoApprove) {
+      if (requiresApproval) {
         onStep({
           id: `${approvalId}:completed`,
           kind: "tool-result",
-          toolName: name,
+          toolName: resolvedName,
           toolInput: summarizeApprovalInput(output),
           approvalId,
           approvalState: "output-available",
@@ -457,7 +682,19 @@ function summarizeToolResult(
 
   if (toolName === "callMcpTool") {
     const name = (input as Record<string, unknown>)?.name;
-    return { content: typeof name === "string" ? `${name} complete` : "MCP tool complete", toolInput: safeJson(output) };
+    const label = typeof name === "string" ? name : "MCP tool";
+    const status = getMcpCallResultStatus(output);
+    if (status === "error") {
+      const errorText = getMcpCallResultErrorText(output);
+      return {
+        content: `${label} failed`,
+        toolInput: errorText || safeJson(output),
+      };
+    }
+    if (status === "denied") {
+      return { content: `${label} denied`, toolInput: safeJson(output) };
+    }
+    return { content: `${label} complete`, toolInput: safeJson(output) };
   }
 
   return {
@@ -529,12 +766,119 @@ async function runAgentWithMessages(
       allowAutoApprove,
       getExternalTools,
     );
+    const latestUserText = getLatestUserMessageText(inputMessages);
+    const enforceMcpLoop =
+      hasMcpMetaTools(tools) && shouldEnforceMcpLoop(latestUserText, inputMessages);
 
     const result = streamText({
       model,
       system: systemPrompt,
       messages: inputMessages,
-      stopWhen: stepCountIs(8),
+      stopWhen: stepCountIs(20),
+      prepareStep: enforceMcpLoop
+        ? ({ stepNumber, steps }) => {
+          const hasSearchMcpToolCall = steps.some((step) =>
+            step.toolCalls.some((call) => call.toolName === "searchMcpTools"),
+          );
+          const callMcpToolResults = steps.flatMap((step) =>
+            step.toolResults.filter((toolResult) => toolResult.toolName === "callMcpTool"),
+          );
+          const hasSuccessfulCallMcpToolResult = callMcpToolResults.some(
+            (toolResult) => getMcpCallResultStatus(toolResult.output) === "success",
+          );
+          const callMcpToolErrorCount = callMcpToolResults.filter(
+            (toolResult) => getMcpCallResultStatus(toolResult.output) === "error",
+          ).length;
+          const latestCallMcpToolResult = callMcpToolResults[callMcpToolResults.length - 1];
+          const latestCallStatus = latestCallMcpToolResult
+            ? getMcpCallResultStatus(latestCallMcpToolResult.output)
+            : null;
+          const latestCallCode = latestCallMcpToolResult
+            ? getMcpCallResultCode(latestCallMcpToolResult.output)
+            : null;
+          const latestCallHint = latestCallMcpToolResult
+            ? getMcpCallResultHint(latestCallMcpToolResult.output)
+            : "";
+
+          if (stepNumber === 0 || !hasSearchMcpToolCall) {
+            return {
+              activeTools: ["searchMcpTools"],
+              toolChoice: { type: "tool", toolName: "searchMcpTools" as const },
+            };
+          }
+
+          if (hasSuccessfulCallMcpToolResult) {
+            return { toolChoice: "none" as const };
+          }
+
+          if (latestCallStatus === "error") {
+            if (
+              latestCallCode === "tool_not_found" ||
+              latestCallCode === "tool_ambiguous" ||
+              latestCallCode === "tool_name_required"
+            ) {
+              return {
+                activeTools: ["searchMcpTools"],
+                toolChoice: { type: "tool", toolName: "searchMcpTools" as const },
+              };
+            }
+
+            if (latestCallCode === "missing_or_invalid_args") {
+              return {
+                activeTools: ["askQuestion"],
+                toolChoice: { type: "tool", toolName: "askQuestion" as const },
+              };
+            }
+
+            if (latestCallCode === "no_tools_available") {
+              return { toolChoice: "none" as const };
+            }
+
+            if (
+              /not found|ambiguous|exact tool name|searchmcptools/.test(
+                latestCallHint,
+              )
+            ) {
+              return {
+                activeTools: ["searchMcpTools"],
+                toolChoice: { type: "tool", toolName: "searchMcpTools" as const },
+              };
+            }
+
+            if (
+              /invalid|missing|required|argument|parameter|inputschema/.test(
+                latestCallHint,
+              )
+            ) {
+              return {
+                activeTools: ["askQuestion"],
+                toolChoice: { type: "tool", toolName: "askQuestion" as const },
+              };
+            }
+          }
+
+          if (latestCallStatus === "denied") {
+            return { toolChoice: "none" as const };
+          }
+
+          // Hard stop against brittle retry loops: after repeated MCP errors,
+          // force a user clarification step instead of more blind retries.
+          if (callMcpToolErrorCount >= 2 && !hasSuccessfulCallMcpToolResult) {
+            return {
+              activeTools: ["askQuestion"],
+              toolChoice: { type: "tool", toolName: "askQuestion" as const },
+            };
+          }
+
+          if (stepNumber >= 1) {
+            return {
+              activeTools: ["callMcpTool", "askQuestion"],
+              toolChoice: "required" as const,
+            };
+          }
+          return {};
+        }
+        : undefined,
       abortSignal,
       tools: tools as Parameters<typeof streamText>[0]["tools"],
       onError: ({ error }) => {
@@ -673,7 +1017,7 @@ async function runAgentWithMessages(
     // Fall back to lastNonEmptyText so tool-only final steps don't clobber earlier output.
     if (streamedText) lastNonEmptyText = streamedText;
     const lastStepText = (await result.text).trim();
-    const finalText = lastStepText || lastNonEmptyText || "No results found.";
+    let finalText = lastStepText || lastNonEmptyText || "No results found.";
 
     // Only emit the final text step if result.text has content — it finalises the
     // last streamed text block. If the final step was tool-only, streaming already
@@ -689,7 +1033,33 @@ async function runAgentWithMessages(
 
     // Build full conversation history for future follow-ups
     const response = await result.response;
-    const fullHistory = [...inputMessages, ...response.messages];
+    let fullHistory = [...inputMessages, ...response.messages];
+    const steps = await result.steps;
+    const shouldForceFinalization =
+      hasSuccessfulMcpToolResultFromSteps(steps as Array<{ toolResults: Array<{ toolName: string; output: unknown }> }>) &&
+      looksLikeIntentOnlyText(finalText) &&
+      !abortSignal?.aborted;
+
+    if (shouldForceFinalization) {
+      const finalize = await generateText({
+        model,
+        system: `${systemPrompt}\n\nYou already have tool results. Respond with a concrete completed update now. Do not describe future actions.`,
+        messages: fullHistory,
+      });
+      const finalizedText = finalize.text.trim();
+      if (finalizedText) {
+        finalText = finalizedText;
+        const finalizeStepId = `text:finalize:${Date.now()}`;
+        onStep({
+          id: finalizeStepId,
+          kind: "text",
+          content: finalizedText,
+          createdAt: Date.now(),
+        });
+        fullHistory = [...fullHistory, ...finalize.response.messages];
+      }
+    }
+
     log(
       "INFO",
       `Agent stream ${agent.id}: deltas=${deltaCount}, firstDeltaMs=${firstDeltaAfterMs ?? -1}, totalMs=${Date.now() - streamedAt}`

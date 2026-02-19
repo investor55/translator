@@ -395,7 +395,7 @@ function ToolApprovalCard({
     approvalState === "output-available" ||
     (approvalState === "approval-responded" && step.approvalApproved !== false);
 
-  if (isApproved && approvalState !== "approval-requested") {
+  if (isApproved) {
     return (
       <div className="flex items-center gap-1.5 border-t border-border mt-1 py-1">
         <CheckIcon className="size-3 text-primary/60 shrink-0" />

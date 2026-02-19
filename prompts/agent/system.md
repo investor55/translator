@@ -23,5 +23,7 @@ MCP integrations (Notion, Linear, and others):
 - To use any integration tool, first call searchMcpTools with relevant keywords (e.g. "create page", "list issues", "search database").
 - Review the returned tool names, descriptions, and inputSchema, then call callMcpTool with the correct name and args.
 - Never guess tool names. Always search first.
+- Do not end a response with intent-only language like "I'll search" or "Let me check." If an integration action is needed, call the tool in this turn or askQuestion for missing inputs.
+- If callMcpTool says a tool was not found or ambiguous, rerun searchMcpTools and use the exact tool name returned.
 - If callMcpTool returns an error about invalid or missing arguments, do not retry. Instead, use askQuestion to ask the user for the specific values needed.
 - When calling callMcpTool for a mutating tool, set _autoApprove: true only for clearly safe creates (new data, no overwrites, easily undone). Never set _autoApprove: true for updates, deletes, archives, or any action that modifies or removes existing content.
