@@ -608,13 +608,21 @@ function getToolCallCount(steps: AgentStep[]): number {
   return toolCallIds.size;
 }
 
-function getThinkingDurationSecs(steps: AgentStep[]): number | null {
-  const thinkingStart = steps.find((s) => s.kind === "thinking")?.createdAt;
-  if (thinkingStart == null) return null;
-  const firstAfterThinking = steps.find((s) => s.kind !== "thinking");
-  const endTime = firstAfterThinking?.createdAt ?? steps[steps.length - 1]?.createdAt;
-  if (endTime == null) return null;
-  return Math.max(1, Math.round((endTime - thinkingStart) / 1000));
+function getActivityBounds(steps: AgentStep[]): { start: number; end: number } | null {
+  if (steps.length === 0) return null;
+  const timestamps = steps.map((step) => step.createdAt).filter(Number.isFinite);
+  if (timestamps.length === 0) return null;
+  return {
+    start: Math.min(...timestamps),
+    end: Math.max(...timestamps),
+  };
+}
+
+function getActivityDurationSecs(steps: AgentStep[], isStreaming: boolean): number | null {
+  const bounds = getActivityBounds(steps);
+  if (!bounds) return null;
+  const end = isStreaming ? Date.now() : bounds.end;
+  return Math.max(1, Math.round((end - bounds.start) / 1000));
 }
 
 function getSearchQuery(step: AgentStep): string | null {
@@ -644,11 +652,12 @@ function ActivitySummaryItem({
   const { stopScroll } = useStickToBottomContext();
   const toolCallCount = getToolCallCount(steps);
   const hasThought = steps.some((s) => s.kind === "thinking");
-  const thinkingDuration = getThinkingDurationSecs(steps);
+  const activityDuration = getActivityDurationSecs(steps, isStreaming);
+  const bounds = getActivityBounds(steps);
 
   let headerLabel: string;
   if (hasThought) {
-    const thoughtPart = thinkingDuration ? `Thought for ${thinkingDuration}s` : "Thought";
+    const thoughtPart = activityDuration ? `Thought for ${activityDuration}s` : "Thought";
     headerLabel = toolCallCount > 0
       ? `${thoughtPart} · ${toolCallCount} tool${toolCallCount === 1 ? "" : "s"}`
       : thoughtPart;
@@ -658,7 +667,11 @@ function ActivitySummaryItem({
 
   return (
     <div className="mt-1 py-0.5">
-      <ChainOfThought defaultOpen={isStreaming} isStreaming={isStreaming} startedAt={steps[0]?.createdAt}>
+      <ChainOfThought
+        defaultOpen={isStreaming}
+        isStreaming={isStreaming}
+        startedAt={bounds?.start}
+      >
         <ChainOfThoughtHeader onClickCapture={() => stopScroll()}>
           {headerLabel}
         </ChainOfThoughtHeader>
