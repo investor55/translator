@@ -246,12 +246,28 @@ function getMcpCallResultCode(output: unknown): CallMcpToolErrorCode | null {
 }
 
 function getMcpCallResultStatus(output: unknown): "success" | "error" | "denied" {
+  if (typeof output === "string") {
+    const normalized = output.trim().toLowerCase();
+    if (!normalized) return "success";
+    if (/\b(denied|rejected|forbidden|not approved)\b/.test(normalized)) {
+      return "denied";
+    }
+    if (/\b(error|failed|failure|exception|invalid|missing)\b/.test(normalized)) {
+      return "error";
+    }
+    return "success";
+  }
+
   const code = getMcpCallResultCode(output);
   if (code === "tool_denied") return "denied";
   if (code) return "error";
 
   const record = asObject(output);
   if (!record) return "success";
+  const status = typeof record.status === "string" ? record.status.toLowerCase() : "";
+  if (status === "denied" || status === "rejected") return "denied";
+  if (status === "error" || status === "failed" || status === "failure") return "error";
+  if (record.ok === false || record.success === false) return "error";
   if (record.isError === true) return "error";
   if (record.denied === true) return "denied";
   if (typeof record.error === "string" && record.error.trim().length > 0) {
@@ -783,12 +799,29 @@ async function runAgentWithMessages(
           const callMcpToolResults = steps.flatMap((step) =>
             step.toolResults.filter((toolResult) => toolResult.toolName === "callMcpTool"),
           );
+          const hasAskQuestionToolCall = steps.some((step) =>
+            step.toolCalls.some((call) => call.toolName === "askQuestion"),
+          );
+          const hasAskQuestionToolResult = steps.some((step) =>
+            step.toolResults.some((toolResult) => toolResult.toolName === "askQuestion"),
+          );
+          const callMcpToolStatuses = callMcpToolResults.map((toolResult) =>
+            getMcpCallResultStatus(toolResult.output),
+          );
           const hasSuccessfulCallMcpToolResult = callMcpToolResults.some(
             (toolResult) => getMcpCallResultStatus(toolResult.output) === "success",
           );
-          const callMcpToolErrorCount = callMcpToolResults.filter(
-            (toolResult) => getMcpCallResultStatus(toolResult.output) === "error",
+          const callMcpToolErrorCount = callMcpToolStatuses.filter(
+            (status) => status === "error",
           ).length;
+          const consecutiveCallMcpFailures = (() => {
+            let count = 0;
+            for (let i = callMcpToolStatuses.length - 1; i >= 0; i--) {
+              if (callMcpToolStatuses[i] === "success") break;
+              count += 1;
+            }
+            return count;
+          })();
           const latestCallMcpToolResult = callMcpToolResults[callMcpToolResults.length - 1];
           const latestCallStatus = latestCallMcpToolResult
             ? getMcpCallResultStatus(latestCallMcpToolResult.output)
@@ -809,6 +842,21 @@ async function runAgentWithMessages(
 
           if (hasSuccessfulCallMcpToolResult) {
             return { toolChoice: "none" as const };
+          }
+
+          // Stop retry spirals: after repeated failed MCP executions, force one
+          // clarification question; if that already happened, stop tool-calling.
+          if (
+            (consecutiveCallMcpFailures >= 3 || callMcpToolErrorCount >= 4) &&
+            !hasSuccessfulCallMcpToolResult
+          ) {
+            if (hasAskQuestionToolCall || hasAskQuestionToolResult) {
+              return { toolChoice: "none" as const };
+            }
+            return {
+              activeTools: ["askQuestion"],
+              toolChoice: { type: "tool", toolName: "askQuestion" as const },
+            };
           }
 
           if (latestCallStatus === "error") {
@@ -859,15 +907,6 @@ async function runAgentWithMessages(
 
           if (latestCallStatus === "denied") {
             return { toolChoice: "none" as const };
-          }
-
-          // Hard stop against brittle retry loops: after repeated MCP errors,
-          // force a user clarification step instead of more blind retries.
-          if (callMcpToolErrorCount >= 2 && !hasSuccessfulCallMcpToolResult) {
-            return {
-              activeTools: ["askQuestion"],
-              toolChoice: { type: "tool", toolName: "askQuestion" as const },
-            };
           }
 
           if (stepNumber >= 1) {

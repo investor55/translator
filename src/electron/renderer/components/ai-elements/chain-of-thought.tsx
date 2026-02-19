@@ -107,7 +107,7 @@ export function ChainOfThoughtHeader({
   return (
     <CollapsibleTrigger
       className={cn(
-        "group/cot-trigger flex w-full items-center gap-1 rounded-sm px-0 py-0 text-left text-2xs text-muted-foreground transition-colors hover:text-foreground",
+        "group/cot-trigger flex w-full items-center gap-2 rounded-md border border-border/60 bg-muted/15 px-2.5 py-1.5 text-left text-2xs text-muted-foreground transition-colors hover:border-border hover:bg-muted/25 hover:text-foreground",
         className
       )}
       {...props}
@@ -115,10 +115,10 @@ export function ChainOfThoughtHeader({
       <span className="min-w-0 flex-1 truncate">
         {children ?? "Chain of thought"}
       </span>
-      <span className="shrink-0 font-mono text-2xs uppercase tracking-wide text-muted-foreground/70">
+      <span className="shrink-0 rounded-full border border-border/60 bg-background/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground/85">
         {isStreaming ? `thinking · ${elapsedSecs}s` : "done"}
       </span>
-      <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground/60 transition-transform group-data-[state=open]/cot-trigger:rotate-180" />
+      <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground/60 transition-transform duration-200 group-data-[state=open]/cot-trigger:rotate-180" />
     </CollapsibleTrigger>
   );
 }
@@ -131,7 +131,7 @@ export function ChainOfThoughtContent({
 }: ChainOfThoughtContentProps) {
   return (
     <CollapsibleContent
-      className={cn("pl-3 pr-0 pb-0.5 pt-0.5", className)}
+      className={cn("pb-0.5 pl-1 pr-0 pt-1", className)}
       {...props}
     />
   );
@@ -168,7 +168,7 @@ export function ChainOfThoughtStep({
   return (
     <div
       className={cn(
-        "rounded-sm border border-border/50 px-1.5 py-1",
+        "rounded-md px-1.5 py-1 transition-colors hover:bg-muted/20",
         className
       )}
       {...props}
@@ -176,11 +176,11 @@ export function ChainOfThoughtStep({
       <div className="flex items-start gap-1.5">
         <Icon className="mt-0.5 size-3 shrink-0 text-muted-foreground/80" />
         <div className="min-w-0 flex-1">
-          <div className="text-2xs leading-relaxed text-muted-foreground [&_a]:text-primary [&_a]:underline">
+          <div className="text-2xs leading-relaxed text-muted-foreground/95 [&_a]:text-primary [&_a]:underline">
             {label}
           </div>
           {description ? (
-            <div className="mt-0.5 text-2xs uppercase tracking-wide text-muted-foreground/70">
+            <div className="mt-0.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground/65">
               {description}
             </div>
           ) : null}
@@ -200,7 +200,7 @@ export function ChainOfThoughtSearchResults({
 }: ChainOfThoughtSearchResultsProps) {
   return (
     <div
-      className={cn("flex flex-wrap items-center gap-1", className)}
+      className={cn("flex flex-wrap items-center gap-1 pt-0.5", className)}
       {...props}
     />
   );
@@ -215,7 +215,7 @@ export function ChainOfThoughtSearchResult({
 }: ChainOfThoughtSearchResultProps) {
   return (
     <Badge
-      className={cn("h-4 px-1.5 py-0 text-2xs font-normal", className)}
+      className={cn("h-4 border-border/70 bg-background/60 px-1.5 py-0 text-2xs font-normal text-muted-foreground", className)}
       variant={variant}
       {...props}
     />

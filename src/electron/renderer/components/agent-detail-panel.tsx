@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   XIcon,
   CheckIcon,
@@ -263,7 +263,7 @@ function AskQuestionPendingCard({
   }, [agent, canSubmit, onAnswerQuestion, request.questions, selectionByQuestion]);
 
   return (
-    <div className="mt-1 border-t border-border pt-2">
+    <div className="mt-1 pt-2">
       <div className="rounded-sm border border-border bg-muted/20 px-2 py-2">
         <p className="text-2xs font-semibold text-foreground">
           {request.title || "Questions"}
@@ -331,7 +331,7 @@ function AskQuestionResolvedCard({ output }: { output: AskQuestionToolOutput }) 
   );
 
   return (
-    <div className="mt-1 border-t border-border pt-2">
+    <div className="mt-1 pt-2">
       <div className="rounded-sm border border-border/70 bg-muted/10 px-2 py-2">
         <p className="text-2xs font-semibold text-foreground">
           {output.title || "Clarification received"}
@@ -397,7 +397,7 @@ function ToolApprovalCard({
 
   if (isApproved) {
     return (
-      <div className="flex items-center gap-1.5 border-t border-border mt-1 py-1">
+      <div className="mt-1 flex items-center gap-1.5 py-1">
         <CheckIcon className="size-3 text-primary/60 shrink-0" />
         <span className="text-2xs text-muted-foreground">{toolLabel}</span>
       </div>
@@ -406,7 +406,7 @@ function ToolApprovalCard({
 
   if (isDenied) {
     return (
-      <div className="flex items-center gap-1.5 border-t border-border mt-1 py-1">
+      <div className="mt-1 flex items-center gap-1.5 py-1">
         <XIcon className="size-3 text-muted-foreground/40 shrink-0" />
         <span className="text-2xs text-muted-foreground/50 line-through">{toolLabel}</span>
       </div>
@@ -415,7 +415,7 @@ function ToolApprovalCard({
 
   // approval-requested
   return (
-    <div className="border-t border-border mt-1 py-1.5">
+    <div className="mt-1 py-1.5">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 text-2xs text-foreground truncate">{toolLabel}</span>
         <button
@@ -564,9 +564,23 @@ type TimelineItem =
       isStreaming: boolean;
     };
 
+const TOOL_ACTIVITY_GRACE_MS = 3_000;
+
+function isActivityStep(step: AgentStep): boolean {
+  return (
+    step.kind === "thinking" ||
+    step.kind === "tool-call" ||
+    step.kind === "tool-result"
+  );
+}
+
 function getActivityTitle(steps: AgentStep[]): string {
   const hasThought = steps.some((step) => step.kind === "thinking");
-  const toolSteps = steps.filter((step) => step.kind !== "thinking");
+  const toolSteps = steps.filter(
+    (step) =>
+      (step.kind === "tool-call" || step.kind === "tool-result") &&
+      step.toolName !== "askQuestion"
+  );
   const searchCount = toolSteps.filter((step) => step.toolName === "searchWeb").length;
 
   if (hasThought && searchCount > 0) {
@@ -612,6 +626,7 @@ function getSearchQuery(step: AgentStep): string | null {
 
 function getActivityStepSummary(step: AgentStep): string {
   if (step.kind === "thinking") return "Thought";
+  if (step.kind === "text") return "Update";
   if (step.toolName === "searchWeb") return "Search";
   if (step.toolName) return `Tool: ${step.toolName}`;
   return "Action";
@@ -642,7 +657,7 @@ function ActivitySummaryItem({
   }
 
   return (
-    <div className="py-0.5 border-t border-border mt-1">
+    <div className="mt-1 py-0.5">
       <ChainOfThought defaultOpen={isStreaming} isStreaming={isStreaming} startedAt={steps[0]?.createdAt}>
         <ChainOfThoughtHeader onClickCapture={() => stopScroll()}>
           {headerLabel}
@@ -658,11 +673,21 @@ function ActivitySummaryItem({
                   </div>
                 );
               }
+              if (step.kind === "text") {
+                return (
+                  <div
+                    key={`${step.id}:${step.kind}`}
+                    className="rounded-sm bg-muted/15 px-1.5 py-1 text-2xs leading-relaxed text-muted-foreground/95 [&_a]:text-primary [&_a]:underline"
+                  >
+                    <MessageResponse>{step.content}</MessageResponse>
+                  </div>
+                );
+              }
               const searchQuery = getSearchQuery(step);
               return (
                 <ChainOfThoughtStep
                   key={`${step.id}:${step.kind}`}
-                  className="border-0 px-0 py-0.5"
+                  className="px-0 py-0.5"
                   description={getActivityStepSummary(step)}
                   icon={searchQuery ? SearchIcon : undefined}
                   label={<MessageResponse>{step.content}</MessageResponse>}
@@ -722,6 +747,8 @@ export function AgentDetailPanel({
   onArchive,
 }: AgentDetailPanelProps) {
   const [followUpError, setFollowUpError] = useState("");
+  const [timelineNow, setTimelineNow] = useState(() => Date.now());
+  const stepFirstSeenAtRef = useRef<Map<string, number>>(new Map());
   const visibleSteps = useMemo(
     () => {
       const filtered = agent.steps.filter(
@@ -766,10 +793,33 @@ export function AgentDetailPanel({
     [agent.createdAt, agent.id, agent.steps, agent.task]
   );
 
+  useEffect(() => {
+    const seenAt = stepFirstSeenAtRef.current;
+    const now = Date.now();
+    const visibleIds = new Set(visibleSteps.map((step) => step.id));
+    for (const step of visibleSteps) {
+      if (!seenAt.has(step.id)) {
+        seenAt.set(step.id, now);
+      }
+    }
+    for (const id of [...seenAt.keys()]) {
+      if (!visibleIds.has(id)) {
+        seenAt.delete(id);
+      }
+    }
+  }, [visibleSteps]);
+
   const currentIndex = agents.findIndex((a) => a.id === agent.id);
   const hasPrev = currentIndex < agents.length - 1;
   const hasNext = currentIndex > 0;
   const isRunning = agent.status === "running";
+  useEffect(() => {
+    if (!isRunning) return;
+    const timer = window.setInterval(() => {
+      setTimelineNow(Date.now());
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [isRunning]);
   const activeTurnStartAt = useMemo(() => {
     const lastUserStep = [...agent.steps]
       .reverse()
@@ -812,6 +862,23 @@ export function AgentDetailPanel({
     const seenApprovalIds = new Set<string>();
     // Steps pulled into pendingActivity via lookahead; skip them in normal flow.
     const lookaheadConsumed = new Set<string>();
+    const hasFutureActivityInTurn = new Array(visibleSteps.length).fill(false);
+    let turnHasFutureActivity = false;
+    for (let i = visibleSteps.length - 1; i >= 0; i--) {
+      const step = visibleSteps[i];
+      if (step.kind === "user") {
+        turnHasFutureActivity = false;
+        continue;
+      }
+      hasFutureActivityInTurn[i] = turnHasFutureActivity;
+      if (isActivityStep(step)) {
+        turnHasFutureActivity = true;
+      }
+    }
+    const stepOrder = new Map<string, number>();
+    visibleSteps.forEach((step, index) => {
+      stepOrder.set(step.id, index);
+    });
 
     const flushActivity = () => {
       if (pendingActivity.length === 0) return;
@@ -822,10 +889,11 @@ export function AgentDetailPanel({
       const isCurrentTurnGroup = steps.some(
         (step) => step.createdAt >= activeTurnStartAt
       );
-      const lastStepTime = steps[steps.length - 1]?.createdAt ?? 0;
-      const hasTextAfterActivity = visibleSteps.some(
-        (s) => s.kind === "text" && s.createdAt > lastStepTime
-      );
+      const lastStep = steps[steps.length - 1];
+      const lastStepOrder = lastStep ? (stepOrder.get(lastStep.id) ?? -1) : -1;
+      const hasTextAfterActivity =
+        lastStepOrder >= 0 &&
+        visibleSteps.some((s, idx) => idx > lastStepOrder && s.kind === "text");
       items.push({
         kind: "activity",
         id,
@@ -835,7 +903,7 @@ export function AgentDetailPanel({
       });
     };
 
-    for (const step of visibleSteps) {
+    for (const [index, step] of visibleSteps.entries()) {
       // Skip steps already pulled in by approval lookahead.
       if (lookaheadConsumed.has(step.id)) continue;
 
@@ -879,9 +947,20 @@ export function AgentDetailPanel({
         continue;
       }
       if (
-        step.kind === "thinking" ||
-        step.kind === "tool-call" ||
-        step.kind === "tool-result"
+        isActivityStep(step)
+      ) {
+        pendingActivity.push(step);
+        continue;
+      }
+      if (
+        step.kind === "text" &&
+        pendingActivity.length > 0 &&
+        (() => {
+          if (hasFutureActivityInTurn[index]) return true;
+          if (!isRunning) return false;
+          const firstSeenAt = stepFirstSeenAtRef.current.get(step.id) ?? step.createdAt;
+          return timelineNow - firstSeenAt < TOOL_ACTIVITY_GRACE_MS;
+        })()
       ) {
         pendingActivity.push(step);
         continue;
@@ -892,7 +971,7 @@ export function AgentDetailPanel({
 
     flushActivity();
     return items;
-  }, [activeTurnStartAt, agent.id, isRunning, visibleSteps]);
+  }, [activeTurnStartAt, agent.id, isRunning, timelineNow, visibleSteps]);
 
   const lastTextStepId = useMemo(() => {
     for (let i = timelineItems.length - 1; i >= 0; i--) {
