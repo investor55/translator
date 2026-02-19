@@ -3,6 +3,7 @@ import { Separator } from "@/components/ui/separator";
 type FooterProps = {
   sessionActive: boolean;
   statusText: string;
+  onQuit: () => void;
 };
 
 function Kbd({ children }: { children: React.ReactNode }) {
@@ -13,7 +14,7 @@ function Kbd({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function Footer({ sessionActive, statusText }: FooterProps) {
+export function Footer({ sessionActive, statusText, onQuit }: FooterProps) {
   return (
     <div className="border-t border-border px-4 py-1.5 flex items-center gap-2 text-xs text-muted-foreground h-8 shrink-0">
       {sessionActive ? (
@@ -23,9 +24,6 @@ export function Footer({ sessionActive, statusText }: FooterProps) {
           <Separator orientation="vertical" className="h-3 mx-0.5" />
           <Kbd>{"\u2191\u2193"}</Kbd>
           <span>scroll</span>
-          <Separator orientation="vertical" className="h-3 mx-0.5" />
-          <Kbd>Q</Kbd>
-          <span>end session</span>
           <Separator orientation="vertical" className="h-3 mx-0.5" />
           <Kbd>End</Kbd>
           <span>summary</span>
@@ -37,14 +35,31 @@ export function Footer({ sessionActive, statusText }: FooterProps) {
               </span>
             </>
           )}
+          <div className="ml-auto">
+            <button
+              type="button"
+              onClick={onQuit}
+              className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+            >
+              <Kbd>Q</Kbd>
+              <span>end session</span>
+            </button>
+          </div>
         </>
       ) : (
         <>
           <Kbd>Space</Kbd>
           <span>start</span>
-          <Separator orientation="vertical" className="h-3 mx-0.5" />
-          <Kbd>Q</Kbd>
-          <span>quit</span>
+          <div className="ml-auto">
+            <button
+              type="button"
+              onClick={onQuit}
+              className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+            >
+              <Kbd>Q</Kbd>
+              <span>quit</span>
+            </button>
+          </div>
         </>
       )}
     </div>

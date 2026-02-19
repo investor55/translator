@@ -1395,7 +1395,11 @@ export function App() {
         </div>
       )}
 
-      <Footer sessionActive={sessionActive} statusText={session.statusText} />
+      <Footer
+        sessionActive={sessionActive}
+        statusText={session.statusText}
+        onQuit={sessionActive ? handleStop : () => window.close()}
+      />
     </div>
   );
 }

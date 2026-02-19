@@ -121,7 +121,12 @@ Instructions:
 - Use searchWeb only when external facts are required (especially if the user asks for latest/current/today/recent information). Do not search for simple reasoning or writing tasks.
 - For time-sensitive information, verify with search and include concrete dates in the final answer.
 - Use getTranscriptContext when you need more local conversation context.
-- Keep the final answer concise and actionable.`;
+- Keep the final answer concise and actionable.
+
+MCP integrations (Notion, Linear, and others):
+- To use any integration tool, first call searchMcpTools with relevant keywords (e.g. "create page", "list issues", "search database").
+- Review the returned tool names, descriptions, and inputSchema, then call callMcpTool with the correct name and args.
+- Never guess tool names. Always search first.`;
 
 const DEFAULT_AGENT_INITIAL_USER_PROMPT = `Todo:
 {{todo}}

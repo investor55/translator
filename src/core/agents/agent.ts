@@ -1,4 +1,4 @@
-import { streamText, tool, dynamicTool, jsonSchema, stepCountIs, type ModelMessage } from "ai";
+import { streamText, tool, stepCountIs, type ModelMessage } from "ai";
 import { z } from "zod";
 import type {
   AgentStep,
@@ -116,21 +116,6 @@ function summarizeApprovalInput(input: unknown): string {
   }
 }
 
-function injectAutoApproveField(schema: unknown): unknown {
-  if (!schema || typeof schema !== "object") return schema;
-  const s = schema as Record<string, unknown>;
-  return {
-    ...s,
-    properties: {
-      ...(s.properties as Record<string, unknown> ?? {}),
-      _autoApprove: {
-        type: "boolean",
-        description:
-          "Set to true only when creating brand-new content that does not overwrite or delete anything existing, and the action can be easily undone. Leave false or omit for updates, deletes, archives, or any irreversible change.",
-      },
-    },
-  };
-}
 
 async function buildTools(
   exa: ExaClient,
@@ -209,96 +194,138 @@ async function buildTools(
     return baseTools;
   }
 
-  for (const [toolName, external] of Object.entries(externalTools)) {
-    baseTools[toolName] = dynamicTool({
-      description: external.description ?? `External MCP tool: ${toolName}`,
-      inputSchema: jsonSchema(
-        (external.isMutating && allowAutoApprove
-          ? injectAutoApproveField(external.inputSchema)
-          : external.inputSchema) as Parameters<typeof jsonSchema>[0]
-      ),
-      execute: async (input, { toolCallId, abortSignal }) => {
-        const approvalId = `approval:${toolCallId}`;
-        const { _autoApprove: autoApprove, ...cleanInput } =
-          input as Record<string, unknown> & { _autoApprove?: boolean };
+  // Instead of registering every MCP tool directly, expose two meta-tools so
+  // the full tool registry never lands in the model's context window.
+  baseTools["searchMcpTools"] = tool({
+    description:
+      "Search available MCP integration tools (Notion, Linear, and custom servers). Call this first to discover tools before using callMcpTool.",
+    inputSchema: z.object({
+      query: z.string().describe("Keywords to search for, e.g. 'create page', 'list issues', 'search'"),
+    }),
+    execute: async ({ query }) => {
+      const q = query.toLowerCase();
+      const matches = Object.entries(externalTools)
+        .filter(([name, t]) =>
+          name.toLowerCase().includes(q) ||
+          (t.description ?? "").toLowerCase().includes(q)
+        )
+        .slice(0, 10)
+        .map(([name, t]) => ({
+          name,
+          description: t.description ?? `MCP tool: ${name}`,
+          isMutating: t.isMutating,
+          inputSchema: t.inputSchema,
+        }));
+      return matches.length > 0
+        ? matches
+        : { message: "No tools matched. Try broader keywords." };
+    },
+  });
 
-        if (external.isMutating && !autoApprove) {
-          const request: AgentToolApprovalRequest = {
-            id: approvalId,
-            toolName,
-            provider: external.provider,
-            title: buildApprovalTitle(toolName, external.provider),
-            summary: "This tool can create, update, or delete external data.",
-            input: summarizeApprovalInput(cleanInput),
-          };
+  const callMcpToolSchema = allowAutoApprove
+    ? z.object({
+        name: z.string().describe("Tool name from searchMcpTools results"),
+        args: z.record(z.string(), z.unknown()).describe("Arguments matching the tool's inputSchema"),
+        _autoApprove: z.boolean().optional().describe(
+          "Set to true only when creating brand-new content that does not overwrite or delete anything existing, and the action can be easily undone. Leave false or omit for updates, deletes, archives, or any irreversible change."
+        ),
+      })
+    : z.object({
+        name: z.string().describe("Tool name from searchMcpTools results"),
+        args: z.record(z.string(), z.unknown()).describe("Arguments matching the tool's inputSchema"),
+      });
 
+  baseTools["callMcpTool"] = tool({
+    description:
+      "Execute an MCP integration tool by name. Use searchMcpTools first to find the right tool and its required arguments.",
+    inputSchema: callMcpToolSchema,
+    execute: async (input, { toolCallId, abortSignal }) => {
+      const { name, args, _autoApprove: autoApprove } = input as {
+        name: string;
+        args: Record<string, unknown>;
+        _autoApprove?: boolean;
+      };
+
+      const external = externalTools[name];
+      if (!external) {
+        return { error: `Tool "${name}" not found. Use searchMcpTools to find available tools.` };
+      }
+
+      const approvalId = `approval:${toolCallId}`;
+
+      if (external.isMutating && !autoApprove) {
+        const request: AgentToolApprovalRequest = {
+          id: approvalId,
+          toolName: name,
+          provider: external.provider,
+          title: buildApprovalTitle(name, external.provider),
+          summary: "This tool can create, update, or delete external data.",
+          input: summarizeApprovalInput(args),
+        };
+
+        onStep({
+          id: `${approvalId}:requested`,
+          kind: "tool-call",
+          toolName: name,
+          toolInput: request.input,
+          approvalId,
+          approvalState: "approval-requested",
+          content: `Approval required: ${request.title}`,
+          createdAt: Date.now(),
+        });
+
+        const approvalResponse = await requestToolApproval(request, {
+          toolCallId,
+          abortSignal,
+        });
+
+        onStep({
+          id: `${approvalId}:responded`,
+          kind: "tool-result",
+          toolName: name,
+          toolInput: request.input,
+          approvalId,
+          approvalState: "approval-responded",
+          approvalApproved: approvalResponse.approved,
+          content: approvalResponse.approved ? "Approved by user" : "Rejected by user",
+          createdAt: Date.now(),
+        });
+
+        if (!approvalResponse.approved) {
           onStep({
-            id: `${approvalId}:requested`,
-            kind: "tool-call",
-            toolName,
+            id: `${approvalId}:denied`,
+            kind: "tool-result",
+            toolName: name,
             toolInput: request.input,
             approvalId,
-            approvalState: "approval-requested",
-            content: `Approval required: ${request.title}`,
+            approvalState: "output-denied",
+            approvalApproved: false,
+            content: "Tool execution denied",
             createdAt: Date.now(),
           });
-
-          const approvalResponse = await requestToolApproval(request, {
-            toolCallId,
-            abortSignal,
-          });
-
-          onStep({
-            id: `${approvalId}:responded`,
-            kind: "tool-result",
-            toolName,
-            toolInput: request.input,
-            approvalId,
-            approvalState: "approval-responded",
-            approvalApproved: approvalResponse.approved,
-            content: approvalResponse.approved ? "Approved by user" : "Rejected by user",
-            createdAt: Date.now(),
-          });
-
-          if (!approvalResponse.approved) {
-            onStep({
-              id: `${approvalId}:denied`,
-              kind: "tool-result",
-              toolName,
-              toolInput: request.input,
-              approvalId,
-              approvalState: "output-denied",
-              approvalApproved: false,
-              content: "Tool execution denied",
-              createdAt: Date.now(),
-            });
-            return {
-              denied: true,
-              reason: "User denied this tool execution.",
-            };
-          }
+          return { denied: true, reason: "User denied this tool execution." };
         }
+      }
 
-        const output = await external.execute(cleanInput, { toolCallId, abortSignal });
+      const output = await external.execute(args, { toolCallId, abortSignal });
 
-        if (external.isMutating && !autoApprove) {
-          onStep({
-            id: `${approvalId}:completed`,
-            kind: "tool-result",
-            toolName,
-            toolInput: summarizeApprovalInput(output),
-            approvalId,
-            approvalState: "output-available",
-            approvalApproved: true,
-            content: "Tool execution completed",
-            createdAt: Date.now(),
-          });
-        }
+      if (external.isMutating && !autoApprove) {
+        onStep({
+          id: `${approvalId}:completed`,
+          kind: "tool-result",
+          toolName: name,
+          toolInput: summarizeApprovalInput(output),
+          approvalId,
+          approvalState: "output-available",
+          approvalApproved: true,
+          content: "Tool execution completed",
+          createdAt: Date.now(),
+        });
+      }
 
-        return output;
-      },
-    });
-  }
+      return output;
+    },
+  });
 
   return baseTools;
 }
@@ -361,6 +388,16 @@ function summarizeToolCall(
     return { content: "Needs clarification", toolInput: safeJson(input) };
   }
 
+  if (toolName === "searchMcpTools") {
+    const query = getSearchQuery(input);
+    return { content: query ? `Searching MCP tools: ${query}` : "Searching MCP tools" };
+  }
+
+  if (toolName === "callMcpTool") {
+    const name = (input as Record<string, unknown>)?.name;
+    return { content: typeof name === "string" ? `Calling MCP tool: ${name}` : "Calling MCP tool", toolInput: safeJson(input) };
+  }
+
   return {
     content: `Using ${toolName}`,
     toolInput: safeJson(input),
@@ -396,6 +433,16 @@ function summarizeToolResult(
           : "Clarification received",
       toolInput: safeJson(output),
     };
+  }
+
+  if (toolName === "searchMcpTools") {
+    const results = Array.isArray(output) ? output : [];
+    return { content: `Found ${results.length} MCP tool${results.length === 1 ? "" : "s"}` };
+  }
+
+  if (toolName === "callMcpTool") {
+    const name = (input as Record<string, unknown>)?.name;
+    return { content: typeof name === "string" ? `${name} complete` : "MCP tool complete", toolInput: safeJson(output) };
   }
 
   return {
