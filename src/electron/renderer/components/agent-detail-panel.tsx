@@ -652,6 +652,7 @@ function ActivitySummaryItem({
   const { stopScroll } = useStickToBottomContext();
   const toolCallCount = getToolCallCount(steps);
   const hasThought = steps.some((s) => s.kind === "thinking");
+  const lastStep = steps[steps.length - 1];
   const activityDuration = getActivityDurationSecs(steps, isStreaming);
   const bounds = getActivityBounds(steps);
 
@@ -677,8 +678,8 @@ function ActivitySummaryItem({
         </ChainOfThoughtHeader>
         <ChainOfThoughtContent>
           <div className="space-y-1">
-            {steps.map((step, index) => {
-              const isActive = isStreaming && index === steps.length - 1;
+            {steps.map((step) => {
+              const isActive = isStreaming && step.id === lastStep?.id;
               if (step.kind === "thinking") {
                 return (
                   <div key={`${step.id}:${step.kind}`} className="py-0.5 text-2xs leading-relaxed text-muted-foreground">
@@ -762,6 +763,7 @@ export function AgentDetailPanel({
   const [followUpError, setFollowUpError] = useState("");
   const [timelineNow, setTimelineNow] = useState(() => Date.now());
   const stepFirstSeenAtRef = useRef<Map<string, number>>(new Map());
+  const promotedTextStepIdsRef = useRef<Set<string>>(new Set());
   const visibleSteps = useMemo(
     () => {
       const filtered = agent.steps.filter(
@@ -808,6 +810,7 @@ export function AgentDetailPanel({
 
   useEffect(() => {
     const seenAt = stepFirstSeenAtRef.current;
+    const promoted = promotedTextStepIdsRef.current;
     const now = Date.now();
     const visibleIds = new Set(visibleSteps.map((step) => step.id));
     for (const step of visibleSteps) {
@@ -818,6 +821,11 @@ export function AgentDetailPanel({
     for (const id of [...seenAt.keys()]) {
       if (!visibleIds.has(id)) {
         seenAt.delete(id);
+      }
+    }
+    for (const id of [...promoted.keys()]) {
+      if (!visibleIds.has(id)) {
+        promoted.delete(id);
       }
     }
   }, [visibleSteps]);
@@ -969,10 +977,17 @@ export function AgentDetailPanel({
         step.kind === "text" &&
         pendingActivity.length > 0 &&
         (() => {
+          if (promotedTextStepIdsRef.current.has(step.id)) return false;
           if (hasFutureActivityInTurn[index]) return true;
           if (!isRunning) return false;
           const firstSeenAt = stepFirstSeenAtRef.current.get(step.id) ?? step.createdAt;
-          return timelineNow - firstSeenAt < TOOL_ACTIVITY_GRACE_MS;
+          const withinGrace = timelineNow - firstSeenAt < TOOL_ACTIVITY_GRACE_MS;
+          if (!withinGrace) {
+            // Once text is promoted to normal output, keep it there to avoid
+            // jitter from re-grouping when later tool calls appear.
+            promotedTextStepIdsRef.current.add(step.id);
+          }
+          return withinGrace;
         })()
       ) {
         pendingActivity.push(step);

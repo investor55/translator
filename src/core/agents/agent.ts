@@ -811,6 +811,7 @@ async function runAgentWithMessages(
           const hasSuccessfulCallMcpToolResult = callMcpToolResults.some(
             (toolResult) => getMcpCallResultStatus(toolResult.output) === "success",
           );
+          const callMcpToolAttemptCount = callMcpToolResults.length;
           const callMcpToolErrorCount = callMcpToolStatuses.filter(
             (status) => status === "error",
           ).length;
@@ -842,6 +843,17 @@ async function runAgentWithMessages(
 
           if (hasSuccessfulCallMcpToolResult) {
             return { toolChoice: "none" as const };
+          }
+
+          // Prefer clarification over long speculative tool loops.
+          if (callMcpToolAttemptCount >= 3 && !hasSuccessfulCallMcpToolResult) {
+            if (hasAskQuestionToolCall || hasAskQuestionToolResult) {
+              return { toolChoice: "none" as const };
+            }
+            return {
+              activeTools: ["askQuestion"],
+              toolChoice: { type: "tool", toolName: "askQuestion" as const },
+            };
           }
 
           // Stop retry spirals: after repeated failed MCP executions, force one
