@@ -61,6 +61,7 @@ export const insights = sqliteTable("insights", {
 
 export const agents = sqliteTable("agents", {
   id: text("id").primaryKey(),
+  kind: text("kind").notNull().default("analysis"),
   todoId: text("todo_id").notNull(),
   sessionId: text("session_id").references(() => sessions.id),
   task: text("task").notNull(),

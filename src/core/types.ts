@@ -1,8 +1,19 @@
 // All shared types for the translator app.
 
 export type LanguageCode =
-  | "en" | "es" | "fr" | "de" | "it" | "pt"
-  | "zh" | "ja" | "ko" | "ar" | "hi" | "ru" | "tl";
+  | "en"
+  | "es"
+  | "fr"
+  | "de"
+  | "it"
+  | "pt"
+  | "zh"
+  | "ja"
+  | "ko"
+  | "ar"
+  | "hi"
+  | "ru"
+  | "tl";
 
 export type Language = {
   code: LanguageCode;
@@ -32,7 +43,11 @@ export type AudioSource = "system" | "microphone";
 export type ThemeMode = "system" | "light" | "dark";
 export type LightVariant = "warm" | "linen";
 
-export type TranscriptionProvider = "google" | "vertex" | "elevenlabs" | "whisper";
+export type TranscriptionProvider =
+  | "google"
+  | "vertex"
+  | "elevenlabs"
+  | "whisper";
 export type AnalysisProvider = "openrouter" | "google" | "vertex";
 export type AnalysisModelPreset = {
   label: string;
@@ -60,8 +75,8 @@ export type Summary = {
 };
 
 export type FinalSummary = {
-  narrative: string;       // prose paragraph summary of the entire conversation
-  actionItems: string[];   // extracted action items / todos
+  narrative: string; // prose paragraph summary of the entire conversation
+  actionItems: string[]; // extracted action items / todos
   generatedAt: number;
 };
 
@@ -105,7 +120,12 @@ export type TodoSuggestion = Readonly<{
   createdAt: number;
 }>;
 
-export type InsightKind = "definition" | "context" | "fact" | "tip" | "key-point";
+export type InsightKind =
+  | "definition"
+  | "context"
+  | "fact"
+  | "tip"
+  | "key-point";
 
 export type Insight = Readonly<{
   id: string;
@@ -266,9 +286,16 @@ export const ANALYSIS_MODEL_PRESETS: AnalysisModelPreset[] = [
     modelId: "z-ai/glm-4.7",
     reasoning: true,
   },
+  {
+    label: "GLM 5",
+    modelId: "z-ai/glm-5",
+    reasoning: true,
+  },
 ];
 
-export function getAnalysisModelPreset(modelId: string): AnalysisModelPreset | undefined {
+export function getAnalysisModelPreset(
+  modelId: string
+): AnalysisModelPreset | undefined {
   return ANALYSIS_MODEL_PRESETS.find((preset) => preset.modelId === modelId);
 }
 
@@ -295,7 +322,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   analysisModelId: "moonshotai/kimi-k2-0905:exacto",
   analysisReasoning: false,
   todoModelId: DEFAULT_TODO_MODEL_ID,
-  todoProviders: ["sambanova"],
+  todoProviders: ["sambanova", "groq", "cerebras"],
   vertexProject: ENV?.GOOGLE_VERTEX_PROJECT_ID,
   vertexLocation: DEFAULT_VERTEX_LOCATION,
   contextFile: "context.md",
@@ -307,14 +334,18 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   agentAutoApprove: false,
 };
 
-export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig {
+export function normalizeAppConfig(
+  input?: AppConfigOverrides | null
+): AppConfig {
   const merged: AppConfig = {
     ...DEFAULT_APP_CONFIG,
     ...(input ?? {}),
   };
 
   const themeMode: ThemeMode =
-    merged.themeMode === "dark" || merged.themeMode === "light" || merged.themeMode === "system"
+    merged.themeMode === "dark" ||
+    merged.themeMode === "light" ||
+    merged.themeMode === "system"
       ? merged.themeMode
       : DEFAULT_APP_CONFIG.themeMode;
   const lightVariant: LightVariant =
@@ -322,7 +353,9 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
       ? merged.lightVariant
       : DEFAULT_APP_CONFIG.lightVariant;
   const fontSize: FontSize =
-    merged.fontSize === "sm" || merged.fontSize === "md" || merged.fontSize === "lg"
+    merged.fontSize === "sm" ||
+    merged.fontSize === "md" ||
+    merged.fontSize === "lg"
       ? merged.fontSize
       : DEFAULT_APP_CONFIG.fontSize;
   const fontFamily: FontFamily =
@@ -351,8 +384,10 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
       ? Math.round(merged.intervalMs)
       : DEFAULT_APP_CONFIG.intervalMs;
   const transcriptionModelId =
-    merged.transcriptionModelId?.trim() || DEFAULT_APP_CONFIG.transcriptionModelId;
-  const analysisModelId = merged.analysisModelId?.trim() || DEFAULT_APP_CONFIG.analysisModelId;
+    merged.transcriptionModelId?.trim() ||
+    DEFAULT_APP_CONFIG.transcriptionModelId;
+  const analysisModelId =
+    merged.analysisModelId?.trim() || DEFAULT_APP_CONFIG.analysisModelId;
   const analysisModelPreset = getAnalysisModelPreset(analysisModelId);
   const rawAnalysisProviderOnly = merged.analysisProviderOnly?.trim();
   // Backward compatibility: older defaults used "Groq" (capitalized), which can
@@ -361,8 +396,10 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     rawAnalysisProviderOnly && rawAnalysisProviderOnly !== "Groq"
       ? rawAnalysisProviderOnly.toLowerCase()
       : undefined;
-  const analysisProviderOnly = analysisModelPreset?.providerOnly ?? legacyAnalysisProviderOnly;
-  const analysisReasoning = analysisModelPreset?.reasoning ?? !!merged.analysisReasoning;
+  const analysisProviderOnly =
+    analysisModelPreset?.providerOnly ?? legacyAnalysisProviderOnly;
+  const analysisReasoning =
+    analysisModelPreset?.reasoning ?? !!merged.analysisReasoning;
 
   return {
     ...merged,
@@ -378,7 +415,8 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     analysisModelId,
     todoModelId: merged.todoModelId?.trim() || DEFAULT_APP_CONFIG.todoModelId,
     contextFile: merged.contextFile?.trim() || DEFAULT_APP_CONFIG.contextFile,
-    vertexLocation: merged.vertexLocation?.trim() || DEFAULT_APP_CONFIG.vertexLocation,
+    vertexLocation:
+      merged.vertexLocation?.trim() || DEFAULT_APP_CONFIG.vertexLocation,
     vertexProject: merged.vertexProject?.trim() || undefined,
     useContext: !!merged.useContext,
     compact: !!merged.compact,
@@ -388,15 +426,22 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     agentAutoApprove: !!merged.agentAutoApprove,
     analysisProviderOnly,
     analysisReasoning,
-    todoProviders: Array.isArray(merged.todoProviders) && merged.todoProviders.length > 0
-      ? merged.todoProviders
-      : DEFAULT_APP_CONFIG.todoProviders,
+    todoProviders:
+      Array.isArray(merged.todoProviders) && merged.todoProviders.length > 0
+        ? merged.todoProviders
+        : DEFAULT_APP_CONFIG.todoProviders,
   };
 }
 
 // Agent types
 export type AgentStatus = "running" | "completed" | "failed";
-export type AgentStepKind = "thinking" | "tool-call" | "tool-result" | "text" | "user";
+export type AgentKind = "analysis" | "custom";
+export type AgentStepKind =
+  | "thinking"
+  | "tool-call"
+  | "tool-result"
+  | "text"
+  | "user";
 
 export type AgentQuestionOption = Readonly<{
   id: string;
@@ -454,7 +499,8 @@ export type AgentStep = Readonly<{
 
 export type Agent = {
   id: string;
-  todoId: string;
+  kind: AgentKind;
+  todoId?: string;
   task: string;
   taskContext?: string;
   status: AgentStatus;
@@ -476,9 +522,9 @@ export type SessionEvents = {
   "final-summary-ready": [summary: FinalSummary];
   "final-summary-error": [error: string];
   "cost-updated": [cost: number];
-  "partial": [payload: { source: AudioSource | null; text: string }];
-  "status": [text: string];
-  "error": [error: string];
+  partial: [payload: { source: AudioSource | null; text: string }];
+  status: [text: string];
+  error: [error: string];
   "todo-added": [todo: TodoItem];
   "todo-updated": [todo: TodoItem];
   "todo-suggested": [suggestion: TodoSuggestion];
@@ -492,4 +538,5 @@ export type SessionEvents = {
   "agents-summary-ready": [summary: AgentsSummary];
   "agents-summary-error": [error: string];
   "session-title-generated": [sessionId: string, title: string];
+  "agent-title-generated": [agentId: string, title: string];
 };

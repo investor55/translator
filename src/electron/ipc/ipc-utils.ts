@@ -158,6 +158,9 @@ export function wireSessionEvents(
     db.updateSessionTitle(sessionId, title);
     sendToRenderer(getWindow, "session:title-generated", sessionId, title);
   });
+  activeSession.events.on("agent-title-generated", (agentId: string, title: string) => {
+    sendToRenderer(getWindow, "session:agent-title-generated", agentId, title);
+  });
 }
 
 export async function shutdownCurrentSession(sessionRef: SessionRef, db: AppDatabase): Promise<void> {

@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 import type {
   AppConfigOverrides,
+  AgentKind,
   AgentQuestionSelection,
   AgentToolApprovalResponse,
 } from "../../core/types";
@@ -76,7 +77,7 @@ export function registerAgentHandlers({
       if (!sessionRef.current) return { ok: false, error: "No active session" };
       const approval = ensureLaunchApproval(todoId, approvalToken);
       if (!approval.ok) return approval;
-      const agent = sessionRef.current.launchAgent(todoId, task, taskContext);
+      const agent = sessionRef.current.launchAgent("analysis", todoId, task, taskContext);
       if (!agent) return { ok: false, error: "Agent system unavailable (EXA_API_KEY not set)" };
       return { ok: true, agent };
     },
@@ -98,7 +99,18 @@ export function registerAgentHandlers({
       if (!sessionRef.current) return { ok: false, error: "Could not load session" };
       const approval = ensureLaunchApproval(todoId, approvalToken);
       if (!approval.ok) return approval;
-      const agent = sessionRef.current.launchAgent(todoId, task, taskContext);
+      const agent = sessionRef.current.launchAgent("analysis", todoId, task, taskContext);
+      if (!agent) return { ok: false, error: "Agent system unavailable (EXA_API_KEY not set)" };
+      return { ok: true, agent };
+    },
+  );
+
+  ipcMain.handle(
+    "launch-custom-agent",
+    (_event, task: string, taskContext?: string, kind?: AgentKind) => {
+      if (!sessionRef.current) return { ok: false, error: "No active session" };
+      const safeKind: AgentKind = kind === "analysis" ? "analysis" : "custom";
+      const agent = sessionRef.current.launchAgent(safeKind, undefined, task, taskContext);
       if (!agent) return { ok: false, error: "Agent system unavailable (EXA_API_KEY not set)" };
       return { ok: true, agent };
     },

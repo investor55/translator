@@ -1,10 +1,13 @@
 import { EventEmitter } from "node:events";
 import type { ModelMessage } from "ai";
+import { generateObject } from "ai";
 import { buildAgentInitialUserPrompt, runAgent, continueAgent } from "./agent";
+import { agentTitleSchema, buildAgentTitlePrompt } from "../analysis/analysis";
 import { log } from "../logger";
 import type { AppDatabase } from "../db/db";
 import type {
   Agent,
+  AgentKind,
   AgentStep,
   SessionEvents,
   AgentQuestionRequest,
@@ -20,6 +23,7 @@ type TypedEmitter = EventEmitter & {
 
 type AgentManagerDeps = {
   model: Parameters<typeof runAgent>[1]["model"];
+  utilitiesModel: Parameters<typeof runAgent>[1]["model"];
   exaApiKey: string;
   events: TypedEmitter;
   getTranscriptContext: () => string;
@@ -45,7 +49,7 @@ type AgentManagerDeps = {
 };
 
 export type AgentManager = {
-  launchAgent: (todoId: string, task: string, sessionId?: string, taskContext?: string) => Agent;
+  launchAgent: (kind: AgentKind, todoId: string | undefined, task: string, sessionId?: string, taskContext?: string) => Agent;
   relaunchAgent: (agentId: string) => Agent | null;
   archiveAgent: (agentId: string) => boolean;
   followUpAgent: (agentId: string, question: string) => boolean;
@@ -59,6 +63,29 @@ export type AgentManager = {
 };
 
 const STEP_FLUSH_INTERVAL_MS = 2000;
+
+async function generateAgentTitle(
+  agent: Agent,
+  deps: AgentManagerDeps,
+  agents: Map<string, Agent>,
+): Promise<void> {
+  try {
+    const { object } = await generateObject({
+      model: deps.utilitiesModel,
+      schema: agentTitleSchema,
+      prompt: buildAgentTitlePrompt(agent.task),
+      abortSignal: AbortSignal.timeout(15_000),
+    });
+    const current = agents.get(agent.id);
+    if (!current) return;
+    current.task = object.title;
+    deps.db?.updateAgentTask(agent.id, object.title);
+    deps.events.emit("agent-title-generated", agent.id, object.title);
+    log("INFO", `Agent title generated for ${agent.id}: "${object.title}"`);
+  } catch (err) {
+    log("WARN", `Failed to generate agent title for ${agent.id}: ${err}`);
+  }
+}
 
 export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   const agents = new Map<string, Agent>();
@@ -77,6 +104,10 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     resolve: (response: AgentToolApprovalResponse) => void;
     reject: (error: Error) => void;
   }>();
+
+  function isAnalysisAgent(agent: Agent): boolean {
+    return agent.kind === "analysis";
+  }
 
   function buildHistoryFromSteps(agent: Agent): ModelMessage[] {
     const history: ModelMessage[] = [];
@@ -302,7 +333,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         deps.db?.updateAgent(agent.id, { status: "completed", result, steps: agent.steps, completedAt: agent.completedAt });
         deps.events.emit("agent-completed", agent.id, result);
         log("INFO", `Agent completed: ${agent.id}`);
-        if (deps.rememberSharedMemory) {
+        if (deps.rememberSharedMemory && isAnalysisAgent(agent)) {
           void deps
             .rememberSharedMemory({
               task: agent.task,
@@ -333,9 +364,16 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     };
   }
 
-  function launchAgent(todoId: string, task: string, sessionId?: string, taskContext?: string): Agent {
+  function launchAgent(
+    kind: AgentKind,
+    todoId: string | undefined,
+    task: string,
+    sessionId?: string,
+    taskContext?: string,
+  ): Agent {
     const agent: Agent = {
       id: crypto.randomUUID(),
+      kind,
       todoId,
       task,
       taskContext,
@@ -348,7 +386,11 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     agents.set(agent.id, agent);
     deps.db?.insertAgent(agent);
     deps.events.emit("agent-started", agent);
-    log("INFO", `Agent launched: ${agent.id} for todo ${todoId}`);
+    log("INFO", `Agent launched: ${agent.id} (${kind})${todoId ? ` for todo ${todoId}` : ""}`);
+
+    if (kind === "custom") {
+      void generateAgentTitle(agent, deps, agents);
+    }
 
     let exa: ReturnType<typeof getExa>;
     try {
@@ -371,7 +413,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
     void (async () => {
       let sharedMemoryContext: string | undefined;
-      if (deps.getSharedMemoryContext) {
+      if (deps.getSharedMemoryContext && isAnalysisAgent(agent)) {
         try {
           sharedMemoryContext = await deps.getSharedMemoryContext({
             query: task,
@@ -443,7 +485,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
     void (async () => {
       let sharedMemoryContext: string | undefined;
-      if (deps.getSharedMemoryContext) {
+      if (deps.getSharedMemoryContext && isAnalysisAgent(agent)) {
         try {
           sharedMemoryContext = await deps.getSharedMemoryContext({
             query: question,
@@ -611,7 +653,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
     void (async () => {
       let sharedMemoryContext: string | undefined;
-      if (deps.getSharedMemoryContext) {
+      if (deps.getSharedMemoryContext && isAnalysisAgent(agent)) {
         try {
           sharedMemoryContext = await deps.getSharedMemoryContext({
             query: agent.task,

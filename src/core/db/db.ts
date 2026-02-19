@@ -340,7 +340,8 @@ export function createDatabase(dbPath: string) {
     insertAgent(agent: Agent) {
       orm.insert(agents).values({
         id: agent.id,
-        todoId: agent.todoId,
+        kind: agent.kind,
+        todoId: agent.todoId ?? "",
         sessionId: agent.sessionId ?? null,
         task: agent.task,
         taskContext: agent.taskContext ?? null,
@@ -361,6 +362,10 @@ export function createDatabase(dbPath: string) {
       orm.update(agents).set(set).where(eq(agents.id, id)).run();
     },
 
+    updateAgentTask(id: string, task: string) {
+      orm.update(agents).set({ task }).where(eq(agents.id, id)).run();
+    },
+
     archiveAgent(id: string) {
       orm.update(agents).set({ archived: 1 }).where(eq(agents.id, id)).run();
     },
@@ -374,7 +379,8 @@ export function createDatabase(dbPath: string) {
         .all();
       return rows.map((r) => ({
         id: r.id,
-        todoId: r.todoId,
+        kind: coerceAgentKind(r.kind, r.todoId),
+        todoId: r.todoId || undefined,
         task: r.task,
         taskContext: r.taskContext ?? undefined,
         status: r.status as Agent["status"],
@@ -524,6 +530,11 @@ function batchAgentCounts(orm: BetterSQLite3Database, sessionIds: string[]): Map
   return new Map(rows.map((r) => [r.sessionId!, r.n]));
 }
 
+function coerceAgentKind(kind: string | null | undefined, todoId: string | null | undefined): Agent["kind"] {
+  if (kind === "analysis" || kind === "custom") return kind;
+  return todoId && todoId.trim() ? "analysis" : "custom";
+}
+
 function mapTodoRow(r: typeof todos.$inferSelect): TodoItem {
   return {
     id: r.id,
@@ -594,6 +605,7 @@ function runMigrations(db: Database.Database) {
 
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL DEFAULT 'analysis',
       todo_id TEXT NOT NULL,
       session_id TEXT REFERENCES sessions(id),
       task TEXT NOT NULL,
@@ -648,6 +660,11 @@ function runMigrations(db: Database.Database) {
 
   const agentCols = db.prepare("PRAGMA table_info(agents)").all() as Array<{ name: string }>;
   const agentColNames = new Set(agentCols.map((c) => c.name));
+  if (!agentColNames.has("kind")) {
+    db.exec("ALTER TABLE agents ADD COLUMN kind TEXT NOT NULL DEFAULT 'analysis'");
+    // Backfill pre-kind rows: empty todo_id rows are custom agents.
+    db.exec("UPDATE agents SET kind = 'custom' WHERE COALESCE(todo_id, '') = ''");
+  }
   if (!agentColNames.has("task_context")) {
     db.exec("ALTER TABLE agents ADD COLUMN task_context TEXT");
   }

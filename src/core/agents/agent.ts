@@ -14,6 +14,7 @@ import {
   getAgentSystemPromptTemplate,
   renderPromptTemplate,
 } from "../prompt-loader";
+import { normalizeProviderErrorMessage } from "../text/text-utils";
 import type { AgentExternalToolSet } from "./external-tools";
 import {
   rankExternalTools,
@@ -370,18 +371,23 @@ async function buildTools(
         query: z.string().describe("The search query"),
       }),
       execute: async ({ query }) => {
-        const results = await exa.search(query, {
-          type: "auto",
-          numResults: 10,
-          text: { maxCharacters: 1500 },
-        });
+        try {
+          const results = await exa.search(query, {
+            type: "auto",
+            numResults: 10,
+            text: { maxCharacters: 1500 },
+          });
 
-        // const formatted = results.results
-        //   .map((r) => `**${r.title}** (${r.url})\n${r.text ?? ""}`)
-        //   .join("\n\n---\n\n");
-
-        // return formatted;
-        return results.results;
+          return results.results;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log("WARN", `searchWeb failed: ${message}`);
+          return {
+            error: message,
+            hint:
+              "Web search is temporarily unavailable. Continue with available context, or ask the user if they want to proceed without web search.",
+          };
+        }
       },
     }),
     getTranscriptContext: tool({
@@ -1138,7 +1144,8 @@ async function runAgentWithMessages(
   } catch (error) {
     // streamError has the real provider error (e.g. rate limit). NoOutputGeneratedError
     // is the SDK wrapper thrown when the stream ends with no steps recorded.
-    const message = streamError ?? (error instanceof Error ? error.message : String(error));
+    const rawMessage = streamError ?? (error instanceof Error ? error.message : String(error));
+    const message = normalizeProviderErrorMessage(rawMessage);
     onFail(message);
   }
 }

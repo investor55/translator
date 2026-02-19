@@ -2,10 +2,10 @@ import { log } from "../logger";
 
 const MEM0_API_BASE_URL = "https://api.mem0.ai";
 const MEMORY_LIMIT = 8;
-const MEMORY_SCORE_THRESHOLD = 0.35;
 const MEM0_CUSTOM_INSTRUCTIONS =
   "Store only durable user/project facts, stable preferences, constraints, decisions, and unresolved commitments. " +
   "Do not store transient chit-chat, speculative thoughts, or one-off temporary statuses unless they are explicit action items.";
+export const MEM0_ADAPTER_VERSION = "v1-search:v1/memories/search/ + v1-add:v1/memories/";
 
 type SharedMemoryScope = {
   projectId?: string;
@@ -45,7 +45,7 @@ function ensureTrailingPath(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
 }
 
-function buildAppId(projectId?: string): string {
+function buildMemoryScopeId(projectId?: string): string {
   const scope = projectId?.trim();
   return scope ? `ambient:project:${scope}` : "ambient:global";
 }
@@ -142,22 +142,30 @@ export function createMem0SharedMemory(config: Mem0Config): SharedMemoryStore {
       if (!normalizedQuery) return undefined;
 
       const projectId = query.projectId?.trim() || defaultProjectId;
-      const appId = buildAppId(projectId);
+      const scopeId = buildMemoryScopeId(projectId);
 
       const body: Record<string, unknown> = {
         query: normalizedQuery,
-        version: "v2",
+        user_id: scopeId,
         top_k: MEMORY_LIMIT,
-        threshold: MEMORY_SCORE_THRESHOLD,
         filters: {
-          AND: [{ app_id: appId }],
+          user_id: scopeId,
         },
       };
 
       if (defaultOrgId) body.org_id = defaultOrgId;
       if (defaultProjectId) body.project_id = defaultProjectId;
 
-      const payload = await post("/v2/memories/search", body);
+      let payload: unknown;
+      try {
+        payload = await post("/v1/memories/search/", body);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (/user not found/i.test(message)) {
+          return undefined;
+        }
+        throw error;
+      }
       const items = parseSearchResults(payload)
         .map((item) => item.memory ?? item.text ?? "")
         .map((item) => trimLine(item))
@@ -175,7 +183,7 @@ export function createMem0SharedMemory(config: Mem0Config): SharedMemoryStore {
       if (!task || !result) return;
 
       const projectId = record.projectId?.trim() || defaultProjectId;
-      const appId = buildAppId(projectId);
+      const scopeId = buildMemoryScopeId(projectId);
       const metadata: Record<string, unknown> = {
         source: "ambient-agent",
       };
@@ -192,18 +200,15 @@ export function createMem0SharedMemory(config: Mem0Config): SharedMemoryStore {
           { role: "user", content: `Task: ${clip(task, 1200)}${contextText}` },
           { role: "assistant", content: `Result: ${clip(result, 1600)}` },
         ],
-        version: "v2",
+        user_id: scopeId,
         custom_instructions: MEM0_CUSTOM_INSTRUCTIONS,
-        app_id: appId,
-        run_id: record.sessionId ?? undefined,
-        agent_id: record.agentId ?? "ambient-agent",
         metadata,
       };
 
       if (defaultOrgId) body.org_id = defaultOrgId;
       if (defaultProjectId) body.project_id = defaultProjectId;
 
-      await post("/v1/memories", body);
+      await post("/v1/memories/", body);
     },
   };
 }

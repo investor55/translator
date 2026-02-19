@@ -306,6 +306,7 @@ describe("agents", () => {
     const baseCreatedAt = Date.now();
     const running: Agent = {
       id: "a1",
+      kind: "analysis",
       todoId: "t1",
       task: "Running task",
       status: "running",
@@ -315,6 +316,7 @@ describe("agents", () => {
     };
     const completed: Agent = {
       id: "a2",
+      kind: "analysis",
       todoId: "t2",
       task: "Done task",
       status: "completed",

@@ -12,6 +12,7 @@ type AgentsAction =
   | { kind: "agent-completed"; agentId: string; result: string }
   | { kind: "agent-failed"; agentId: string; error: string }
   | { kind: "agent-archived"; agentId: string }
+  | { kind: "agent-titled"; agentId: string; title: string }
   | { kind: "select-agent"; agentId: string | null }
   | { kind: "load-agents"; agents: Agent[] }
   | { kind: "reset" };
@@ -68,6 +69,13 @@ function agentsReducer(state: AgentsState, action: AgentsAction): AgentsState {
         agents: state.agents.filter((a) => a.id !== action.agentId),
         selectedAgentId: state.selectedAgentId === action.agentId ? null : state.selectedAgentId,
       };
+    case "agent-titled":
+      return {
+        ...state,
+        agents: state.agents.map((a) =>
+          a.id === action.agentId ? { ...a, task: action.title } : a
+        ),
+      };
     case "select-agent":
       return { ...state, selectedAgentId: action.agentId };
     case "load-agents":
@@ -90,6 +98,7 @@ export function useAgents() {
       api.onAgentCompleted((agentId, result) => dispatch({ kind: "agent-completed", agentId, result })),
       api.onAgentFailed((agentId, error) => dispatch({ kind: "agent-failed", agentId, error })),
       api.onAgentArchived((agentId) => dispatch({ kind: "agent-archived", agentId })),
+      api.onAgentTitleGenerated((agentId, title) => dispatch({ kind: "agent-titled", agentId, title })),
     ];
 
     return () => cleanups.forEach((fn) => fn());

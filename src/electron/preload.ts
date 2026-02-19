@@ -14,6 +14,7 @@ import type {
   SessionMeta,
   ProjectMeta,
   Agent,
+  AgentKind,
   AgentStep,
   AgentQuestionSelection,
   AgentToolApprovalResponse,
@@ -80,6 +81,7 @@ export type ElectronAPI = {
 
   approveLargeTodo: (todoId: string) => Promise<{ ok: boolean; approvalToken?: string; error?: string }>;
   launchAgent: (todoId: string, task: string, taskContext?: string, approvalToken?: string) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
+  launchCustomAgent: (task: string, taskContext?: string, kind?: AgentKind) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
   launchAgentInSession: (
     sessionId: string,
     todoId: string,
@@ -139,6 +141,7 @@ export type ElectronAPI = {
   onAgentCompleted: (callback: (agentId: string, result: string) => void) => () => void;
   onAgentFailed: (callback: (agentId: string, error: string) => void) => () => void;
   onAgentArchived: (callback: (agentId: string) => void) => () => void;
+  onAgentTitleGenerated: (callback: (agentId: string, title: string) => void) => () => void;
   onSessionTitleGenerated: (callback: (sessionId: string, title: string) => void) => () => void;
 
   onWhisperGpuRequest: (callback: (request: WhisperGpuRequest) => void) => () => void;
@@ -203,6 +206,8 @@ const api: ElectronAPI = {
   approveLargeTodo: (todoId) => ipcRenderer.invoke("approve-large-todo", todoId),
   launchAgent: (todoId, task, taskContext, approvalToken) =>
     ipcRenderer.invoke("launch-agent", todoId, task, taskContext, approvalToken),
+  launchCustomAgent: (task, taskContext, kind) =>
+    ipcRenderer.invoke("launch-custom-agent", task, taskContext, kind),
   launchAgentInSession: (sessionId, todoId, task, taskContext, appConfig, approvalToken) =>
     ipcRenderer.invoke("launch-agent-in-session", sessionId, todoId, task, taskContext, appConfig, approvalToken),
   archiveAgent: (agentId) => ipcRenderer.invoke("archive-agent", agentId),
@@ -260,6 +265,11 @@ const api: ElectronAPI = {
     return () => ipcRenderer.removeListener("session:agent-failed", handler);
   },
   onAgentArchived: createListener<string>("session:agent-archived"),
+  onAgentTitleGenerated: (callback: (agentId: string, title: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, agentId: string, title: string) => callback(agentId, title);
+    ipcRenderer.on("session:agent-title-generated", handler);
+    return () => ipcRenderer.removeListener("session:agent-title-generated", handler);
+  },
   onSessionTitleGenerated: (callback: (sessionId: string, title: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, sessionId: string, title: string) => callback(sessionId, title);
     ipcRenderer.on("session:title-generated", handler);

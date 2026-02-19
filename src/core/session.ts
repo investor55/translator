@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import type {
   Agent,
+  AgentKind,
   AgentsSummary,
   AgentQuestionSelection,
   AgentToolApprovalResponse,
@@ -19,7 +20,7 @@ import type {
   TodoSuggestion,
   Insight,
 } from "./types";
-import { createTranscriptionModel, createAnalysisModel, createTodoModel } from "./providers";
+import { createTranscriptionModel, createAnalysisModel, createTodoModel, createUtilitiesModel } from "./providers";
 import { log } from "./logger";
 import { pcmToWavBuffer, computeRms } from "./audio/audio-utils";
 import { isLikelyDuplicateTodoText, normalizeTodoText, toReadableError } from "./text/text-utils";
@@ -83,6 +84,7 @@ import { createAgentManager, type AgentManager } from "./agents/agent-manager";
 import type { AgentExternalToolSet } from "./agents/external-tools";
 import {
   createMem0SharedMemoryFromEnv,
+  MEM0_ADAPTER_VERSION,
   safeGetSharedMemoryContext,
   safeRememberSharedMemory,
 } from "./agents/shared-memory";
@@ -136,6 +138,7 @@ export class Session {
   private transcriptionModel: LanguageModel | null;
   private analysisModel: LanguageModel;
   private todoModel: LanguageModel;
+  private utilitiesModel: LanguageModel;
   private audioTranscriptionSchema: z.ZodObject<z.ZodRawShape>;
   private transcriptionOnlySchema: z.ZodObject<z.ZodRawShape>;
   private textPostProcessSchema: z.ZodObject<z.ZodRawShape>;
@@ -231,11 +234,13 @@ export class Session {
         : createTranscriptionModel(config);
     this.analysisModel = createAnalysisModel(config);
     this.todoModel = createTodoModel(config);
+    this.utilitiesModel = createUtilitiesModel();
 
     const exaApiKey = process.env.EXA_API_KEY;
     if (exaApiKey) {
       this.agentManager = createAgentManager({
         model: this.analysisModel,
+        utilitiesModel: this.utilitiesModel,
         exaApiKey,
         events: this.events,
         getTranscriptContext: () => this.getTranscriptContextForAgent(),
@@ -269,7 +274,7 @@ export class Session {
       log("INFO", "AgentManager initialized (EXA_API_KEY present)");
     }
     if (this.sharedMemory) {
-      log("INFO", "Shared agent memory enabled (MEM0_API_KEY present)");
+      log("INFO", `Shared agent memory enabled (MEM0_API_KEY present; adapter=${MEM0_ADAPTER_VERSION})`);
     }
 
     this.sourceLangLabel = getLanguageLabel(config.sourceLang);
@@ -960,9 +965,9 @@ export class Session {
     writeSummaryLog(this.contextState.allKeyPoints);
   }
 
-  launchAgent(todoId: string, task: string, taskContext?: string): Agent | null {
+  launchAgent(kind: AgentKind, todoId: string | undefined, task: string, taskContext?: string): Agent | null {
     if (!this.agentManager) return null;
-    return this.agentManager.launchAgent(todoId, task, this.sessionId, taskContext);
+    return this.agentManager.launchAgent(kind, todoId, task, this.sessionId, taskContext);
   }
 
   relaunchAgent(agentId: string): Agent | null {

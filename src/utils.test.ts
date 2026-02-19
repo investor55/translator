@@ -182,4 +182,10 @@ describe("toReadableError", () => {
   it("extracts message from error-like object", () => {
     expect(toReadableError({ message: "oops" })).toBe("oops");
   });
+
+  it("maps provider auth errors to actionable message", () => {
+    expect(toReadableError("User not found.")).toBe(
+      "OpenRouter request failed with 'User not found'. This can be caused by an OpenRouter outage or an invalid OPENROUTER_API_KEY."
+    );
+  });
 });

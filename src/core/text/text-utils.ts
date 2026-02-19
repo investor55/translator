@@ -110,12 +110,22 @@ export function cleanTranslationOutput(text: string): string {
   return candidate.replace(/^[-\u2013\u2014]\s+/, "");
 }
 
+export function normalizeProviderErrorMessage(message: string): string {
+  const normalized = message.trim();
+  if (/^user not found\.?$/i.test(normalized)) {
+    return "OpenRouter request failed with 'User not found'. This can be caused by an OpenRouter outage or an invalid OPENROUTER_API_KEY.";
+  }
+  return message;
+}
+
 export function toReadableError(e: unknown): string {
-  if (e instanceof Error) return e.message;
+  if (e instanceof Error) return normalizeProviderErrorMessage(e.message);
   if (e && typeof e === "object") {
-    if ("message" in e && typeof e.message === "string") return e.message;
+    if ("message" in e && typeof e.message === "string") {
+      return normalizeProviderErrorMessage(e.message);
+    }
     if ("name" in e && typeof e.name === "string") return e.name;
   }
-  if (typeof e === "string") return e;
+  if (typeof e === "string") return normalizeProviderErrorMessage(e);
   return "Unknown error";
 }

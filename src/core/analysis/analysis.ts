@@ -72,6 +72,16 @@ export function buildSessionTitlePrompt(excerpt: string): string {
   return `Generate a short, descriptive title (3-6 words) for a conversation based on this excerpt:\n\n${excerpt}\n\nFocus on the specific topic, not generic labels.`;
 }
 
+export const agentTitleSchema = z.object({
+  title: z.string().describe(
+    "A concise 3-6 word title for this agent task. No quotes. No filler like 'Task to' or 'Agent for'."
+  ),
+});
+
+export function buildAgentTitlePrompt(task: string): string {
+  return `Generate a short, descriptive title (3-6 words) for an AI agent task based on this prompt:\n\n${task.slice(0, 500)}\n\nBe specific about what is being done. No quotes.`;
+}
+
 export const finalSummarySchema = z.object({
   narrative: z.string().describe(
     "A comprehensive 2-5 sentence prose summary of the full conversation covering main topics, decisions, and overall arc. Write in plain English."

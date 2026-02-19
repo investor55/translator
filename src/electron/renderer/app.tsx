@@ -33,6 +33,7 @@ import { TranscriptArea } from "./components/transcript-area";
 import { LeftSidebar } from "./components/left-sidebar";
 import { RightSidebar } from "./components/right-sidebar";
 import { AgentDetailPanel } from "./components/agent-detail-panel";
+import { NewAgentPanel } from "./components/new-agent-panel";
 import { Footer } from "./components/footer";
 import { SettingsPage } from "./components/settings-page";
 import { SplashScreen } from "./components/splash-screen";
@@ -129,7 +130,12 @@ export function App() {
   });
 
   const micCapture = useMicCapture();
-  const { agents, selectedAgentId, selectedAgent, selectAgent, seedAgents } = useAgents();
+  const { agents, selectedAgentId, selectedAgent, selectAgent: _selectAgent, seedAgents } = useAgents();
+  const [newAgentMode, setNewAgentMode] = useState(false);
+  const selectAgent = useCallback((id: string | null) => {
+    setNewAgentMode(false);
+    _selectAgent(id);
+  }, [_selectAgent]);
 
   const handleResumed = useCallback((data: ResumeData) => {
     setSelectedSessionId(data.sessionId);
@@ -1014,6 +1020,21 @@ export function App() {
     await launchTodoAgent(todo);
   }, [launchTodoAgent, processingTodoIds]);
 
+  const handleNewAgent = useCallback(() => {
+    selectAgent(null);
+    setNewAgentMode(true);
+  }, [selectAgent]);
+
+  const handleLaunchCustomAgent = useCallback(async (task: string) => {
+    setNewAgentMode(false);
+    const result = await window.electronAPI.launchCustomAgent(task);
+    if (result.ok && result.agent) {
+      selectAgent(result.agent.id);
+    } else {
+      setRouteNotice(`Failed to launch agent: ${result.error ?? "Unknown error"}`);
+    }
+  }, [selectAgent]);
+
   const handleArchiveAgent = useCallback(async (agent: Agent) => {
     await window.electronAPI.archiveAgent(agent.id);
   }, []);
@@ -1312,6 +1333,7 @@ export function App() {
                 selectedAgentId={selectedAgentId}
                 onSelectAgent={selectAgent}
                 onLaunchAgent={handleLaunchAgent}
+                onNewAgent={handleNewAgent}
                 onAddTodo={handleAddTodo}
                 onToggleTodo={handleToggleTodo}
                 onDeleteTodo={handleDeleteTodo}
@@ -1325,7 +1347,7 @@ export function App() {
                 onSubmitTodoInput={handleSubmitTodoInput}
               />
             </div>
-            {selectedAgent && (
+            {(selectedAgent || newAgentMode) && (
               <>
                 <div
                   role="separator"
@@ -1337,18 +1359,25 @@ export function App() {
                   <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />
                 </div>
                 <div className="shrink-0 min-h-0" style={{ width: agentPanelWidth }}>
-                  <AgentDetailPanel
-                    agent={selectedAgent}
-                    agents={agents}
-                    onSelectAgent={selectAgent}
-                    onClose={() => selectAgent(null)}
-                    onFollowUp={handleFollowUp}
-                    onAnswerQuestion={handleAnswerAgentQuestion}
-                    onAnswerToolApproval={handleAnswerAgentToolApproval}
-                    onCancel={handleCancelAgent}
-                    onRelaunch={handleRelaunchAgent}
-                    onArchive={handleArchiveAgent}
-                  />
+                  {newAgentMode ? (
+                    <NewAgentPanel
+                      onLaunch={handleLaunchCustomAgent}
+                      onClose={() => setNewAgentMode(false)}
+                    />
+                  ) : (
+                    <AgentDetailPanel
+                      agent={selectedAgent!}
+                      agents={agents}
+                      onSelectAgent={selectAgent}
+                      onClose={() => selectAgent(null)}
+                      onFollowUp={handleFollowUp}
+                      onAnswerQuestion={handleAnswerAgentQuestion}
+                      onAnswerToolApproval={handleAnswerAgentToolApproval}
+                      onCancel={handleCancelAgent}
+                      onRelaunch={handleRelaunchAgent}
+                      onArchive={handleArchiveAgent}
+                    />
+                  )}
                 </div>
               </>
             )}

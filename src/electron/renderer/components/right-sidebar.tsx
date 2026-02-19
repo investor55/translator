@@ -34,6 +34,7 @@ type RightSidebarProps = {
   selectedAgentId?: string | null;
   onSelectAgent?: (id: string | null) => void;
   onLaunchAgent?: (todo: TodoItem) => void;
+  onNewAgent?: () => void;
   onAddTodo?: (text: string, details?: string) => void;
   onToggleTodo?: (id: string) => void;
   onDeleteTodo?: (id: string) => void;
@@ -263,6 +264,7 @@ export function RightSidebar({
   selectedAgentId,
   onSelectAgent,
   onLaunchAgent,
+  onNewAgent,
   onAddTodo,
   onToggleTodo,
   onDeleteTodo,
@@ -291,7 +293,7 @@ export function RightSidebar({
 
   const agentByTodoId = new Map<string, Agent>();
   for (const agent of agents ?? []) {
-    if (!agentByTodoId.has(agent.todoId)) {
+    if (agent.todoId && !agentByTodoId.has(agent.todoId)) {
       agentByTodoId.set(agent.todoId, agent);
     }
   }
@@ -488,21 +490,21 @@ export function RightSidebar({
           </>
         ) : (
           <div className="pt-2">
-            {agents && onSelectAgent && agents.length > 0 ? (
-              <>
-                <AgentDebriefPanel
-                  state={debriefState}
-                  onGenerate={generateDebrief}
-                  canGenerate={canGenerateDebrief}
-                  onAddTodo={onAddTodo}
-                />
-                <AgentList
-                  agents={agents}
-                  selectedAgentId={selectedAgentId ?? null}
-                  onSelectAgent={onSelectAgent}
-                />
-              </>
-            ) : (
+            {agents && onSelectAgent && agents.length > 0 && (
+              <AgentDebriefPanel
+                state={debriefState}
+                onGenerate={generateDebrief}
+                canGenerate={canGenerateDebrief}
+                onAddTodo={onAddTodo}
+              />
+            )}
+            <AgentList
+              agents={agents ?? []}
+              selectedAgentId={selectedAgentId ?? null}
+              onSelectAgent={onSelectAgent ?? (() => {})}
+              onNewAgent={onNewAgent}
+            />
+            {(!agents || agents.length === 0) && (
               <p className="text-xs text-muted-foreground italic">
                 Agent activity will appear here once you run a task.
               </p>
