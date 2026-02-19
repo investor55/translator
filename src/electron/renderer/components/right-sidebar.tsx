@@ -303,41 +303,6 @@ export function RightSidebar({
 
   return (
     <div className="w-full h-full shrink-0 border-l border-border flex flex-col min-h-0 bg-sidebar">
-      {onSubmitTodoInput && (
-        <div className="px-2 pt-2 pb-2 shrink-0">
-          <PromptInput onSubmit={handleSubmit}>
-            {hasRefs && (
-              <PromptInputHeader className="px-2 pt-1.5 pb-1 gap-1">
-                {transcriptRefs.map((ref, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    className="flex items-center gap-1 pl-1.5 pr-1 py-0.5 text-2xs bg-muted/50 border border-border/60 text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors max-w-full"
-                    onClick={() => onRemoveTranscriptRef?.(i)}
-                    title={ref}
-                  >
-                    <span className="truncate max-w-[160px]">
-                      {ref.length > 50 ? `${ref.slice(0, 50)}…` : ref}
-                    </span>
-                    <XIcon className="size-2.5 shrink-0 opacity-50" />
-                  </button>
-                ))}
-              </PromptInputHeader>
-            )}
-            <PromptInputTextarea
-              placeholder={hasRefs ? "What should these become?" : "Add a todo..."}
-              className="min-h-0 text-xs"
-            />
-            <PromptInputFooter className="px-1 py-1">
-              <span className="text-2xs text-muted-foreground/35 font-mono select-none pl-1">
-                {hasRefs ? `${transcriptRefs.length} snippet${transcriptRefs.length > 1 ? "s" : ""}` : ""}
-              </span>
-              <PromptInputSubmit size="icon-sm" />
-            </PromptInputFooter>
-          </PromptInput>
-        </div>
-      )}
-
       <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3">
         {/* AI Suggestions */}
         {suggestions.length > 0 && (
@@ -356,19 +321,19 @@ export function RightSidebar({
           </div>
         )}
 
-        {/* Agents */}
+        {/* Agents summary + list */}
         {agents && onSelectAgent && agents.length > 0 && (
           <>
-            <AgentList
-              agents={agents}
-              selectedAgentId={selectedAgentId ?? null}
-              onSelectAgent={onSelectAgent}
-            />
             <AgentDebriefPanel
               state={debriefState}
               onGenerate={generateDebrief}
               canGenerate={canGenerateDebrief}
               onAddTodo={onAddTodo}
+            />
+            <AgentList
+              agents={agents}
+              selectedAgentId={selectedAgentId ?? null}
+              onSelectAgent={onSelectAgent}
             />
             <Separator className="my-3" />
           </>
@@ -485,6 +450,45 @@ export function RightSidebar({
           </div>
         )}
       </div>
+
+      {onSubmitTodoInput && (
+        <div className="px-2 pt-2 pb-2 shrink-0">
+          <PromptInput onSubmit={handleSubmit}>
+            <PromptInputHeader className="px-2 pt-1.5 pb-1 gap-1 min-h-[28px]">
+              {hasRefs ? (
+                transcriptRefs.map((ref, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className="flex items-center gap-1 pl-1.5 pr-1 py-0.5 text-2xs bg-muted/50 border border-border/60 text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors max-w-full"
+                    onClick={() => onRemoveTranscriptRef?.(i)}
+                    title={ref}
+                  >
+                    <span className="truncate max-w-[160px]">
+                      {ref.length > 50 ? `${ref.slice(0, 50)}…` : ref}
+                    </span>
+                    <XIcon className="size-2.5 shrink-0 opacity-50" />
+                  </button>
+                ))
+              ) : (
+                <span className="text-2xs text-muted-foreground/35 select-none italic">
+                  Select transcript text · <kbd className="font-mono not-italic">⌘L</kbd> to add context
+                </span>
+              )}
+            </PromptInputHeader>
+            <PromptInputTextarea
+              placeholder={hasRefs ? "What should these become?" : "Add a todo..."}
+              className="min-h-0 text-xs"
+            />
+            <PromptInputFooter className="px-1 py-1">
+              <span className="text-2xs text-muted-foreground/35 font-mono select-none pl-1">
+                {hasRefs ? `${transcriptRefs.length} snippet${transcriptRefs.length > 1 ? "s" : ""}` : ""}
+              </span>
+              <PromptInputSubmit size="icon-sm" />
+            </PromptInputFooter>
+          </PromptInput>
+        </div>
+      )}
     </div>
   );
 }

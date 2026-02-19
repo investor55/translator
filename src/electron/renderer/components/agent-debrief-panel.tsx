@@ -51,16 +51,6 @@ function AgentHighlightCard({
   );
 }
 
-function buildStepContext(summary: AgentsSummary, step: string): string {
-  const lines: string[] = [`Next step from agent debrief: ${step}`, "", summary.overallNarrative];
-  if (summary.agentHighlights.length > 0) {
-    lines.push("", "Agent findings:");
-    for (const h of summary.agentHighlights) {
-      lines.push(`• ${h.task}: ${h.keyFinding}`);
-    }
-  }
-  return lines.join("\n");
-}
 
 function NextStepRow({
   text,
@@ -138,7 +128,7 @@ function DebriefContent({
   const handleAddSelected = useCallback(() => {
     if (!onAddTodo || selected.size === 0) return;
     for (const i of selected) {
-      onAddTodo(summary.nextSteps[i], buildStepContext(summary, summary.nextSteps[i]));
+      onAddTodo(summary.nextSteps[i]);
     }
     setAccepted((prev) => new Set([...prev, ...selected]));
     setSelected(new Set());
