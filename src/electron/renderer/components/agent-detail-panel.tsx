@@ -535,7 +535,7 @@ function StepItem({
   switch (step.kind) {
     case "text":
       return (
-        <div className="group py-2 border-t border-border mt-1">
+        <div className="group mt-1 py-2">
           <div className="text-xs text-foreground leading-relaxed [&_a]:text-primary [&_a]:underline">
             <CitedMessageResponse>{step.content}</CitedMessageResponse>
           </div>
