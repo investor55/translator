@@ -2,6 +2,7 @@ import type {
   AnalysisProvider,
   AppConfig,
   CustomMcpStatus,
+  DarkVariant,
   FontFamily,
   FontSize,
   McpIntegrationStatus,
@@ -101,7 +102,31 @@ const LIGHT_VARIANT_OPTIONS: Array<{
 }> = [
   { value: "warm", label: "Warm", swatch: "oklch(0.985 0.002 90)" },
   { value: "linen", label: "Linen", swatch: "#EEEEEE" },
+  { value: "ivory", label: "Ivory", swatch: "oklch(0.968 0.004 90)" },
+  { value: "petal", label: "Petal", swatch: "oklch(0.962 0.006 250)" },
 ];
+
+const DARK_VARIANT_OPTIONS: Array<{
+  value: DarkVariant;
+  label: string;
+  swatch: string;
+}> = [
+  { value: "charcoal", label: "Charcoal", swatch: "oklch(0.145 0 0)" },
+  { value: "steel", label: "Steel", swatch: "oklch(0.2 0.004 260)" },
+  { value: "abyss", label: "Abyss", swatch: "oklch(0.185 0.02 264)" },
+  { value: "pitch-black", label: "Pitch Black", swatch: "oklch(0 0 0)" },
+];
+
+const SEGMENTED_GROUP_CLASS =
+  "inline-flex flex-wrap items-center justify-end gap-1 rounded-sm border border-border/70 bg-muted/35 p-1 max-w-[28rem]";
+
+function segmentedButtonClass(selected: boolean): string {
+  return `h-7 px-2.5 text-xs inline-flex items-center gap-1.5 rounded-[6px] border transition-colors ${
+    selected
+      ? "border-border/85 bg-background text-foreground shadow-sm"
+      : "border-transparent bg-transparent text-muted-foreground hover:bg-background/70 hover:text-foreground"
+  }`;
+}
 
 const FONT_SIZE_OPTIONS: Array<{ value: FontSize; label: string }> = [
   { value: "sm", label: "Small" },
@@ -305,16 +330,14 @@ export function SettingsPage({
               label="Theme"
               description="Choose light, dark, or follow your system theme."
               control={
-                <div className="inline-flex items-center border border-border rounded-sm overflow-hidden">
+                <div className={SEGMENTED_GROUP_CLASS}>
                   {THEME_OPTIONS.map((option) => (
                     <button
                       key={option.value}
                       type="button"
-                      className={`h-8 px-2.5 text-xs inline-flex items-center gap-1.5 transition-colors ${
+                      className={segmentedButtonClass(
                         config.themeMode === option.value
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-background text-muted-foreground hover:text-foreground"
-                      }`}
+                      )}
                       onClick={() => set("themeMode", option.value)}
                     >
                       {option.icon}
@@ -329,17 +352,41 @@ export function SettingsPage({
                 label="Light Style"
                 description="Color palette used in light mode."
                 control={
-                  <div className="inline-flex items-center border border-border rounded-sm overflow-hidden">
+                  <div className={SEGMENTED_GROUP_CLASS}>
                     {LIGHT_VARIANT_OPTIONS.map((option) => (
                       <button
                         key={option.value}
                         type="button"
-                        className={`h-8 px-2.5 text-xs inline-flex items-center gap-1.5 transition-colors ${
+                        className={segmentedButtonClass(
                           config.lightVariant === option.value
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-background text-muted-foreground hover:text-foreground"
-                        }`}
+                        )}
                         onClick={() => set("lightVariant", option.value)}
+                      >
+                        <span
+                          className="size-3 rounded-sm border border-border/50 shrink-0"
+                          style={{ backgroundColor: option.swatch }}
+                        />
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                }
+              />
+            )}
+            {config.themeMode !== "light" && (
+              <SettingRow
+                label="Dark Style"
+                description="Color palette used in dark mode."
+                control={
+                  <div className={SEGMENTED_GROUP_CLASS}>
+                    {DARK_VARIANT_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={segmentedButtonClass(
+                          config.darkVariant === option.value
+                        )}
+                        onClick={() => set("darkVariant", option.value)}
                       >
                         <span
                           className="size-3 rounded-sm border border-border/50 shrink-0"

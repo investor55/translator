@@ -6,12 +6,59 @@
     <script>
       (() => {
         const STORAGE_KEY = "ambient-app-config";
-        const DARK_BG = "oklch(0.145 0 0)";
-        const LIGHT_BG = "oklch(0.985 0.002 90)";
+        const LEGACY_LIGHT_VARIANT = {
+          paper: "ivory",
+          rose: "petal",
+        };
+        const LEGACY_DARK_VARIANT = {
+          dim: "charcoal",
+          zinc: "steel",
+          midnight: "abyss",
+          oled: "pitch-black",
+        };
+        const LIGHT_BACKGROUND_BY_VARIANT = {
+          warm: "oklch(0.985 0.002 90)",
+          linen: "oklch(0.939 0 0)",
+          ivory: "oklch(0.968 0.004 90)",
+          petal: "oklch(0.962 0.006 250)",
+        };
+        const DARK_BACKGROUND_BY_VARIANT = {
+          charcoal: "oklch(0.145 0 0)",
+          steel: "oklch(0.2 0.004 260)",
+          abyss: "oklch(0.185 0.02 264)",
+          "pitch-black": "oklch(0 0 0)",
+        };
+        const LIGHT_CLASS_BY_VARIANT = {
+          linen: "light-linen",
+          ivory: "light-ivory",
+          petal: "light-petal",
+        };
+        const DARK_CLASS_BY_VARIANT = {
+          steel: "dark-steel",
+          abyss: "dark-abyss",
+          "pitch-black": "dark-pitch-black",
+        };
+        const LIGHT_VARIANTS = new Set(["warm", "linen", "ivory", "petal"]);
+        const DARK_VARIANTS = new Set(["charcoal", "steel", "abyss", "pitch-black"]);
+
+        function normalizeLightVariant(value) {
+          if (typeof value !== "string") return null;
+          const mapped = LEGACY_LIGHT_VARIANT[value] ?? value;
+          return LIGHT_VARIANTS.has(mapped) ? mapped : null;
+        }
+
+        function normalizeDarkVariant(value) {
+          if (typeof value !== "string") return null;
+          const mapped = LEGACY_DARK_VARIANT[value] ?? value;
+          return DARK_VARIANTS.has(mapped) ? mapped : null;
+        }
+
         let themeMode = "system";
+        let lightVariant = "warm";
+        let darkVariant = "charcoal";
 
         try {
-          const raw = window.localStorage.getItem(STORAGE_KEY);
+          const raw = globalThis.localStorage.getItem(STORAGE_KEY);
           if (raw) {
             const parsed = JSON.parse(raw);
             if (
@@ -21,20 +68,35 @@
             ) {
               themeMode = parsed.themeMode;
             }
+            lightVariant = normalizeLightVariant(parsed?.lightVariant) ?? lightVariant;
+            darkVariant = normalizeDarkVariant(parsed?.darkVariant) ?? darkVariant;
           }
         } catch {
           // Ignore malformed local storage and fall back to system preference.
         }
 
         const prefersDark =
-          typeof window.matchMedia === "function" &&
-          window.matchMedia("(prefers-color-scheme: dark)").matches;
+          typeof globalThis.matchMedia === "function" &&
+          globalThis.matchMedia("(prefers-color-scheme: dark)").matches;
         const shouldUseDark =
           themeMode === "dark" || (themeMode !== "light" && prefersDark);
+
         const root = document.documentElement;
         root.classList.toggle("dark", shouldUseDark);
+
+        const activeLightVariant = shouldUseDark ? null : lightVariant;
+        const activeDarkVariant = shouldUseDark ? darkVariant : null;
+        for (const [variant, className] of Object.entries(LIGHT_CLASS_BY_VARIANT)) {
+          root.classList.toggle(className, activeLightVariant === variant);
+        }
+        for (const [variant, className] of Object.entries(DARK_CLASS_BY_VARIANT)) {
+          root.classList.toggle(className, activeDarkVariant === variant);
+        }
+        
         root.style.colorScheme = shouldUseDark ? "dark" : "light";
-        root.style.backgroundColor = shouldUseDark ? DARK_BG : LIGHT_BG;
+        root.style.backgroundColor = shouldUseDark
+          ? DARK_BACKGROUND_BY_VARIANT[darkVariant]
+          : LIGHT_BACKGROUND_BY_VARIANT[lightVariant];
       })();
     </script>
     <title>Ambient</title>

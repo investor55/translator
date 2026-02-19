@@ -41,7 +41,8 @@ export type Direction = "auto" | "source-target";
 export type Device = { index: number; name: string };
 export type AudioSource = "system" | "microphone";
 export type ThemeMode = "system" | "light" | "dark";
-export type LightVariant = "warm" | "linen";
+export type LightVariant = "warm" | "linen" | "ivory" | "petal";
+export type DarkVariant = "charcoal" | "steel" | "pitch-black" | "abyss";
 
 export type TranscriptionProvider =
   | "google"
@@ -198,6 +199,7 @@ export type FontFamily = "sans" | "mono";
 export type AppConfig = {
   themeMode: ThemeMode;
   lightVariant: LightVariant;
+  darkVariant: DarkVariant;
   fontSize: FontSize;
   fontFamily: FontFamily;
   direction: Direction;
@@ -306,12 +308,56 @@ export const DEFAULT_TODO_MODEL_ID =
 export const DEFAULT_INTERVAL_MS = 2000;
 export const DEFAULT_THEME_MODE: ThemeMode = "system";
 export const DEFAULT_LIGHT_VARIANT: LightVariant = "warm";
+export const DEFAULT_DARK_VARIANT: DarkVariant = "charcoal";
 export const DEFAULT_FONT_SIZE: FontSize = "md";
 export const DEFAULT_FONT_FAMILY: FontFamily = "sans";
+
+function normalizeLightVariant(
+  value: unknown,
+  fallback: LightVariant
+): LightVariant {
+  switch (value) {
+    case "warm":
+    case "linen":
+    case "ivory":
+    case "petal":
+      return value;
+    case "paper":
+      return "ivory";
+    case "rose":
+      return "petal";
+    default:
+      return fallback;
+  }
+}
+
+function normalizeDarkVariant(
+  value: unknown,
+  fallback: DarkVariant
+): DarkVariant {
+  switch (value) {
+    case "charcoal":
+    case "steel":
+    case "pitch-black":
+    case "abyss":
+      return value;
+    case "dim":
+      return "charcoal";
+    case "zinc":
+      return "steel";
+    case "oled":
+      return "pitch-black";
+    case "midnight":
+      return "abyss";
+    default:
+      return fallback;
+  }
+}
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
   themeMode: DEFAULT_THEME_MODE,
   lightVariant: DEFAULT_LIGHT_VARIANT,
+  darkVariant: DEFAULT_DARK_VARIANT,
   fontSize: DEFAULT_FONT_SIZE,
   fontFamily: DEFAULT_FONT_FAMILY,
   direction: "auto",
@@ -348,10 +394,20 @@ export function normalizeAppConfig(
     merged.themeMode === "system"
       ? merged.themeMode
       : DEFAULT_APP_CONFIG.themeMode;
-  const lightVariant: LightVariant =
-    merged.lightVariant === "warm" || merged.lightVariant === "linen"
-      ? merged.lightVariant
-      : DEFAULT_APP_CONFIG.lightVariant;
+  const rawLightVariant =
+    (input as { lightVariant?: unknown } | null | undefined)?.lightVariant ??
+    merged.lightVariant;
+  const lightVariant = normalizeLightVariant(
+    rawLightVariant,
+    DEFAULT_APP_CONFIG.lightVariant
+  );
+  const rawDarkVariant =
+    (input as { darkVariant?: unknown } | null | undefined)?.darkVariant ??
+    merged.darkVariant;
+  const darkVariant = normalizeDarkVariant(
+    rawDarkVariant,
+    DEFAULT_APP_CONFIG.darkVariant
+  );
   const fontSize: FontSize =
     merged.fontSize === "sm" ||
     merged.fontSize === "md" ||
@@ -405,6 +461,7 @@ export function normalizeAppConfig(
     ...merged,
     themeMode,
     lightVariant,
+    darkVariant,
     fontSize,
     fontFamily,
     direction,
