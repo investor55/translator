@@ -34,6 +34,12 @@ export type LightVariant = "warm" | "linen";
 
 export type TranscriptionProvider = "google" | "vertex" | "elevenlabs" | "whisper";
 export type AnalysisProvider = "openrouter" | "google" | "vertex";
+export type AnalysisModelPreset = {
+  label: string;
+  modelId: string;
+  reasoning: boolean;
+  providerOnly?: string;
+};
 
 export type TranscriptBlock = {
   id: number;
@@ -244,6 +250,28 @@ export const DEFAULT_VERTEX_LOCATION =
 export const DEFAULT_TRANSCRIPTION_MODEL_ID =
   ENV?.TRANSCRIPTION_MODEL_ID ?? "scribe_v2_realtime";
 export const DEFAULT_WHISPER_MODEL_ID = "Xenova/whisper-small";
+export const ANALYSIS_MODEL_PRESETS: AnalysisModelPreset[] = [
+  {
+    label: "Kimi K2 0905",
+    modelId: "moonshotai/kimi-k2-0905:exacto",
+    reasoning: false,
+  },
+  {
+    label: "Kimi K2.5",
+    modelId: "moonshotai/kimi-k2.5",
+    reasoning: true,
+  },
+  {
+    label: "GLM 4.7",
+    modelId: "z-ai/glm-4.7",
+    reasoning: true,
+  },
+];
+
+export function getAnalysisModelPreset(modelId: string): AnalysisModelPreset | undefined {
+  return ANALYSIS_MODEL_PRESETS.find((preset) => preset.modelId === modelId);
+}
+
 export const DEFAULT_ANALYSIS_MODEL_ID =
   ENV?.ANALYSIS_MODEL_ID ?? "moonshotai/kimi-k2-thinking";
 export const DEFAULT_TODO_MODEL_ID =
@@ -324,13 +352,17 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
       : DEFAULT_APP_CONFIG.intervalMs;
   const transcriptionModelId =
     merged.transcriptionModelId?.trim() || DEFAULT_APP_CONFIG.transcriptionModelId;
+  const analysisModelId = merged.analysisModelId?.trim() || DEFAULT_APP_CONFIG.analysisModelId;
+  const analysisModelPreset = getAnalysisModelPreset(analysisModelId);
   const rawAnalysisProviderOnly = merged.analysisProviderOnly?.trim();
   // Backward compatibility: older defaults used "Groq" (capitalized), which can
   // break provider filtering. Treat that legacy value as "no provider pin".
-  const analysisProviderOnly =
+  const legacyAnalysisProviderOnly =
     rawAnalysisProviderOnly && rawAnalysisProviderOnly !== "Groq"
       ? rawAnalysisProviderOnly.toLowerCase()
       : undefined;
+  const analysisProviderOnly = analysisModelPreset?.providerOnly ?? legacyAnalysisProviderOnly;
+  const analysisReasoning = analysisModelPreset?.reasoning ?? !!merged.analysisReasoning;
 
   return {
     ...merged,
@@ -343,7 +375,7 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     analysisProvider,
     intervalMs,
     transcriptionModelId,
-    analysisModelId: merged.analysisModelId?.trim() || DEFAULT_APP_CONFIG.analysisModelId,
+    analysisModelId,
     todoModelId: merged.todoModelId?.trim() || DEFAULT_APP_CONFIG.todoModelId,
     contextFile: merged.contextFile?.trim() || DEFAULT_APP_CONFIG.contextFile,
     vertexLocation: merged.vertexLocation?.trim() || DEFAULT_APP_CONFIG.vertexLocation,
@@ -355,7 +387,7 @@ export function normalizeAppConfig(input?: AppConfigOverrides | null): AppConfig
     translationEnabled: !!merged.translationEnabled,
     agentAutoApprove: !!merged.agentAutoApprove,
     analysisProviderOnly,
-    analysisReasoning: !!merged.analysisReasoning,
+    analysisReasoning,
     todoProviders: Array.isArray(merged.todoProviders) && merged.todoProviders.length > 0
       ? merged.todoProviders
       : DEFAULT_APP_CONFIG.todoProviders,

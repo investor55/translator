@@ -15,6 +15,7 @@ import type {
   TranscriptionProvider,
 } from "../../../core/types";
 import {
+  ANALYSIS_MODEL_PRESETS,
   DEFAULT_TRANSCRIPTION_MODEL_ID,
   DEFAULT_WHISPER_MODEL_ID,
   DEFAULT_VERTEX_MODEL_ID,
@@ -135,7 +136,7 @@ function getDefaultModelId(provider: TranscriptionProvider): string {
     case "elevenlabs":
       return DEFAULT_TRANSCRIPTION_MODEL_ID;
     case "google":
-      return "gemini-2.0-flash";
+      return DEFAULT_VERTEX_MODEL_ID;
     case "vertex":
       return DEFAULT_VERTEX_MODEL_ID;
   }
@@ -149,22 +150,6 @@ const ANALYSIS_PROVIDERS: Array<{ value: AnalysisProvider; label: string }> = [
   { value: "openrouter", label: "OpenRouter" },
   { value: "google", label: "Google" },
   { value: "vertex", label: "Vertex AI" },
-];
-
-type AnalysisModelPreset = {
-  label: string;
-  modelId: string;
-  providerOnly?: string;
-};
-const ANALYSIS_MODEL_PRESETS: AnalysisModelPreset[] = [
-  {
-    label: "Kimi K2 0905",
-    modelId: "moonshotai/kimi-k2-0905:exacto",
-  },
-  {
-    label: "Kimi K2.5",
-    modelId: "moonshotai/kimi-k2.5",
-  },
 ];
 
 type TodoModelPreset = { label: string; modelId: string; providers: string[] };
@@ -690,6 +675,8 @@ export function SettingsPage({
                       onConfigChange({
                         ...config,
                         analysisModelId: modelId,
+                        analysisReasoning:
+                          preset?.reasoning ?? config.analysisReasoning,
                         analysisProviderOnly: preset?.providerOnly,
                       });
                     }}
@@ -748,20 +735,6 @@ export function SettingsPage({
                 </Select>
               </div>
             </div>
-            {config.analysisProvider === "openrouter" && (
-              <div className="mt-3">
-                <SettingRow
-                  label="Analysis Reasoning"
-                  description="Enable extended reasoning tokens for the analysis model (max 4096)."
-                  control={
-                    <Switch
-                      checked={config.analysisReasoning}
-                      onCheckedChange={(v) => set("analysisReasoning", v)}
-                    />
-                  }
-                />
-              </div>
-            )}
           </section>
 
           {/* ── Row 4: Advanced (full width) ── */}
