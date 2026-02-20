@@ -100,6 +100,7 @@ const LIGHT_VARIANT_OPTIONS: Array<{
   label: string;
   swatch: string;
 }> = [
+  { value: "aqua", label: "Aqua", swatch: "oklch(0.77 0.098 242)" },
   { value: "warm", label: "Warm", swatch: "oklch(0.985 0.002 90)" },
   { value: "linen", label: "Linen", swatch: "#EEEEEE" },
   { value: "ivory", label: "Ivory", swatch: "oklch(0.968 0.004 90)" },
@@ -121,7 +122,7 @@ const SEGMENTED_GROUP_CLASS =
   "inline-flex flex-wrap items-center justify-end gap-1 rounded-sm border border-border/70 bg-muted/35 p-1 max-w-[28rem]";
 
 function segmentedButtonClass(selected: boolean): string {
-  return `h-7 px-2.5 text-xs inline-flex items-center gap-1.5 rounded-[6px] border transition-colors ${
+  return `aqua-segment ${selected ? "aqua-segment-active" : ""} h-7 px-2.5 text-xs inline-flex items-center gap-1.5 rounded-[6px] border transition-colors ${
     selected
       ? "border-border/85 bg-background text-foreground shadow-sm"
       : "border-transparent bg-transparent text-muted-foreground hover:bg-background/70 hover:text-foreground"
@@ -296,7 +297,7 @@ export function SettingsPage({
   };
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto bg-background">
+    <div className="aqua-settings flex-1 min-h-0 overflow-y-auto bg-background">
       <div className="mx-auto w-full max-w-6xl px-6 py-6">
         <div className="flex items-start justify-between gap-4 mb-6">
           <div>
@@ -408,7 +409,7 @@ export function SettingsPage({
                     <button
                       key={option.value}
                       type="button"
-                      className={`h-8 px-2.5 text-xs inline-flex items-center gap-1.5 transition-colors ${
+                      className={`aqua-segment ${config.fontSize === option.value ? "aqua-segment-active" : ""} h-8 px-2.5 text-xs inline-flex items-center gap-1.5 transition-colors ${
                         config.fontSize === option.value
                           ? "bg-primary text-primary-foreground"
                           : "bg-background text-muted-foreground hover:text-foreground"
@@ -430,7 +431,7 @@ export function SettingsPage({
                     <button
                       key={option.value}
                       type="button"
-                      className={`h-8 px-2.5 text-xs inline-flex items-center gap-1.5 transition-colors ${
+                      className={`aqua-segment ${config.fontFamily === option.value ? "aqua-segment-active" : ""} h-8 px-2.5 text-xs inline-flex items-center gap-1.5 transition-colors ${
                         config.fontFamily === option.value
                           ? "bg-primary text-primary-foreground"
                           : "bg-background text-muted-foreground hover:text-foreground"

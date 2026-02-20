@@ -12,6 +12,7 @@ const LIGHT_BACKGROUND_BY_VARIANT: Record<LightVariant, string> = {
   linen: "oklch(0.939 0 0)",
   ivory: "oklch(0.968 0.004 90)",
   petal: "oklch(0.962 0.006 250)",
+  aqua: "oklch(0.949 0.018 247)",
 };
 
 const DARK_BACKGROUND_BY_VARIANT: Record<DarkVariant, string> = {
@@ -25,6 +26,7 @@ const LIGHT_VARIANT_CLASSES = [
   { variant: "linen", className: "light-linen" },
   { variant: "ivory", className: "light-ivory" },
   { variant: "petal", className: "light-petal" },
+  { variant: "aqua", className: "light-aqua" },
 ] as const;
 
 const DARK_VARIANT_CLASSES = [

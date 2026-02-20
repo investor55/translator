@@ -246,9 +246,9 @@ function RailModeButton({
       type="button"
       onClick={onClick}
       className={[
-        "h-7 rounded-sm text-xs transition-colors",
+        "aqua-segment h-7 rounded-sm text-xs transition-colors",
         active
-          ? "bg-background text-foreground shadow-sm"
+          ? "aqua-segment-active bg-background text-foreground shadow-sm"
           : "text-muted-foreground hover:text-foreground hover:bg-background/70",
       ].join(" ")}
     >
@@ -349,7 +349,7 @@ export function RightSidebar({
   const runningAgentsCount = (agents ?? []).filter((agent) => agent.status === "running").length;
 
   return (
-    <div className="w-full h-full shrink-0 border-l border-border flex flex-col min-h-0 bg-sidebar">
+    <div className="aqua-sidebar aqua-sidebar-right w-full h-full shrink-0 border-l border-border flex flex-col min-h-0 bg-sidebar">
       <div className="px-2 py-2 shrink-0 border-b border-border/70">
         <div className="grid grid-cols-2 gap-1 rounded-md bg-muted/50 p-1">
           <RailModeButton

@@ -339,7 +339,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
     }, [clearSelectionMenuTimer]);
 
     return (
-      <div className="flex-1 flex flex-col min-h-0">
+      <div className="aqua-transcript flex-1 flex flex-col min-h-0">
         <SectionLabel className="px-4 pt-2.5 pb-1.5 shrink-0">Live Transcript</SectionLabel>
         <div
           ref={setContainerRef}

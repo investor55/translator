@@ -17,7 +17,7 @@ export function SectionLabel<T extends ElementType = "h2">({
   return (
     <Tag
       className={cn(
-        "text-2xs font-medium text-muted-foreground uppercase tracking-wider",
+        "section-label text-2xs font-medium text-muted-foreground uppercase tracking-wider",
         className
       )}
       {...props}

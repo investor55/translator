@@ -16,7 +16,7 @@ function Kbd({ children }: { children: React.ReactNode }) {
 
 export function Footer({ sessionActive, statusText, onQuit }: FooterProps) {
   return (
-    <div className="border-t border-border px-4 py-1.5 flex items-center gap-2 text-xs text-muted-foreground h-8 shrink-0">
+    <div className="aqua-footer border-t border-border px-4 py-1.5 flex items-center gap-2 text-xs text-muted-foreground h-8 shrink-0">
       {sessionActive ? (
         <>
           <Kbd>Space</Kbd>

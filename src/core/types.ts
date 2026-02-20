@@ -41,7 +41,7 @@ export type Direction = "auto" | "source-target";
 export type Device = { index: number; name: string };
 export type AudioSource = "system" | "microphone";
 export type ThemeMode = "system" | "light" | "dark";
-export type LightVariant = "warm" | "linen" | "ivory" | "petal";
+export type LightVariant = "warm" | "linen" | "ivory" | "petal" | "aqua";
 export type DarkVariant = "charcoal" | "steel" | "pitch-black" | "abyss";
 
 export type TranscriptionProvider =
@@ -327,6 +327,7 @@ function normalizeLightVariant(
     case "linen":
     case "ivory":
     case "petal":
+    case "aqua":
       return value;
     case "paper":
       return "ivory";

@@ -92,9 +92,9 @@ function RailModeButton({
       type="button"
       onClick={onClick}
       className={[
-        "h-7 rounded-sm text-xs transition-colors",
+        "aqua-segment h-7 rounded-sm text-xs transition-colors",
         active
-          ? "bg-background text-foreground shadow-sm"
+          ? "aqua-segment-active bg-background text-foreground shadow-sm"
           : "text-muted-foreground hover:text-foreground hover:bg-background/70",
       ].join(" ")}
     >
@@ -186,7 +186,7 @@ export function LeftSidebar({
   }
 
   return (
-    <div className="w-full h-full shrink-0 border-r border-border flex flex-col min-h-0 bg-sidebar">
+    <div className="aqua-sidebar aqua-sidebar-left w-full h-full shrink-0 border-r border-border flex flex-col min-h-0 bg-sidebar">
       {/* Project selector */}
       <div className="px-3 pt-2.5 pb-2 shrink-0">
         <div className="flex items-center gap-1">

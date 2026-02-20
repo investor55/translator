@@ -1381,7 +1381,7 @@ export function App() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-background">
+    <div className="aqua-window-shell flex flex-col h-screen bg-background">
       <ToolbarHeader
         languages={languages}
         sourceLang={sourceLang}
@@ -1401,7 +1401,7 @@ export function App() {
         onToggleSettings={() => setSettingsOpen((prev) => !prev)}
       />
 
-      <div ref={panelLayoutRef} className="flex flex-1 min-h-0">
+      <div ref={panelLayoutRef} className="aqua-main-panel flex flex-1 min-h-0">
         {settingsOpen ? (
           <SettingsPage
             config={appConfig}
@@ -1449,7 +1449,7 @@ export function App() {
               role="separator"
               aria-label="Resize left panel"
               aria-orientation="vertical"
-              className="group relative w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-border/50"
+              className="aqua-resizer group relative w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-border/50"
               onMouseDown={handleResizeMouseDown("left")}
             >
               <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />
@@ -1474,7 +1474,7 @@ export function App() {
               role="separator"
               aria-label="Resize right panel"
               aria-orientation="vertical"
-              className="group relative w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-border/50"
+              className="aqua-resizer group relative w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-border/50"
               onMouseDown={handleResizeMouseDown("right")}
             >
               <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />
@@ -1507,7 +1507,7 @@ export function App() {
                   role="separator"
                   aria-label="Resize agent panel"
                   aria-orientation="vertical"
-                  className="group relative w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-border/50"
+                  className="aqua-resizer group relative w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-border/50"
                   onMouseDown={handleResizeMouseDown("agent")}
                 >
                   <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />

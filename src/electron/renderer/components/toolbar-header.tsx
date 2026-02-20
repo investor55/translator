@@ -83,7 +83,10 @@ export function ToolbarHeader({
   if (settingsOpen) {
     return (
       <div className="shrink-0">
-        <div className="titlebar-drag border-b border-border pl-20 pr-4 flex items-center h-11">
+        <div
+          className="aqua-toolbar aqua-toolbar-settings titlebar-drag border-b border-border pl-20 pr-4 flex items-center h-11 relative"
+          data-window-title="Settings"
+        >
           <Button variant="ghost" size="sm" onClick={onToggleSettings} className="titlebar-no-drag gap-1.5">
             <ArrowLeftIcon className="size-3.5" />
             Back
@@ -95,16 +98,19 @@ export function ToolbarHeader({
 
   return (
     <div className="shrink-0">
-      <div className="titlebar-drag border-b border-border pl-20 pr-4 flex items-center gap-3 h-11 text-sm">
+      <div
+        className="aqua-toolbar aqua-toolbar-main titlebar-drag border-b border-border pl-20 pr-4 flex items-center gap-3 h-11 text-sm relative"
+        data-window-title="Ambient"
+      >
         {/* Logo */}
-        <span className="font-serif text-base font-medium text-foreground titlebar-no-drag">
+        <span className="aqua-brand font-sans text-sm font-semibold text-foreground titlebar-no-drag tracking-tight">
           Ambient
         </span>
 
-        <Separator orientation="vertical" className="h-4" />
+        <Separator orientation="vertical" className="aqua-toolbar-sep h-4" />
 
         {/* Language selector */}
-        <div className="flex items-center gap-1.5 titlebar-no-drag">
+        <div className="aqua-toolbar-cluster flex items-center gap-1.5 titlebar-no-drag">
           <span className="text-xs text-muted-foreground">
             {translationEnabled ? "Source" : "Language"}
           </span>
@@ -171,10 +177,10 @@ export function ToolbarHeader({
           )}
         </div>
 
-        <Separator orientation="vertical" className="h-4" />
+        <Separator orientation="vertical" className="aqua-toolbar-sep h-4" />
 
         {/* Action buttons */}
-        <div className="flex items-center gap-1.5 titlebar-no-drag">
+        <div className="aqua-toolbar-cluster flex items-center gap-1.5 titlebar-no-drag">
           {!sessionActive ? (
             <Button size="sm" onClick={onStart} disabled={loading}>
               <PlusIcon className="size-3.5" data-icon="inline-start" />
@@ -197,8 +203,8 @@ export function ToolbarHeader({
         {/* Mode toggles */}
         {sessionActive && (
           <>
-            <Separator orientation="vertical" className="h-4" />
-            <div className="flex items-center gap-1.5 titlebar-no-drag">
+            <Separator orientation="vertical" className="aqua-toolbar-sep h-4" />
+            <div className="aqua-toolbar-cluster flex items-center gap-1.5 titlebar-no-drag">
               {canTranslate && (
                 <Button
                   variant={translationEnabled ? "secondary" : "ghost"}
@@ -250,13 +256,13 @@ export function ToolbarHeader({
         )}
 
         {/* Status info (right-aligned) */}
-        <div className="ml-auto flex items-center gap-2 titlebar-no-drag">
+        <div className="aqua-toolbar-cluster ml-auto flex items-center gap-2 titlebar-no-drag">
           {uiState && (
             <>
               <StatusBadge status={uiState.status} />
               {uiState.cost != null && uiState.cost > 0 && (
                 <>
-                  <Separator orientation="vertical" className="h-4" />
+                  <Separator orientation="vertical" className="aqua-toolbar-sep h-4" />
                   <span className="font-mono text-muted-foreground text-xs">
                     ${uiState.cost.toFixed(4)}
                   </span>
@@ -264,7 +270,7 @@ export function ToolbarHeader({
               )}
             </>
           )}
-          <Separator orientation="vertical" className="h-4" />
+          <Separator orientation="vertical" className="aqua-toolbar-sep h-4" />
           <Button
             variant={settingsOpen ? "secondary" : "ghost"}
             size="icon-sm"
