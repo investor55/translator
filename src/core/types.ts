@@ -280,22 +280,22 @@ export const DEFAULT_TRANSCRIPTION_MODEL_ID =
 export const DEFAULT_WHISPER_MODEL_ID = "Xenova/whisper-small";
 export const ANALYSIS_MODEL_PRESETS: AnalysisModelPreset[] = [
   {
-    label: "Kimi K2 0905",
+    label: "Kimi K2 0905 Exacto",
     modelId: "moonshotai/kimi-k2-0905:exacto",
     reasoning: false,
   },
   {
-    label: "Kimi K2.5",
+    label: "Kimi K2.5 Thinking",
     modelId: "moonshotai/kimi-k2.5",
     reasoning: true,
   },
   {
-    label: "GLM 4.7",
+    label: "GLM 4.7 Thinking",
     modelId: "z-ai/glm-4.7",
     reasoning: true,
   },
   {
-    label: "GLM 5",
+    label: "GLM 5 Thinking",
     modelId: "z-ai/glm-5",
     reasoning: true,
   },

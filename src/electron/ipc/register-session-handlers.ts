@@ -12,9 +12,10 @@ import type { AgentExternalToolSet } from "../../core/agents/external-tools";
 
 type SessionHandlerDeps = IpcDeps & {
   getExternalTools?: () => Promise<AgentExternalToolSet>;
+  dataDir?: string;
 };
 
-export function registerSessionHandlers({ db, getWindow, sessionRef, getExternalTools }: SessionHandlerDeps) {
+export function registerSessionHandlers({ db, getWindow, sessionRef, getExternalTools, dataDir }: SessionHandlerDeps) {
   ipcMain.handle("get-languages", () => {
     return SUPPORTED_LANGUAGES;
   });
@@ -48,7 +49,7 @@ export function registerSessionHandlers({ db, getWindow, sessionRef, getExternal
         db.createSession(sessionId, sourceLang, targetLang, undefined, projectId);
       }
 
-      const activeSession = new Session(config, db, sessionId, { getExternalTools });
+      const activeSession = new Session(config, db, sessionId, { getExternalTools, dataDir });
       sessionRef.current = activeSession;
       wireSessionEvents(sessionRef, activeSession, getWindow, db);
 
@@ -86,7 +87,7 @@ export function registerSessionHandlers({ db, getWindow, sessionRef, getExternal
         return { ok: false, error: toReadableError(error) };
       }
 
-      const activeSession = new Session(config, db, sessionId, { getExternalTools });
+      const activeSession = new Session(config, db, sessionId, { getExternalTools, dataDir });
       sessionRef.current = activeSession;
       wireSessionEvents(sessionRef, activeSession, getWindow, db);
 

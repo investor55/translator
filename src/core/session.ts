@@ -68,6 +68,7 @@ import {
   getContextWindow,
   createBlock,
   loadAgentsMd,
+  loadProjectAgentsMd,
   loadUserContext,
   writeSummaryLog,
   type ContextState,
@@ -188,6 +189,7 @@ function dedupeInsightHistory(texts: readonly string[]): string[] {
 
 export type SessionExternalDeps = {
   getExternalTools?: () => Promise<AgentExternalToolSet>;
+  dataDir?: string;
 };
 
 export class Session {
@@ -272,6 +274,7 @@ export class Session {
   private db: AppDatabase | null;
   private agentManager: AgentManager | null = null;
   private getExternalTools?: () => Promise<AgentExternalToolSet>;
+  private dataDir?: string;
 
   private sourceLangLabel: string;
   private targetLangLabel: string;
@@ -283,6 +286,7 @@ export class Session {
     this.db = db ?? null;
     this.sessionId = sessionId ?? crypto.randomUUID();
     this.getExternalTools = externalDeps?.getExternalTools;
+    this.dataDir = externalDeps?.dataDir;
     this._translationEnabled = config.translationEnabled && config.transcriptionProvider === "vertex";
     this.userContext = loadUserContext(config.contextFile, config.useContext);
 
@@ -309,7 +313,13 @@ export class Session {
           return this.db?.getProject(projectId)?.instructions ?? undefined;
         },
         getProjectId: () => this.getCurrentProjectId(),
+        dataDir: this.dataDir,
         getAgentsMd: () => loadAgentsMd(),
+        getProjectAgentsMd: () => {
+          const projectId = this.getCurrentProjectId();
+          if (!projectId || !this.dataDir) return null;
+          return loadProjectAgentsMd(this.dataDir, projectId) || null;
+        },
         searchTranscriptHistory: this.db ? (q: string, l?: number) => this.db!.searchBlocks(q, l) : undefined,
         searchAgentHistory: this.db ? (q: string, l?: number) => this.db!.searchAgents(q, l) : undefined,
         getExternalTools: this.getExternalTools,

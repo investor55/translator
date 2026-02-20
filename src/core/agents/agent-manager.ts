@@ -30,7 +30,9 @@ type AgentManagerDeps = {
   getTranscriptContext: () => string;
   getProjectInstructions?: () => string | undefined;
   getProjectId?: () => string | undefined;
+  dataDir?: string;
   getAgentsMd: () => string;
+  getProjectAgentsMd?: () => string | null;
   searchTranscriptHistory?: (query: string, limit?: number) => unknown[];
   searchAgentHistory?: (query: string, limit?: number) => unknown[];
   getExternalTools?: () => Promise<AgentExternalToolSet>;
@@ -327,7 +329,8 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
             log("WARN", `Agent FTS indexing failed for ${agent.id}: ${message}`);
           }
           if (agent.sessionId) {
-            void extractSessionLearnings(deps.model, deps.db, agent.sessionId)
+            const projectId = deps.getProjectId?.();
+            void extractSessionLearnings(deps.model, deps.db, agent.sessionId, projectId, deps.dataDir)
               .catch((err) => log("WARN", `Learning extraction error: ${err}`));
           }
         }
@@ -395,7 +398,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     const callbacks = makeAgentCallbacks(agent);
 
     void (async () => {
-      const agentsMd = deps.getAgentsMd();
+      const agentsMd = deps.getProjectAgentsMd?.() ?? deps.getAgentsMd();
 
       await runAgent(agent, {
         model: deps.model,
@@ -456,7 +459,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     const callbacks = makeAgentCallbacks(agent);
 
     void (async () => {
-      const agentsMd = deps.getAgentsMd();
+      const agentsMd = deps.getProjectAgentsMd?.() ?? deps.getAgentsMd();
 
       await continueAgent(agent, history, question, {
         model: deps.model,
@@ -613,7 +616,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     abortControllers.set(agentId, controller);
 
     void (async () => {
-      const agentsMd = deps.getAgentsMd();
+      const agentsMd = deps.getProjectAgentsMd?.() ?? deps.getAgentsMd();
 
       await runAgent(agent, {
         model: deps.model,

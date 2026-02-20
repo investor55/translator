@@ -441,6 +441,7 @@ export function createDatabase(dbPath: string) {
       });
     },
 
+
     saveFinalSummary(sessionId: string, summary: FinalSummary) {
       orm.update(sessions)
         .set({

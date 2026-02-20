@@ -84,6 +84,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
 
       const activeSession = new Session(desiredConfig, db, sessionId, {
         getExternalTools: manager.getExternalTools,
+        dataDir: app.getPath("userData"),
       });
       sessionRef.current = activeSession;
       wireSessionEvents(sessionRef, activeSession, getWindow, db);
@@ -116,6 +117,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
 
     const activeSession = new Session(config, db, sessionId, {
       getExternalTools: manager.getExternalTools,
+      dataDir: app.getPath("userData"),
     });
     sessionRef.current = activeSession;
     wireSessionEvents(sessionRef, activeSession, getWindow, db);
@@ -135,6 +137,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     getWindow,
     sessionRef,
     getExternalTools: manager.getExternalTools,
+    dataDir: app.getPath("userData"),
   });
   registerTodoInsightHandlers({ db, getWindow, sessionRef, ensureSession });
   registerAgentHandlers({ db, getWindow, sessionRef, ensureSession });
