@@ -16,6 +16,7 @@ import type {
   AgentToolApprovalResponse,
 } from "../types";
 import type { AgentExternalToolSet } from "./external-tools";
+import { extractSessionLearnings } from "./learn";
 
 type TypedEmitter = EventEmitter & {
   emit<K extends keyof SessionEvents>(event: K, ...args: SessionEvents[K]): boolean;
@@ -29,20 +30,9 @@ type AgentManagerDeps = {
   getTranscriptContext: () => string;
   getProjectInstructions?: () => string | undefined;
   getProjectId?: () => string | undefined;
-  getSharedMemoryContext?: (input: {
-    query: string;
-    projectId?: string;
-    sessionId?: string;
-    agentId?: string;
-  }) => Promise<string | undefined>;
-  rememberSharedMemory?: (input: {
-    task: string;
-    result: string;
-    taskContext?: string;
-    projectId?: string;
-    sessionId?: string;
-    agentId?: string;
-  }) => Promise<void>;
+  getAgentsMd: () => string;
+  searchTranscriptHistory?: (query: string, limit?: number) => unknown[];
+  searchAgentHistory?: (query: string, limit?: number) => unknown[];
   getExternalTools?: () => Promise<AgentExternalToolSet>;
   allowAutoApprove: boolean;
   db?: AppDatabase;
@@ -104,10 +94,6 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     resolve: (response: AgentToolApprovalResponse) => void;
     reject: (error: Error) => void;
   }>();
-
-  function isAnalysisAgent(agent: Agent): boolean {
-    return agent.kind === "analysis";
-  }
 
   function buildHistoryFromSteps(agent: Agent): ModelMessage[] {
     const history: ModelMessage[] = [];
@@ -333,20 +319,17 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         deps.db?.updateAgent(agent.id, { status: "completed", result, steps: agent.steps, completedAt: agent.completedAt });
         deps.events.emit("agent-completed", agent.id, result);
         log("INFO", `Agent completed: ${agent.id}`);
-        if (deps.rememberSharedMemory && isAnalysisAgent(agent)) {
-          void deps
-            .rememberSharedMemory({
-              task: agent.task,
-              result,
-              taskContext: agent.taskContext,
-              sessionId: agent.sessionId,
-              projectId: deps.getProjectId?.(),
-              agentId: agent.id,
-            })
-            .catch((error) => {
-              const message = error instanceof Error ? error.message : String(error);
-              log("WARN", `Shared memory write failed for ${agent.id}: ${message}`);
-            });
+        if (deps.db) {
+          try {
+            deps.db.indexAgentFts(agent.id, agent.task, result, agent.taskContext ?? null);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            log("WARN", `Agent FTS indexing failed for ${agent.id}: ${message}`);
+          }
+          if (agent.sessionId) {
+            void extractSessionLearnings(deps.model, deps.db, agent.sessionId)
+              .catch((err) => log("WARN", `Learning extraction error: ${err}`));
+          }
         }
       },
       onFail: (error: string) => {
@@ -412,27 +395,16 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     const callbacks = makeAgentCallbacks(agent);
 
     void (async () => {
-      let sharedMemoryContext: string | undefined;
-      if (deps.getSharedMemoryContext && isAnalysisAgent(agent)) {
-        try {
-          sharedMemoryContext = await deps.getSharedMemoryContext({
-            query: task,
-            projectId: deps.getProjectId?.(),
-            sessionId,
-            agentId: agent.id,
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          log("WARN", `Shared memory lookup failed for ${agent.id}: ${message}`);
-        }
-      }
+      const agentsMd = deps.getAgentsMd();
 
       await runAgent(agent, {
         model: deps.model,
         exa,
         getTranscriptContext: deps.getTranscriptContext,
         projectInstructions: deps.getProjectInstructions?.(),
-        sharedMemoryContext,
+        agentsMd: agentsMd || undefined,
+        searchTranscriptHistory: deps.searchTranscriptHistory,
+        searchAgentHistory: deps.searchAgentHistory,
         getExternalTools: deps.getExternalTools,
         allowAutoApprove: deps.allowAutoApprove,
         requestClarification: (request, options) =>
@@ -484,27 +456,16 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     const callbacks = makeAgentCallbacks(agent);
 
     void (async () => {
-      let sharedMemoryContext: string | undefined;
-      if (deps.getSharedMemoryContext && isAnalysisAgent(agent)) {
-        try {
-          sharedMemoryContext = await deps.getSharedMemoryContext({
-            query: question,
-            projectId: deps.getProjectId?.(),
-            sessionId: agent.sessionId,
-            agentId: agent.id,
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          log("WARN", `Shared memory lookup failed for ${agent.id}: ${message}`);
-        }
-      }
+      const agentsMd = deps.getAgentsMd();
 
       await continueAgent(agent, history, question, {
         model: deps.model,
         exa,
         getTranscriptContext: deps.getTranscriptContext,
         projectInstructions: deps.getProjectInstructions?.(),
-        sharedMemoryContext,
+        agentsMd: agentsMd || undefined,
+        searchTranscriptHistory: deps.searchTranscriptHistory,
+        searchAgentHistory: deps.searchAgentHistory,
         getExternalTools: deps.getExternalTools,
         allowAutoApprove: deps.allowAutoApprove,
         requestClarification: (request, options) =>
@@ -652,27 +613,16 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     abortControllers.set(agentId, controller);
 
     void (async () => {
-      let sharedMemoryContext: string | undefined;
-      if (deps.getSharedMemoryContext && isAnalysisAgent(agent)) {
-        try {
-          sharedMemoryContext = await deps.getSharedMemoryContext({
-            query: agent.task,
-            projectId: deps.getProjectId?.(),
-            sessionId: agent.sessionId,
-            agentId: agent.id,
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          log("WARN", `Shared memory lookup failed for ${agent.id}: ${message}`);
-        }
-      }
+      const agentsMd = deps.getAgentsMd();
 
       await runAgent(agent, {
         model: deps.model,
         exa,
         getTranscriptContext: deps.getTranscriptContext,
         projectInstructions: deps.getProjectInstructions?.(),
-        sharedMemoryContext,
+        agentsMd: agentsMd || undefined,
+        searchTranscriptHistory: deps.searchTranscriptHistory,
+        searchAgentHistory: deps.searchAgentHistory,
         getExternalTools: deps.getExternalTools,
         allowAutoApprove: deps.allowAutoApprove,
         requestClarification: (request, options) => requestClarification(agentId, request, options),

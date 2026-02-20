@@ -36,7 +36,9 @@ type AgentDeps = {
   exa: ExaClient;
   getTranscriptContext: () => string;
   projectInstructions?: string;
-  sharedMemoryContext?: string;
+  agentsMd?: string;
+  searchTranscriptHistory?: (query: string, limit?: number) => unknown[];
+  searchAgentHistory?: (query: string, limit?: number) => unknown[];
   getExternalTools?: () => Promise<AgentExternalToolSet>;
   allowAutoApprove: boolean;
   requestClarification: (
@@ -89,7 +91,7 @@ function formatCurrentDateForPrompt(now: Date): string {
 const buildSystemPrompt = (
   transcriptContext: string,
   projectInstructions?: string,
-  sharedMemoryContext?: string,
+  agentsMd?: string,
 ) => {
   const base = renderPromptTemplate(getAgentSystemPromptTemplate(), {
     today: formatCurrentDateForPrompt(new Date()),
@@ -100,8 +102,8 @@ const buildSystemPrompt = (
   if (projectInstructions?.trim()) {
     sections.push(`## Project Instructions\n\n${projectInstructions.trim()}`);
   }
-  if (sharedMemoryContext?.trim()) {
-    sections.push(`## Shared Memory\n\n${sharedMemoryContext.trim()}`);
+  if (agentsMd?.trim()) {
+    sections.push(`## Agent Memory\n\n${agentsMd.trim()}`);
   }
   sections.push(base);
 
@@ -362,6 +364,8 @@ async function buildTools(
   onStep: AgentDeps["onStep"],
   allowAutoApprove: boolean,
   getExternalTools?: AgentDeps["getExternalTools"],
+  searchTranscriptHistory?: AgentDeps["searchTranscriptHistory"],
+  searchAgentHistory?: AgentDeps["searchAgentHistory"],
 ) {
   const baseTools: Record<string, unknown> = {
     searchWeb: tool({
@@ -415,6 +419,30 @@ async function buildTools(
       },
     }),
   };
+
+  if (searchTranscriptHistory) {
+    baseTools["searchTranscriptHistory"] = tool({
+      description:
+        "Search past transcript blocks by keyword. Use to find specific topics, phrases, or discussions from previous sessions.",
+      inputSchema: z.object({
+        query: z.string().describe("FTS5 keyword query (e.g. 'budget meeting' or 'API integration')"),
+        limit: z.number().optional().describe("Max results to return (default 20)"),
+      }),
+      execute: async ({ query, limit }) => searchTranscriptHistory(query, limit),
+    });
+  }
+
+  if (searchAgentHistory) {
+    baseTools["searchAgentHistory"] = tool({
+      description:
+        "Search past agent tasks and results by keyword. Use to find what previous agents discovered or decided.",
+      inputSchema: z.object({
+        query: z.string().describe("FTS5 keyword query (e.g. 'pricing strategy' or 'competitor analysis')"),
+        limit: z.number().optional().describe("Max results to return (default 20)"),
+      }),
+      execute: async ({ query, limit }) => searchAgentHistory(query, limit),
+    });
+  }
 
   if (!getExternalTools) {
     return baseTools;
@@ -664,6 +692,16 @@ function summarizeToolCall(
     return { content: "Needs clarification", toolInput: safeJson(input) };
   }
 
+  if (toolName === "searchTranscriptHistory") {
+    const query = getSearchQuery(input);
+    return { content: query ? `Searching transcripts: ${query}` : "Searching transcript history" };
+  }
+
+  if (toolName === "searchAgentHistory") {
+    const query = getSearchQuery(input);
+    return { content: query ? `Searching agents: ${query}` : "Searching agent history" };
+  }
+
   if (toolName === "searchMcpTools") {
     const query = getSearchQuery(input);
     return { content: query ? `Searching MCP tools: ${query}` : "Searching MCP tools" };
@@ -709,6 +747,16 @@ function summarizeToolResult(
           : "Clarification received",
       toolInput: safeJson(output),
     };
+  }
+
+  if (toolName === "searchTranscriptHistory") {
+    const results = Array.isArray(output) ? output : [];
+    return { content: `Found ${results.length} transcript${results.length === 1 ? "" : "s"}` };
+  }
+
+  if (toolName === "searchAgentHistory") {
+    const results = Array.isArray(output) ? output : [];
+    return { content: `Found ${results.length} agent result${results.length === 1 ? "" : "s"}` };
   }
 
   if (toolName === "searchMcpTools") {
@@ -779,7 +827,9 @@ async function runAgentWithMessages(
     exa,
     getTranscriptContext,
     projectInstructions,
-    sharedMemoryContext,
+    agentsMd,
+    searchTranscriptHistory,
+    searchAgentHistory,
     getExternalTools,
     allowAutoApprove,
     requestClarification,
@@ -796,7 +846,7 @@ async function runAgentWithMessages(
     const systemPrompt = buildSystemPrompt(
       getTranscriptContext(),
       projectInstructions,
-      sharedMemoryContext,
+      agentsMd,
     );
     const tools = await buildTools(
       exa,
@@ -806,6 +856,8 @@ async function runAgentWithMessages(
       onStep,
       allowAutoApprove,
       getExternalTools,
+      searchTranscriptHistory,
+      searchAgentHistory,
     );
     const latestUserText = getLatestUserMessageText(inputMessages);
     const enforceMcpLoop =

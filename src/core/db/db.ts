@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { and, eq, desc, count, inArray } from "drizzle-orm";
 import { sessions, blocks, todos, insights, agents, projects } from "./schema";
+import { log } from "../logger";
 import type {
   TodoItem,
   TodoSize,
@@ -536,6 +537,52 @@ export function createDatabase(dbPath: string) {
       return result.changes;
     },
 
+    // --- Agent FTS5 ---
+
+    indexAgentFts(agentId: string, task: string, result: string, taskContext: string | null) {
+      const existing = sqlite
+        .prepare("SELECT fts_rowid FROM agents_fts_map WHERE agent_id = ?")
+        .get(agentId) as { fts_rowid: number } | undefined;
+
+      if (existing) {
+        sqlite.prepare(
+          "UPDATE agents_fts SET task = ?, result = ?, task_context = ? WHERE rowid = ?",
+        ).run(task, result, taskContext ?? "", existing.fts_rowid);
+      } else {
+        sqlite.prepare(
+          "INSERT INTO agents_fts(task, result, task_context) VALUES (?, ?, ?)",
+        ).run(task, result, taskContext ?? "");
+        const rowid = (sqlite.prepare("SELECT last_insert_rowid() as r").get() as { r: number }).r;
+        sqlite.prepare(
+          "INSERT INTO agents_fts_map(agent_id, fts_rowid) VALUES (?, ?)",
+        ).run(agentId, rowid);
+      }
+    },
+
+    searchAgents(query: string, limit = 20): Agent[] {
+      const rows = sqlite
+        .prepare(
+          `SELECT m.agent_id
+           FROM agents_fts f
+           JOIN agents_fts_map m ON m.fts_rowid = f.rowid
+           WHERE agents_fts MATCH ?
+           LIMIT ?`,
+        )
+        .all(query, limit) as Array<{ agent_id: string }>;
+
+      if (rows.length === 0) return [];
+
+      const ids = rows.map((r) => r.agent_id);
+      const placeholders = ids.map(() => "?").join(",");
+      const agentRows = sqlite
+        .prepare(
+          `SELECT * FROM agents WHERE id IN (${placeholders})`,
+        )
+        .all(...ids) as Array<Record<string, unknown>>;
+
+      return agentRows.map(mapRawAgentRow);
+    },
+
     close() {
       sqlite.close();
     },
@@ -585,6 +632,24 @@ function mapTodoRow(r: typeof todos.$inferSelect): TodoItem {
     createdAt: r.createdAt,
     completedAt: r.completedAt ?? undefined,
     sessionId: r.sessionId ?? undefined,
+  };
+}
+
+function mapRawAgentRow(r: Record<string, unknown>): Agent {
+  const kind = r.kind as string | null;
+  const todoId = r.todo_id as string | null;
+  return {
+    id: r.id as string,
+    kind: coerceAgentKind(kind, todoId),
+    todoId: (todoId || undefined),
+    task: r.task as string,
+    taskContext: (r.task_context as string | null) ?? undefined,
+    status: r.status as Agent["status"],
+    result: (r.result as string | null) ?? undefined,
+    steps: ((r.steps ?? []) as AgentStep[]),
+    createdAt: r.created_at as number,
+    completedAt: (r.completed_at as number | null) ?? undefined,
+    sessionId: (r.session_id as string | null) ?? undefined,
   };
 }
 
@@ -673,6 +738,11 @@ function runMigrations(db: Database.Database) {
       INSERT INTO blocks_fts(rowid, source_text, translation)
       VALUES (new.id, new.source_text, COALESCE(new.translation, ''));
     END;
+
+    CREATE TRIGGER IF NOT EXISTS blocks_ad AFTER DELETE ON blocks BEGIN
+      INSERT INTO blocks_fts(blocks_fts, rowid, source_text, translation)
+      VALUES ('delete', old.id, old.source_text, COALESCE(old.translation, ''));
+    END;
   `);
 
   // Backward-compat migrations for existing DBs
@@ -744,4 +814,15 @@ function runMigrations(db: Database.Database) {
   if (!sessionColNames2.has("agents_summary_generated_at")) {
     db.exec("ALTER TABLE sessions ADD COLUMN agents_summary_generated_at INTEGER");
   }
+
+  // Agent FTS5 for local memory system
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS agents_fts USING fts5(task, result, task_context);
+
+    CREATE TABLE IF NOT EXISTS agents_fts_map (
+      agent_id TEXT PRIMARY KEY,
+      fts_rowid INTEGER NOT NULL
+    );
+  `);
+
 }

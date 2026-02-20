@@ -81,6 +81,12 @@ export function createBlock(
   return block;
 }
 
+export function loadAgentsMd(): string {
+  const agentsMdPath = path.resolve(process.cwd(), "agents.md");
+  if (!fs.existsSync(agentsMdPath)) return "";
+  return fs.readFileSync(agentsMdPath, "utf-8");
+}
+
 export function loadUserContext(contextFile: string, useContext: boolean): string {
   if (!useContext) return "";
   const fullPath = path.resolve(contextFile);
