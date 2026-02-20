@@ -26,4 +26,26 @@ export function registerProjectHandlers({ db }: Pick<IpcDeps, "db">) {
     db.deleteProject(id);
     return { ok: true };
   });
+
+  ipcMain.handle("update-session-project", (_event, sessionId: string, projectId: string | null) => {
+    const session = db.getSession(sessionId);
+    if (!session) {
+      return { ok: false, error: "Session not found" };
+    }
+
+    const normalizedProjectId = projectId?.trim() || null;
+    if (normalizedProjectId) {
+      const project = db.getProject(normalizedProjectId);
+      if (!project) {
+        return { ok: false, error: "Project not found" };
+      }
+    }
+
+    const updated = db.updateSessionProject(sessionId, normalizedProjectId);
+    if (!updated) {
+      return { ok: false, error: "Session not found" };
+    }
+
+    return { ok: true, session: updated };
+  });
 }

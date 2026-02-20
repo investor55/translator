@@ -126,6 +126,14 @@ export function createDatabase(dbPath: string) {
       orm.update(sessions).set({ title }).where(eq(sessions.id, sessionId)).run();
     },
 
+    updateSessionProject(sessionId: string, projectId: string | null): SessionMeta | null {
+      orm.update(sessions)
+        .set({ projectId: projectId ?? null })
+        .where(eq(sessions.id, sessionId))
+        .run();
+      return this.getSession(sessionId);
+    },
+
     isSessionEmpty(id: string): boolean {
       const [blockRow] = orm
         .select({ n: count() })

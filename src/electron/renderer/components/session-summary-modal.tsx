@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { CheckIcon, PlusIcon, RefreshCwIcon, XIcon } from "lucide-react";
+import { PlusIcon, RefreshCwIcon, XIcon } from "lucide-react";
 import type { FinalSummary } from "../../../core/types";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
@@ -41,37 +41,37 @@ type TodoCandidate = {
 function sourceMeta(source: TodoSource): {
   sectionTitle: string;
   todoTitle: string;
-  badge: string;
-  markerClass: string;
+  leftBorderClass: string;
+  checkboxClass: string;
 } {
   switch (source) {
     case "agreement":
       return {
         sectionTitle: "Agreements",
         todoTitle: "Agreement Todos",
-        badge: "A",
-        markerClass: "bg-emerald-500/20 border-emerald-500/35",
+        leftBorderClass: "border-emerald-500/70",
+        checkboxClass: "border-emerald-500/60 data-[selected=true]:bg-emerald-500/25",
       };
     case "missed":
       return {
         sectionTitle: "What We Might Have Missed",
         todoTitle: "Missed Item Todos",
-        badge: "M",
-        markerClass: "bg-amber-500/20 border-amber-500/35",
+        leftBorderClass: "border-amber-500/70",
+        checkboxClass: "border-amber-500/60 data-[selected=true]:bg-amber-500/25",
       };
     case "question":
       return {
         sectionTitle: "Unanswered Questions",
         todoTitle: "Unanswered Question Todos",
-        badge: "Q",
-        markerClass: "bg-sky-500/20 border-sky-500/35",
+        leftBorderClass: "border-sky-500/70",
+        checkboxClass: "border-sky-500/60 data-[selected=true]:bg-sky-500/25",
       };
     case "action":
       return {
         sectionTitle: "General Action Items",
         todoTitle: "General Action Item Todos",
-        badge: "G",
-        markerClass: "bg-violet-500/20 border-violet-500/35",
+        leftBorderClass: "border-violet-500/70",
+        checkboxClass: "border-violet-500/60 data-[selected=true]:bg-violet-500/25",
       };
   }
 }
@@ -87,20 +87,30 @@ function FactList({
 }) {
   if (items.length === 0) return null;
   const meta = sourceMeta(source);
+  const renderAsParagraphs = source === "agreement";
 
   return (
     <div className="space-y-1">
-      <div className="text-2xs font-medium text-muted-foreground uppercase tracking-wide">
+      <div className="sticky top-0 z-10 border-b border-border/60 bg-background/95 py-1 text-2xs font-medium text-muted-foreground uppercase tracking-wide backdrop-blur supports-[backdrop-filter]:bg-background/80">
         {title}
       </div>
-      <ul className="space-y-1">
-        {items.map((item, idx) => (
-          <li key={`${title}-${idx}`} className="flex items-start gap-2">
-            <span className={`mt-1.5 inline-block size-1.5 rounded-full border ${meta.markerClass}`} />
-            <span className="text-xs/relaxed text-foreground/85">{item}</span>
-          </li>
-        ))}
-      </ul>
+      {renderAsParagraphs ? (
+        <div className="space-y-1.5">
+          {items.map((item, idx) => (
+            <p key={`${title}-${idx}`} className="text-xs/relaxed text-foreground/90">
+              {item}
+            </p>
+          ))}
+        </div>
+      ) : (
+        <ul className="space-y-1">
+          {items.map((item, idx) => (
+            <li key={`${title}-${idx}`} className="py-0.5">
+              <span className="text-xs/relaxed text-foreground/85">{item}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -130,27 +140,21 @@ function TodoRow({
           onToggle();
         }
       }}
-      className={`flex items-center gap-2.5 py-1.5 px-2 rounded transition-colors select-none ${
+      className={`flex items-center gap-2.5 py-1.5 px-2 rounded border-l-2 ${meta.leftBorderClass} transition-colors select-none ${
         accepted ? "opacity-40 cursor-default" : "cursor-pointer hover:bg-muted/60"
       }`}
     >
       <div
-        className={`size-3.5 rounded-full border shrink-0 flex items-center justify-center transition-colors ${
+        data-selected={selected}
+        className={`size-3.5 rounded-[4px] border shrink-0 transition-colors ${meta.checkboxClass} ${
           accepted
-            ? "border-muted-foreground/40"
+            ? "border-muted-foreground/40 bg-muted/20"
             : selected
-              ? "border-foreground bg-foreground"
-              : "border-muted-foreground/60"
+              ? "border-foreground/40"
+              : ""
         }`}
-      >
-        {(accepted || selected) && (
-          <CheckIcon className={`size-2 ${accepted ? "text-muted-foreground/60" : "text-background"}`} />
-        )}
-      </div>
+      />
       <div className="flex min-w-0 items-start gap-2">
-        <span className={`mt-0.5 inline-block shrink-0 rounded border px-1 py-0 text-[9px] leading-4 font-medium text-muted-foreground ${meta.markerClass}`}>
-          {meta.badge}
-        </span>
         <span className={`text-xs/relaxed ${selected && !accepted ? "text-foreground font-medium" : "text-foreground/80"}`}>
           {candidate.text}
         </span>
@@ -176,7 +180,7 @@ function TodoSection({
 
   return (
     <div className="space-y-1">
-      <div className="text-2xs font-medium text-muted-foreground uppercase tracking-wide">
+      <div className="sticky top-0 z-10 border-b border-border/60 bg-background/95 py-1 text-2xs font-medium text-muted-foreground uppercase tracking-wide backdrop-blur supports-[backdrop-filter]:bg-background/80">
         {title}
       </div>
       <ul>
@@ -348,7 +352,7 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
       <div className="flex items-center justify-between px-4 py-2 shrink-0">
         <span className="text-xs font-medium text-foreground">Session Summary</span>
         <div className="flex items-center gap-1">
-          {state.kind === "ready" && onRegenerate && (
+          {state.kind !== "loading" && onRegenerate && (
             <button
               type="button"
               onClick={onRegenerate}
@@ -389,43 +393,6 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
             </MessageResponse>
 
             <div className="space-y-2">
-              {totalItems > 0 && (
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-2xs text-muted-foreground">
-                    {selected.size > 0
-                      ? `${selected.size} selected`
-                      : `${remainingItems} todo suggestion${remainingItems !== 1 ? "s" : ""} available`}
-                  </span>
-                  {selected.size > 0 ? (
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="text-2xs text-muted-foreground hover:text-foreground transition-colors"
-                        onClick={() => setSelected(new Set())}
-                      >
-                        Deselect all
-                      </button>
-                      <Button size="sm" onClick={handleAcceptSelected} className="gap-1 h-6 text-2xs px-2">
-                        <PlusIcon className="size-2.5" />
-                        Add to Todos
-                      </Button>
-                    </div>
-                  ) : remainingItems > 0 ? (
-                    <button
-                      type="button"
-                      className="text-2xs text-muted-foreground hover:text-foreground transition-colors"
-                      onClick={() =>
-                        setSelected(
-                          new Set(todos.all.map((item) => item.id).filter((id) => !accepted.has(id)))
-                        )
-                      }
-                    >
-                      Select all
-                    </button>
-                  ) : null}
-                </div>
-              )}
-
               <InterleavedSection
                 source="agreement"
                 facts={summary.agreements}
@@ -462,6 +429,45 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
           </div>
         )}
       </div>
+
+      {state.kind === "ready" && totalItems > 0 && (
+        <div className="shrink-0 border-t border-border/80 bg-background px-4 py-2">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-2xs text-muted-foreground">
+              {selected.size > 0
+                ? `${selected.size} selected`
+                : `${remainingItems} todo suggestion${remainingItems !== 1 ? "s" : ""} available`}
+            </span>
+            {selected.size > 0 ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="text-2xs text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setSelected(new Set())}
+                >
+                  Deselect all
+                </button>
+                <Button size="sm" onClick={handleAcceptSelected} className="gap-1 h-6 text-2xs px-2">
+                  <PlusIcon className="size-2.5" />
+                  Add to Todos
+                </Button>
+              </div>
+            ) : remainingItems > 0 ? (
+              <button
+                type="button"
+                className="text-2xs text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() =>
+                  setSelected(
+                    new Set(todos.all.map((item) => item.id).filter((id) => !accepted.has(id)))
+                  )
+                }
+              >
+                Select all
+              </button>
+            ) : null}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -526,6 +526,27 @@ export function App() {
     await refreshProjects();
   }, [activeProjectId, refreshProjects, setActiveProjectId]);
 
+  const handleMoveSessionToProject = useCallback(async (sessionId: string, projectId: string | null) => {
+    const result = await window.electronAPI.updateSessionProject(sessionId, projectId);
+    if (!result.ok) {
+      setRouteNotice(`Failed to move session: ${result.error ?? "Unknown error"}`);
+      return;
+    }
+
+    setRouteNotice("");
+    const nextProjectId = result.session?.projectId ?? (projectId ?? undefined);
+    setSessions((prev) => prev.map((sessionMeta) => (
+      sessionMeta.id === sessionId
+        ? { ...sessionMeta, projectId: nextProjectId }
+        : sessionMeta
+    )));
+    sessionsRef.current = sessionsRef.current.map((sessionMeta) => (
+      sessionMeta.id === sessionId
+        ? { ...sessionMeta, projectId: nextProjectId }
+        : sessionMeta
+    ));
+  }, [sessionsRef]);
+
   const handleStart = useCallback(() => {
     setLangError("");
     setSplashDone(true);
@@ -1321,6 +1342,7 @@ export function App() {
                 onCreateProject={(name, instructions) => void handleCreateProject(name, instructions)}
                 onEditProject={(project) => void handleEditProject(project)}
                 onDeleteProject={(id) => void handleDeleteProject(id)}
+                onMoveSessionToProject={(sessionId, projectId) => void handleMoveSessionToProject(sessionId, projectId)}
               />
             </div>
             <div
