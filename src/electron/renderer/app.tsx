@@ -58,6 +58,7 @@ const RIGHT_PANEL_MIN_WIDTH = 240;
 const RIGHT_PANEL_MAX_WIDTH = 560;
 const AGENT_PANEL_MIN_WIDTH = 320;
 const AGENT_PANEL_MAX_WIDTH = 720;
+const MAX_INSIGHTS = 240;
 
 function clampWidth(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
@@ -74,6 +75,34 @@ function buildAiSuggestionDetails(suggestion: TodoSuggestion): string | undefine
   ].filter(Boolean);
 
   return sections.length > 0 ? sections.join("\n\n") : undefined;
+}
+
+function normalizeInsightText(text: string): string {
+  return text
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[.!?,;:]+$/g, "")
+    .toLowerCase();
+}
+
+function mergeInsights(existing: readonly Insight[], incoming: readonly Insight[]): Insight[] {
+  const dedupe = new Set<string>();
+  const ordered = [...existing, ...incoming]
+    .sort((a, b) => {
+      if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+      return a.id.localeCompare(b.id);
+    });
+  const next: Insight[] = [];
+  for (const insight of ordered) {
+    const text = insight.text.trim().replace(/\s+/g, " ");
+    if (!text) continue;
+    const key = `${insight.kind}:${normalizeInsightText(text)}`;
+    if (dedupe.has(key)) continue;
+    dedupe.add(key);
+    next.push({ ...insight, text });
+  }
+  if (next.length <= MAX_INSIGHTS) return next;
+  return next.slice(-MAX_INSIGHTS);
 }
 
 export function App() {
@@ -141,7 +170,7 @@ export function App() {
     setSelectedSessionId(data.sessionId);
     setTodos(data.todos);
     setProcessingTodoIds([]);
-    setInsights(data.insights);
+    setInsights(mergeInsights([], data.insights));
     seedAgents(data.agents);
     setFinalSummaryState({ kind: "idle" });
     void refreshSessions();
@@ -313,7 +342,7 @@ export function App() {
   }, [appendSuggestions]);
 
   const handleInsightAdded = useCallback((insight: Insight) => {
-    setInsights((prev) => [...prev, insight]);
+    setInsights((prev) => mergeInsights(prev, [insight]));
   }, []);
 
   const handleFinalSummaryReady = useCallback((summary: FinalSummary) => {
@@ -1214,7 +1243,10 @@ export function App() {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [selectAgent, selectedAgent]);
 
-  const educationalInsights = insights.filter((i) => i.kind !== "key-point");
+  const educationalInsights = useMemo(
+    () => insights.filter((i) => i.kind !== "key-point"),
+    [insights],
+  );
   const visibleSessions = activeProjectId
     ? sessions.filter((s) => s.projectId === activeProjectId)
     : sessions;

@@ -84,10 +84,28 @@ export function buildAgentTitlePrompt(task: string): string {
 
 export const finalSummarySchema = z.object({
   narrative: z.string().describe(
-    "A comprehensive 2-5 sentence prose summary of the full conversation covering main topics, decisions, and overall arc. Write in plain English."
+    "Markdown snapshot of the meeting in 2-4 concise sentences. No code fences."
+  ),
+  agreements: z.array(z.string()).describe(
+    "Explicit agreements, decisions, or commitments reached in the meeting. 0-8 items. Each item one concise sentence."
+  ),
+  missedItems: z.array(z.string()).describe(
+    "Important gaps, blind spots, assumptions, or things the team likely missed. 0-6 items. Empty array if none."
+  ),
+  unansweredQuestions: z.array(z.string()).describe(
+    "Open unresolved questions from the meeting. 0-8 items. Empty array if none."
+  ),
+  agreementTodos: z.array(z.string()).describe(
+    "For agreements that exist, provide 1-3 concrete follow-up todos tied specifically to those agreements. Empty array if no agreements."
+  ),
+  missedItemTodos: z.array(z.string()).describe(
+    "For missedItems that exist, provide 1-3 concrete todos to close gaps or blind spots. Empty array if no missedItems."
+  ),
+  unansweredQuestionTodos: z.array(z.string()).describe(
+    "For unansweredQuestions that exist, provide 1-3 concrete investigation/decision todos to resolve them. Empty array if no unansweredQuestions."
   ),
   actionItems: z.array(z.string()).describe(
-    "Concrete action items or commitments. Each a short imperative phrase (3-10 words). Empty array if none."
+    "Cross-cutting concrete action items not already captured in section-specific todos. Empty array if none."
   ),
 });
 
@@ -130,7 +148,26 @@ export function buildFinalSummaryPrompt(
     ? `\n\nKey points identified during the session:\n${allKeyPoints.map((p) => `- ${p}`).join("\n")}`
     : "";
 
-  return `You are producing a final summary of a completed conversation that was transcribed and translated in real-time.\n\nFull transcript:\n${transcript || "(No transcript available)"}${keyPointsSection}`;
+  return `You are producing a final summary of a completed conversation that was transcribed and translated in real-time.
+
+Output requirements:
+- Return JSON matching the schema exactly.
+- Keep every field concrete and specific to this transcript.
+- "narrative": 2-4 sentence Markdown snapshot only.
+- "agreements": capture explicit decisions/agreements that were reached.
+- "missedItems": include likely blind spots and what was not discussed enough.
+- "unansweredQuestions": include unresolved questions that still need answers.
+- "agreementTodos": include a few follow-up todos tied to agreements.
+- "missedItemTodos": include a few corrective/validation todos for missed items.
+- "unansweredQuestionTodos": include a few investigation/decision todos for open questions.
+- If a section has entries, provide at least 1 todo for that section.
+- If a section has no entries, use an empty todo array for that section.
+- "actionItems": only cross-cutting todos not already in the three section todo lists.
+- Use empty arrays instead of inventing content when unsure.
+- Do not include code fences.
+
+Full transcript:
+${transcript || "(No transcript available)"}${keyPointsSection}`;
 }
 
 export type AnalysisResult = z.infer<typeof analysisSchema>;
@@ -140,7 +177,8 @@ export type TodoFromSelectionResult = z.infer<typeof todoFromSelectionSchema>;
 
 export function buildAnalysisPrompt(
   recentBlocks: TranscriptBlock[],
-  previousKeyPoints: readonly string[]
+  previousKeyPoints: readonly string[],
+  previousEducationalInsights: readonly string[] = [],
 ): string {
   const summarySystemPrompt = getSummarySystemPrompt();
   const insightsSystemPrompt = getInsightsSystemPrompt();
@@ -157,18 +195,24 @@ export function buildAnalysisPrompt(
     previousKeyPoints.length > 0
       ? `\n\nPrevious key points from this session:\n${previousKeyPoints.map((p) => `- ${p}`).join("\n")}`
       : "";
+  const insightsSection =
+    previousEducationalInsights.length > 0
+      ? `\n\nPrevious educational insights from this session:\n${previousEducationalInsights.map((text) => `- ${text}`).join("\n")}`
+      : "";
 
   return renderPromptTemplate(getAnalysisRequestPromptTemplate(), {
     summary_system_prompt: summarySystemPrompt,
     insights_system_prompt: insightsSystemPrompt,
     transcript,
     previous_key_points_section: keyPointsSection,
+    previous_insights_section: insightsSection,
   });
 }
 
 export function buildTodoPrompt(
   recentBlocks: TranscriptBlock[],
-  existingTodos: ReadonlyArray<Pick<TodoItem, "text" | "completed">>
+  existingTodos: ReadonlyArray<Pick<TodoItem, "text" | "completed">>,
+  historicalSuggestions: readonly string[] = [],
 ): string {
   const transcript = recentBlocks
     .map((b) => {
@@ -183,9 +227,25 @@ export function buildTodoPrompt(
       ? `\n\nExisting todos:\n${existingTodos.map((t) => `- [${t.completed ? "x" : " "}] ${t.text}`).join("\n")}`
       : "";
 
+  const historicalSuggestionsSet = new Set<string>();
+  const normalizedHistory = historicalSuggestions
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .filter((text) => {
+      const key = text.toLowerCase();
+      if (historicalSuggestionsSet.has(key)) return false;
+      historicalSuggestionsSet.add(key);
+      return true;
+    })
+    .slice(-20);
+  const historicalSuggestionsSection = normalizedHistory.length > 0
+    ? `\n\nHistorical suggestions already shown in this session:\n${normalizedHistory.map((text) => `- ${text}`).join("\n")}`
+    : "";
+
   return renderPromptTemplate(getTodoExtractPromptTemplate(), {
     transcript,
     existing_todos_section: todosSection,
+    historical_suggestions_section: historicalSuggestionsSection,
   });
 }
 

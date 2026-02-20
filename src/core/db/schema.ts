@@ -19,6 +19,7 @@ export const sessions = sqliteTable("sessions", {
   projectId: text("project_id").references(() => projects.id),
   summaryNarrative: text("summary_narrative"),
   summaryActionItems: text("summary_action_items"),
+  summaryData: text("summary_data"),
   summaryGeneratedAt: integer("summary_generated_at"),
   agentsSummaryData: text("agents_summary_data"),
   agentsSummaryGeneratedAt: integer("agents_summary_generated_at"),

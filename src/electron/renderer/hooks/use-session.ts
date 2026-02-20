@@ -38,11 +38,36 @@ type SessionAction =
   | { kind: "session-ended" }
   | { kind: "session-viewed"; sessionId: string; blocks: TranscriptBlock[]; keyPoints: string[] };
 
+const MAX_ROLLING_KEY_POINTS = 160;
+
 function sortBlocks(blocks: TranscriptBlock[]): TranscriptBlock[] {
   return [...blocks].sort((a, b) => {
     if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
     return a.id - b.id;
   });
+}
+
+function normalizeKeyPointText(text: string): string {
+  return text
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[.!?,;:]+$/g, "")
+    .toLowerCase();
+}
+
+function mergeRollingKeyPoints(existing: readonly string[], incoming: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const raw of [...existing, ...incoming]) {
+    const text = raw.trim().replace(/\s+/g, " ");
+    if (!text) continue;
+    const key = normalizeKeyPointText(text);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push(text);
+  }
+  if (next.length <= MAX_ROLLING_KEY_POINTS) return next;
+  return next.slice(-MAX_ROLLING_KEY_POINTS);
 }
 
 function sessionReducer(state: SessionState, action: SessionAction): SessionState {
@@ -67,7 +92,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         ...state,
         summary: action.summary,
         rollingKeyPoints: action.summary
-          ? [...state.rollingKeyPoints, ...action.summary.keyPoints]
+          ? mergeRollingKeyPoints(state.rollingKeyPoints, action.summary.keyPoints)
           : state.rollingKeyPoints,
       };
     case "cost-updated":
@@ -96,15 +121,16 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         errorText: "",
       };
     case "session-resumed": {
-      const keyPoints = action.data.insights
+      const keyPoints = [...action.data.insights]
         .filter((i) => i.kind === "key-point")
+        .sort((a, b) => a.createdAt - b.createdAt)
         .map((i) => i.text);
       return {
         ...state,
         sessionActive: true,
         sessionId: action.data.sessionId,
         blocks: sortBlocks(action.data.blocks),
-        rollingKeyPoints: keyPoints,
+        rollingKeyPoints: mergeRollingKeyPoints([], keyPoints),
         summary: null,
         cost: 0,
         systemPartial: "",
@@ -120,7 +146,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         ...state,
         sessionId: action.sessionId,
         blocks: sortBlocks(action.blocks),
-        rollingKeyPoints: action.keyPoints,
+        rollingKeyPoints: mergeRollingKeyPoints([], action.keyPoints),
         sessionActive: false,
         uiState: null,
         summary: null,
@@ -249,8 +275,9 @@ export function useSession(
       api.getSessionBlocks(sessionId),
       api.getSessionInsights(sessionId),
     ]);
-    const keyPoints = insights
+    const keyPoints = [...insights]
       .filter((i: Insight) => i.kind === "key-point")
+      .sort((a: Insight, b: Insight) => a.createdAt - b.createdAt)
       .map((i: Insight) => i.text);
     dispatch({ kind: "session-viewed", sessionId, blocks, keyPoints });
   }, []);

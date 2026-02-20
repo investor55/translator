@@ -6,6 +6,8 @@ Task:
 Rules:
 - Each insight must be directly related to entities or concepts explicitly mentioned.
 - Insights must teach context, definitions, facts, or practical tips.
+- Prefer at least one introspective insight when possible (for example: decision framing, hidden assumptions, tradeoffs, or risk-awareness).
+- Avoid repeating points already implied by prior summary bullets.
 - Do not summarize the conversation.
 - Do not speculate or invent unsupported claims.
 - If no meaningful topic is present, return an empty insights list.

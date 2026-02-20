@@ -10,6 +10,7 @@ export type ContextState = {
   transcriptBlocks: Map<number, TranscriptBlock>;
   nextBlockId: number;
   allKeyPoints: string[];
+  allEducationalInsights: string[];
 };
 
 const CONTEXT_WINDOW_SIZE = 10;
@@ -23,6 +24,7 @@ export function createContextState(): ContextState {
     transcriptBlocks: new Map(),
     nextBlockId: 1,
     allKeyPoints: [],
+    allEducationalInsights: [],
   };
 }
 
@@ -30,7 +32,7 @@ export function resetContextState(state: ContextState) {
   state.contextBuffer.length = 0;
   state.transcriptBlocks.clear();
   state.nextBlockId = 1;
-  // Keep allKeyPoints across resets for session log
+  // Keep allKeyPoints and allEducationalInsights across resets for session continuity.
 }
 
 export function recordContext(state: ContextState, sentence: string) {

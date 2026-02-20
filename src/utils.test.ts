@@ -188,4 +188,40 @@ describe("toReadableError", () => {
       "OpenRouter request failed with 'User not found'. This can be caused by an OpenRouter outage or an invalid OPENROUTER_API_KEY."
     );
   });
+
+  it("enriches generic provider errors from response body", () => {
+    expect(
+      toReadableError({
+        message: "Provider returned error",
+        responseBody: JSON.stringify({ error: { message: "User not found." } }),
+      })
+    ).toBe(
+      "OpenRouter request failed with 'User not found'. This can be caused by an OpenRouter outage or an invalid OPENROUTER_API_KEY."
+    );
+  });
+
+  it("adds HTTP status for generic provider errors without details", () => {
+    expect(
+      toReadableError({
+        message: "Provider returned error",
+        statusCode: 401,
+      })
+    ).toBe("Provider returned error (HTTP 401).");
+  });
+
+  it("extracts nested provider error from metadata.raw payload", () => {
+    expect(
+      toReadableError({
+        message: "Provider returned error",
+        responseBody: JSON.stringify({
+          error: {
+            message: "Provider returned error",
+            metadata: {
+              raw: JSON.stringify({ error: "Model did not output valid JSON." }),
+            },
+          },
+        }),
+      })
+    ).toBe("Model did not output valid JSON.");
+  });
 });

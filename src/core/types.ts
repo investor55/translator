@@ -76,8 +76,14 @@ export type Summary = {
 };
 
 export type FinalSummary = {
-  narrative: string; // prose paragraph summary of the entire conversation
-  actionItems: string[]; // extracted action items / todos
+  narrative: string; // concise markdown snapshot of the full conversation
+  agreements: string[]; // explicit agreements/decisions reached in the meeting
+  missedItems: string[]; // important points that were likely missed or underexplored
+  unansweredQuestions: string[]; // open questions that remained unresolved
+  agreementTodos: string[]; // concrete follow-up todos tied to agreements
+  missedItemTodos: string[]; // concrete todos to address missed/underexplored items
+  unansweredQuestionTodos: string[]; // concrete todos to answer unresolved questions
+  actionItems: string[]; // cross-cutting action items / todos
   generatedAt: number;
 };
 

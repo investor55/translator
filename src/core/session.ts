@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { type ChildProcess } from "node:child_process";
-import { generateObject, type LanguageModel } from "ai";
+import { APICallError, generateObject, type LanguageModel } from "ai";
 import { z } from "zod";
 
 import type {
@@ -125,6 +125,71 @@ type TodoSuggestionDraft = {
   details?: string;
   transcriptExcerpt?: string;
 };
+
+function stringifyErrorPart(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized.length > 0 ? serialized : String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function truncateForLog(value: string, maxChars = 800): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars)}...`;
+}
+
+function formatModelErrorForLog(error: unknown): string {
+  if (APICallError.isInstance(error)) {
+    const parts = [
+      `${error.name}: ${error.message}`,
+      error.statusCode ? `status=${error.statusCode}` : null,
+      error.url ? `url=${error.url}` : null,
+      error.responseBody ? `responseBody=${truncateForLog(error.responseBody)}` : null,
+      error.data ? `data=${truncateForLog(stringifyErrorPart(error.data) ?? "")}` : null,
+      error.cause ? `cause=${truncateForLog(stringifyErrorPart(error.cause) ?? "")}` : null,
+    ].filter(Boolean);
+    return parts.join(" | ");
+  }
+
+  if (error instanceof Error) {
+    const cause = "cause" in error ? stringifyErrorPart((error as { cause?: unknown }).cause) : null;
+    return cause
+      ? `${error.name}: ${error.message} | cause=${truncateForLog(cause)}`
+      : `${error.name}: ${error.message}`;
+  }
+
+  return toReadableError(error);
+}
+
+function normalizeInsightText(text: string): string {
+  return text
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[.!?,;:]+$/g, "")
+    .toLowerCase();
+}
+
+function dedupeInsightHistory(texts: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const raw of texts) {
+    const text = raw.trim().replace(/\s+/g, " ");
+    if (!text) continue;
+    const key = normalizeInsightText(text);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(text);
+  }
+  return unique;
+}
 
 export type SessionExternalDeps = {
   getExternalTools?: () => Promise<AgentExternalToolSet>;
@@ -392,14 +457,25 @@ export class Session {
     // Seed context with existing key points for this session only.
     // This keeps analysis anchored to the active conversation.
     if (this.db) {
-      const existingSessionKeyPoints = this.db
+      const existingSessionInsights = this.db
         .getInsightsForSession(this.sessionId)
+        .sort((a, b) => a.createdAt - b.createdAt);
+      const existingSessionKeyPoints = existingSessionInsights
         .filter((insight) => insight.kind === "key-point")
         .map((insight) => insight.text);
+      const existingEducationalInsights = dedupeInsightHistory(
+        existingSessionInsights
+          .filter((insight) => insight.kind !== "key-point")
+          .map((insight) => insight.text),
+      );
 
       if (existingSessionKeyPoints.length > 0) {
         this.contextState.allKeyPoints.push(...existingSessionKeyPoints);
         log("INFO", `Loaded ${existingSessionKeyPoints.length} key points for session ${this.sessionId}`);
+      }
+      if (existingEducationalInsights.length > 0) {
+        this.contextState.allEducationalInsights.push(...existingEducationalInsights);
+        log("INFO", `Loaded ${existingEducationalInsights.length} educational insights for session ${this.sessionId}`);
       }
     }
 
@@ -815,7 +891,7 @@ export class Session {
     void (async () => {
       try {
         const { object, usage } = await generateObject({
-          model: this.todoModel,
+          model: this.analysisModel,
           schema: finalSummarySchema,
           prompt,
           abortSignal: AbortSignal.timeout(45_000),
@@ -827,12 +903,18 @@ export class Session {
           usage?.inputTokens ?? 0,
           usage?.outputTokens ?? 0,
           "text",
-          "openrouter",
+          this.config.analysisProvider,
         );
         this.events.emit("cost-updated", totalCost);
 
         const summary: FinalSummary = {
           narrative: object.narrative.trim(),
+          agreements: object.agreements.map((item) => item.trim()).filter(Boolean),
+          missedItems: object.missedItems.map((item) => item.trim()).filter(Boolean),
+          unansweredQuestions: object.unansweredQuestions.map((item) => item.trim()).filter(Boolean),
+          agreementTodos: object.agreementTodos.map((item) => item.trim()).filter(Boolean),
+          missedItemTodos: object.missedItemTodos.map((item) => item.trim()).filter(Boolean),
+          unansweredQuestionTodos: object.unansweredQuestionTodos.map((item) => item.trim()).filter(Boolean),
           actionItems: object.actionItems.map((item) => item.trim()).filter(Boolean),
           generatedAt: Date.now(),
         };
@@ -840,6 +922,7 @@ export class Session {
         this.db?.saveFinalSummary(this.sessionId, summary);
         this.events.emit("final-summary-ready", summary);
       } catch (error) {
+        log("ERROR", `Final summary generation failed: ${formatModelErrorForLog(error)}`);
         this.events.emit("final-summary-error", toReadableError(error));
       }
     })();
@@ -865,7 +948,7 @@ export class Session {
     void (async () => {
       try {
         const { object, usage } = await generateObject({
-          model: this.todoModel,
+          model: this.analysisModel,
           schema: agentsSummarySchema,
           prompt,
           abortSignal: AbortSignal.timeout(60_000),
@@ -877,7 +960,7 @@ export class Session {
           usage?.inputTokens ?? 0,
           usage?.outputTokens ?? 0,
           "text",
-          "openrouter",
+          this.config.analysisProvider,
         );
         this.events.emit("cost-updated", totalCost);
 
@@ -901,6 +984,7 @@ export class Session {
         this.db?.saveAgentsSummary(this.sessionId, summary);
         this.events.emit("agents-summary-ready", summary);
       } catch (error) {
+        log("ERROR", `Agents summary generation failed: ${formatModelErrorForLog(error)}`);
         this.events.emit("agents-summary-error", toReadableError(error));
       }
     })();
@@ -1874,9 +1958,16 @@ export class Session {
         ? this.db.getTodosForSession(this.sessionId)
         : [];
       const previousKeyPoints = this.contextState.allKeyPoints.slice(-20);
+      const previousEducationalInsights = dedupeInsightHistory(
+        this.contextState.allEducationalInsights.slice(-40),
+      );
 
       if (shouldRunSummaryAnalysis) {
-        const analysisPrompt = buildAnalysisPrompt(recentBlocks, previousKeyPoints);
+        const analysisPrompt = buildAnalysisPrompt(
+          recentBlocks,
+          previousKeyPoints,
+          previousEducationalInsights.slice(-20),
+        );
 
         const analysisProvider = this.config.analysisProvider;
         const providerOptions = analysisProvider === "google" || analysisProvider === "vertex"
@@ -1920,18 +2011,29 @@ export class Session {
         this.lastSummary = { keyPoints: analysisResult.keyPoints, updatedAt: Date.now() };
         this.events.emit("summary-updated", this.lastSummary);
 
-        // Emit educational insights
-        analysisInsightsCount = analysisResult.educationalInsights.length;
+        // Emit educational insights (dedupe against prior session insights + this analysis batch)
+        const seenEducationalInsights = new Set(
+          previousEducationalInsights.map((text) => normalizeInsightText(text)),
+        );
+        analysisInsightsCount = 0;
         for (const item of analysisResult.educationalInsights) {
+          const normalized = normalizeInsightText(item.text);
+          if (!normalized || seenEducationalInsights.has(normalized)) {
+            continue;
+          }
+          seenEducationalInsights.add(normalized);
+          const text = item.text.trim().replace(/\s+/g, " ");
           const insight: Insight = {
             id: crypto.randomUUID(),
             kind: item.kind,
-            text: item.text,
+            text,
             sessionId: this.sessionId,
             createdAt: Date.now(),
           };
           this.db?.insertInsight(insight);
+          this.contextState.allEducationalInsights.push(text);
           this.events.emit("insight-added", insight);
+          analysisInsightsCount += 1;
         }
       }
 
@@ -1953,7 +2055,11 @@ export class Session {
         this.lastTodoAnalysisAt = now;
 
         try {
-          const todoPrompt = buildTodoPrompt(todoBlocks, existingTodos);
+          const todoPrompt = buildTodoPrompt(
+            todoBlocks,
+            existingTodos,
+            this.recentSuggestedTodoTexts,
+          );
           const { object: todoResult, usage: todoUsage } = await generateObject({
             model: this.todoModel,
             schema: todoAnalysisSchema,
@@ -1994,7 +2100,6 @@ export class Session {
           candidate,
           existingTodoTexts,
           emittedTodoTexts,
-          forceTodoAnalysis,
         );
         if (!emittedSuggestion) {
           continue;
@@ -2046,7 +2151,6 @@ export class Session {
     candidate: string,
     existingTodoTexts: readonly string[],
     emittedInCurrentAnalysis: readonly string[],
-    ignoreRecentSuggestions = false,
   ): boolean {
     const normalizedCandidate = normalizeTodoText(candidate);
     if (!normalizedCandidate) return true;
@@ -2054,12 +2158,12 @@ export class Session {
     const exactMatch = (text: string) => normalizeTodoText(text) === normalizedCandidate;
     if (existingTodoTexts.some(exactMatch)) return true;
     if (emittedInCurrentAnalysis.some(exactMatch)) return true;
-    if (!ignoreRecentSuggestions && this.recentSuggestedTodoTexts.some(exactMatch)) return true;
+    if (this.recentSuggestedTodoTexts.some(exactMatch)) return true;
 
     const fuzzyMatch = (text: string) => isLikelyDuplicateTodoText(candidate, text);
     if (existingTodoTexts.some(fuzzyMatch)) return true;
     if (emittedInCurrentAnalysis.some(fuzzyMatch)) return true;
-    if (!ignoreRecentSuggestions && this.recentSuggestedTodoTexts.some(fuzzyMatch)) return true;
+    if (this.recentSuggestedTodoTexts.some(fuzzyMatch)) return true;
 
     return false;
   }
@@ -2068,13 +2172,12 @@ export class Session {
     candidate: TodoSuggestionDraft,
     existingTodoTexts?: readonly string[],
     emittedInCurrentAnalysis: readonly string[] = [],
-    ignoreRecentSuggestions = false,
   ): TodoSuggestion | null {
     const normalized = candidate.text.trim();
     if (!normalized) return null;
 
     const knownTodoTexts = existingTodoTexts ?? (this.db ? this.db.getTodos().map((t) => t.text) : []);
-    if (this.isDuplicateTodoSuggestion(normalized, knownTodoTexts, emittedInCurrentAnalysis, ignoreRecentSuggestions)) {
+    if (this.isDuplicateTodoSuggestion(normalized, knownTodoTexts, emittedInCurrentAnalysis)) {
       return null;
     }
 

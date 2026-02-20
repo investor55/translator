@@ -437,6 +437,7 @@ export function createDatabase(dbPath: string) {
         .set({
           summaryNarrative: summary.narrative,
           summaryActionItems: JSON.stringify(summary.actionItems),
+          summaryData: JSON.stringify(summary),
           summaryGeneratedAt: summary.generatedAt,
         })
         .where(eq(sessions.id, sessionId))
@@ -469,15 +470,45 @@ export function createDatabase(dbPath: string) {
         .select({
           summaryNarrative: sessions.summaryNarrative,
           summaryActionItems: sessions.summaryActionItems,
+          summaryData: sessions.summaryData,
           summaryGeneratedAt: sessions.summaryGeneratedAt,
         })
         .from(sessions)
         .where(eq(sessions.id, sessionId))
         .limit(1)
         .all();
-      if (!row?.summaryNarrative) return null;
+      if (!row?.summaryNarrative && !row?.summaryData) return null;
+
+      if (row?.summaryData) {
+        try {
+          const parsed = JSON.parse(row.summaryData) as Partial<FinalSummary>;
+          if (typeof parsed.narrative === "string") {
+            return {
+              narrative: parsed.narrative,
+              agreements: Array.isArray(parsed.agreements) ? parsed.agreements.filter((v): v is string => typeof v === "string") : [],
+              missedItems: Array.isArray(parsed.missedItems) ? parsed.missedItems.filter((v): v is string => typeof v === "string") : [],
+              unansweredQuestions: Array.isArray(parsed.unansweredQuestions) ? parsed.unansweredQuestions.filter((v): v is string => typeof v === "string") : [],
+              agreementTodos: Array.isArray(parsed.agreementTodos) ? parsed.agreementTodos.filter((v): v is string => typeof v === "string") : [],
+              missedItemTodos: Array.isArray(parsed.missedItemTodos) ? parsed.missedItemTodos.filter((v): v is string => typeof v === "string") : [],
+              unansweredQuestionTodos: Array.isArray(parsed.unansweredQuestionTodos) ? parsed.unansweredQuestionTodos.filter((v): v is string => typeof v === "string") : [],
+              actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems.filter((v): v is string => typeof v === "string") : [],
+              generatedAt: typeof parsed.generatedAt === "number" ? parsed.generatedAt : (row.summaryGeneratedAt ?? 0),
+            };
+          }
+        } catch {
+          // Fall through to legacy fields below.
+        }
+      }
+
+      if (!row.summaryNarrative) return null;
       return {
         narrative: row.summaryNarrative,
+        agreements: [],
+        missedItems: [],
+        unansweredQuestions: [],
+        agreementTodos: [],
+        missedItemTodos: [],
+        unansweredQuestionTodos: [],
         actionItems: JSON.parse(row.summaryActionItems ?? "[]") as string[],
         generatedAt: row.summaryGeneratedAt ?? 0,
       };
@@ -692,6 +723,9 @@ function runMigrations(db: Database.Database) {
   }
   if (!sessionColNames2.has("summary_action_items")) {
     db.exec("ALTER TABLE sessions ADD COLUMN summary_action_items TEXT");
+  }
+  if (!sessionColNames2.has("summary_data")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN summary_data TEXT");
   }
   if (!sessionColNames2.has("summary_generated_at")) {
     db.exec("ALTER TABLE sessions ADD COLUMN summary_generated_at INTEGER");

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocalStorage } from "usehooks-ts";
 import type { Insight, ProjectMeta, SessionMeta } from "../../../core/types";
 import { Separator } from "@/components/ui/separator";
@@ -61,6 +61,14 @@ function InsightIcon({ kind }: { kind: string }) {
   return Icon ? <Icon className="size-3" /> : <span>·</span>;
 }
 
+function normalizeListText(text: string): string {
+  return text
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[.!?,;:]+$/g, "")
+    .toLowerCase();
+}
+
 type ProjectFormMode =
   | { kind: "none" }
   | { kind: "create" }
@@ -120,6 +128,32 @@ export function LeftSidebar({
   }, [formMode.kind]);
 
   const activeProject = activeProjectId ? projects.find((p) => p.id === activeProjectId) : null;
+  const liveSummaryPoints = useMemo(() => {
+    const seen = new Set<string>();
+    const unique: string[] = [];
+    for (const raw of rollingKeyPoints) {
+      const text = raw.trim().replace(/\s+/g, " ");
+      if (!text) continue;
+      const key = normalizeListText(text);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(text);
+    }
+    return [...unique].reverse();
+  }, [rollingKeyPoints]);
+  const visibleInsights = useMemo(() => {
+    const seen = new Set<string>();
+    const unique: Insight[] = [];
+    for (const insight of insights) {
+      const text = insight.text.trim().replace(/\s+/g, " ");
+      if (!text) continue;
+      const key = `${insight.kind}:${normalizeListText(text)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push({ ...insight, text });
+    }
+    return [...unique].reverse();
+  }, [insights]);
 
   function openCreateForm() {
     setFormName("");
@@ -258,43 +292,47 @@ export function LeftSidebar({
 
       <div className="px-3 py-2.5 flex-1 min-h-0 flex flex-col">
         {mode === "briefing" ? (
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
-            <section>
+          <div className="flex-1 min-h-0 flex flex-col gap-3">
+            <section className="min-h-0 flex-1 flex flex-col">
               <SectionLabel className="mb-2">Live Summary</SectionLabel>
-              {rollingKeyPoints.length > 0 ? (
-                <ul className="space-y-1.5">
-                  {rollingKeyPoints.map((point, i) => (
-                    <li key={i} className="text-xs text-foreground leading-relaxed">
-                      <span className="text-muted-foreground mr-1">•</span>
-                      {point}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-xs text-muted-foreground italic">
-                  Summary will appear during recording...
-                </p>
-              )}
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                {liveSummaryPoints.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {liveSummaryPoints.map((point, i) => (
+                      <li key={`${point}-${i}`} className="text-xs text-foreground leading-relaxed">
+                        <span className="text-muted-foreground mr-1">•</span>
+                        {point}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">
+                    Summary will appear during recording...
+                  </p>
+                )}
+              </div>
             </section>
-            <Separator />
-            <section>
+            <Separator className="shrink-0" />
+            <section className="min-h-0 flex-1 flex flex-col">
               <SectionLabel className="mb-2">Insights</SectionLabel>
-              {insights.length > 0 ? (
-                <ul className="space-y-1.5">
-                  {insights.map((insight) => (
-                    <li key={insight.id} className="text-xs leading-relaxed flex gap-1.5 items-start">
-                      <span className="text-muted-foreground shrink-0">
-                        <InsightIcon kind={insight.kind} />
-                      </span>
-                      <span className="text-foreground">{insight.text}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-xs text-muted-foreground italic">
-                  AI insights will appear here...
-                </p>
-              )}
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                {visibleInsights.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {visibleInsights.map((insight) => (
+                      <li key={insight.id} className="text-xs leading-relaxed flex gap-1.5 items-start">
+                        <span className="text-muted-foreground shrink-0">
+                          <InsightIcon kind={insight.kind} />
+                        </span>
+                        <span className="text-foreground">{insight.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">
+                    AI insights will appear here...
+                  </p>
+                )}
+              </div>
             </section>
           </div>
         ) : (

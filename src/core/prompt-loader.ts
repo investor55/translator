@@ -33,6 +33,8 @@ Task:
 Rules:
 - Each insight must be directly related to entities or concepts explicitly mentioned.
 - Insights must teach context, definitions, facts, or practical tips.
+- Prefer at least one introspective insight when possible (for example: decision framing, hidden assumptions, tradeoffs, or risk-awareness).
+- Avoid repeating points already implied by prior summary bullets.
 - Do not summarize the conversation.
 - Do not speculate or invent unsupported claims.
 - If no meaningful topic is present, return an empty insights list.
@@ -50,17 +52,19 @@ const DEFAULT_ANALYSIS_REQUEST_PROMPT = `{{summary_system_prompt}}
 {{insights_system_prompt}}
 
 Recent transcript:
-{{transcript}}{{previous_key_points_section}}
+{{transcript}}{{previous_key_points_section}}{{previous_insights_section}}
 
 Grounding requirements:
 - Use only information from the transcript and previous key points from THIS session.
+- Use previous educational insights from THIS session to avoid repeating the same insight.
 - Do not use memory from prior sessions.
+- Avoid duplicating previous key points unless the new transcript adds materially new detail.
 - If transcript details are sparse, return fewer items rather than inventing details.`;
 
 const DEFAULT_TODO_EXTRACT_PROMPT = `You extract TODOs from live conversation transcripts.
 
 Recent transcript:
-{{transcript}}{{existing_todos_section}}
+{{transcript}}{{existing_todos_section}}{{historical_suggestions_section}}
 
 Task:
 - Extract only clear tasks, action items, or follow-ups.
@@ -68,14 +72,15 @@ Task:
 - Treat first-person planning statements as actionable TODOs even when dates are not fixed yet.
 - Treat travel planning and scheduling intent as TODOs (for example: "I'm planning to visit X", "we should decide where else to go", "need to book X").
 - Skip vague brainstorming and informational statements without a clear next action.
+- Prioritize impactful next steps over shallow restatements. If a candidate is too broad, reframe it into a deeper exploratory prompt (for example: "Dive into whether X is the right approach?").
 - Ignore bracketed non-speech tags like [silence], [music], [noise], [laughs].
 - Preserve details exactly: names, places, dates, times, constraints.
 - Merge fragments across neighboring lines into one complete todo.
 - For each todo, return:
-  - todoTitle: short imperative action phrase.
+  - todoTitle: short high-impact action phrase or focused exploratory question.
   - todoDetails: rich context and constraints needed by an autonomous agent, including background, assumptions, boundaries, and success criteria.
   - transcriptExcerpt: short verbatim excerpt from the transcript that grounds the todo.
-- Do NOT duplicate existing todos.
+- Do NOT duplicate existing todos or historical suggestions that are semantically similar.
 - Return an empty list when no clear actionable todo was discussed.`;
 
 const DEFAULT_TODO_FROM_SELECTION_PROMPT = `You convert highlighted transcript text into one concrete TODO.

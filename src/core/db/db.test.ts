@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createDatabase, type AppDatabase } from "./db";
-import type { TranscriptBlock, TodoItem, Insight, Agent } from "../types";
+import type { TranscriptBlock, TodoItem, Insight, Agent, FinalSummary } from "../types";
 
 let db: AppDatabase;
 
@@ -294,6 +294,58 @@ describe("insights", () => {
 
     const points = db.getRecentKeyPoints();
     expect(points).toEqual(["Point C", "Point A"]);
+  });
+});
+
+describe("final summary", () => {
+  beforeEach(() => {
+    db.createSession("s1");
+  });
+
+  it("persists and loads structured summary fields", () => {
+    const summary: FinalSummary = {
+      narrative: "The team aligned on scope and timeline.",
+      agreements: ["Ship pilot in two weeks."],
+      missedItems: ["No rollback plan discussed."],
+      unansweredQuestions: ["Who owns post-launch support?"],
+      agreementTodos: ["Assign owner for pilot launch."],
+      missedItemTodos: ["Draft rollback and incident plan."],
+      unansweredQuestionTodos: ["Confirm support owner and escalation path."],
+      actionItems: ["Draft launch checklist"],
+      generatedAt: Date.now(),
+    };
+
+    db.saveFinalSummary("s1", summary);
+    expect(db.getFinalSummary("s1")).toEqual(summary);
+  });
+
+  it("returns safe defaults for legacy summary rows", () => {
+    const now = Date.now();
+    db.raw.prepare(`
+      UPDATE sessions
+      SET summary_narrative = ?,
+          summary_action_items = ?,
+          summary_generated_at = ?,
+          summary_data = NULL
+      WHERE id = ?
+    `).run(
+      "Legacy narrative",
+      JSON.stringify(["Legacy item"]),
+      now,
+      "s1",
+    );
+
+    expect(db.getFinalSummary("s1")).toEqual({
+      narrative: "Legacy narrative",
+      agreements: [],
+      missedItems: [],
+      unansweredQuestions: [],
+      agreementTodos: [],
+      missedItemTodos: [],
+      unansweredQuestionTodos: [],
+      actionItems: ["Legacy item"],
+      generatedAt: now,
+    });
   });
 });
 

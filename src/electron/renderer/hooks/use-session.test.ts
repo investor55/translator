@@ -52,4 +52,61 @@ describe("useSession reducer", () => {
     const next = sessionStateReducer(dirtyState, { kind: "session-cleared" });
     expect(next).toEqual(initialState);
   });
+
+  it("dedupes rolling key points when summary updates repeat content", () => {
+    const state = {
+      ...initialState,
+      rollingKeyPoints: ["Budget approved for Q2"],
+    };
+
+    const next = sessionStateReducer(state, {
+      kind: "summary-updated",
+      summary: {
+        keyPoints: ["Budget approved for Q2", "Need legal review before launch"],
+        updatedAt: Date.now(),
+      },
+    });
+
+    expect(next.rollingKeyPoints).toEqual([
+      "Budget approved for Q2",
+      "Need legal review before launch",
+    ]);
+  });
+
+  it("session-resumed rebuilds key points in chronological order without duplicates", () => {
+    const next = sessionStateReducer(initialState, {
+      kind: "session-resumed",
+      data: {
+        sessionId: "s1",
+        blocks: [],
+        todos: [],
+        agents: [],
+        insights: [
+          {
+            id: "i3",
+            kind: "key-point",
+            text: "Need to validate assumptions",
+            createdAt: 300,
+            sessionId: "s1",
+          },
+          {
+            id: "i2",
+            kind: "definition",
+            text: "Irrelevant non-key insight",
+            createdAt: 200,
+            sessionId: "s1",
+          },
+          {
+            id: "i1",
+            kind: "key-point",
+            text: "Need to validate assumptions",
+            createdAt: 100,
+            sessionId: "s1",
+          },
+        ],
+      },
+    });
+
+    expect(next.rollingKeyPoints).toEqual(["Need to validate assumptions"]);
+  });
 });
