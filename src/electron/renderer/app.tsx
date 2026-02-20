@@ -77,6 +77,64 @@ function buildAiSuggestionDetails(suggestion: TodoSuggestion): string | undefine
   return sections.length > 0 ? sections.join("\n\n") : undefined;
 }
 
+function normalizeAgentTodoTitle(text: string): string {
+  const collapsed = text
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/^[-*0-9.)\s]+/, "")
+    .replace(/[.!?]+$/g, "");
+  if (!collapsed) return "";
+
+  const splitOnMultiStep = collapsed.split(/\s(?:and|then|while)\s/i);
+  const primaryStep = splitOnMultiStep[0]?.trim() || collapsed;
+  if (primaryStep.length <= 110) return primaryStep;
+
+  const clipped = primaryStep.slice(0, 110);
+  const boundary = clipped.lastIndexOf(" ");
+  return (boundary > 50 ? clipped.slice(0, boundary) : clipped).trim();
+}
+
+function summarySourceTitle(source?: "agreement" | "missed" | "question" | "action"): string {
+  switch (source) {
+    case "agreement":
+      return "Agreements";
+    case "missed":
+      return "What We Might Have Missed";
+    case "question":
+      return "Unanswered Questions";
+    case "action":
+      return "General Action Items";
+    default:
+      return "Session Summary";
+  }
+}
+
+function buildSummarySelectionText(item: {
+  text: string;
+  details?: string;
+  source?: "agreement" | "missed" | "question" | "action";
+}): string {
+  const sections = [
+    `Suggested todo:\n${item.text.trim()}`,
+    item.source ? `Section:\n${summarySourceTitle(item.source)}` : "",
+    item.details?.trim() ? item.details.trim() : "",
+  ].filter(Boolean);
+  return sections.join("\n\n");
+}
+
+function buildSummaryTodoIntent(
+  userIntent?: string,
+  source?: "agreement" | "missed" | "question" | "action",
+): string {
+  const trimmedIntent = userIntent?.trim() ?? "";
+  const sections = [
+    trimmedIntent ? `User requested outcome:\n${trimmedIntent}` : "",
+    source ? `Summary section:\n${summarySourceTitle(source)}` : "",
+    "Create one narrow, agent-executable todo focused on the highest-impact next step. Avoid combining multiple actions.",
+  ].filter(Boolean);
+  return sections.join("\n\n");
+}
+
 function normalizeInsightText(text: string): string {
   return text
     .trim()
@@ -1193,27 +1251,69 @@ export function App() {
     setStoredAppConfig(normalizeAppConfig(next));
   }, [setStoredAppConfig]);
 
-  const handleAcceptSummaryItems = useCallback((items: Array<{ text: string; details?: string }>) => {
+  const handleAcceptSummaryItems = useCallback((
+    items: Array<{
+      text: string;
+      details?: string;
+      source?: "agreement" | "missed" | "question" | "action";
+      userIntent?: string;
+    }>,
+  ) => {
     const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
     if (!targetSessionId) return;
     void (async () => {
-      for (const { text, details } of items) {
+      for (const { text, details, source, userIntent } of items) {
         const trimmed = text.trim();
         if (!trimmed) continue;
+        const trimmedUserIntent = userIntent?.trim();
+
+        const placeholderText = normalizeAgentTodoTitle(trimmed) || trimmed;
         const optimisticId = crypto.randomUUID();
         const optimisticTodo: TodoItem = {
           id: optimisticId,
-          text: trimmed,
-          details,
+          text: placeholderText,
+          details: details?.trim() || undefined,
           size: "large",
           completed: false,
           source: "ai",
           createdAt: Date.now(),
           sessionId: targetSessionId,
         };
+
         setTodos((prev) => [optimisticTodo, ...prev]);
         setProcessingTodoIds((prev) => [optimisticId, ...prev]);
-        const result = await persistTodo({ targetSessionId, text: trimmed, details, source: "ai", id: optimisticId, createdAt: optimisticTodo.createdAt });
+
+        let refinedTitle = trimmed;
+        let refinedDetails = details?.trim() || undefined;
+
+        const extractResult = await window.electronAPI.extractTodoFromSelectionInSession(
+          targetSessionId,
+          buildSummarySelectionText({ text: trimmed, details, source }),
+          buildSummaryTodoIntent(trimmedUserIntent, source),
+          appConfig,
+        );
+
+        if (extractResult.ok && extractResult.todoTitle?.trim()) {
+          refinedTitle = extractResult.todoTitle.trim();
+          const extractedDetails = extractResult.todoDetails?.trim();
+          const mergedDetails = [
+            trimmedUserIntent ? `Requested outcome:\n${trimmedUserIntent}` : "",
+            extractedDetails ? `Task context:\n${extractedDetails}` : "",
+          ].filter(Boolean);
+          refinedDetails = mergedDetails.length > 0
+            ? mergedDetails.join("\n\n")
+            : refinedDetails;
+        }
+
+        const finalTitle = normalizeAgentTodoTitle(refinedTitle) || placeholderText;
+        const result = await persistTodo({
+          targetSessionId,
+          text: finalTitle,
+          details: refinedDetails,
+          source: "ai",
+          id: optimisticId,
+          createdAt: optimisticTodo.createdAt,
+        });
         setProcessingTodoIds((prev) => prev.filter((id) => id !== optimisticId));
         if (!result.ok) {
           setTodos((prev) => prev.filter((t) => t.id !== optimisticId));
@@ -1222,7 +1322,7 @@ export function App() {
         }
       }
     })();
-  }, [persistTodo, selectedSessionId, session.sessionId]);
+  }, [appConfig, persistTodo, selectedSessionId, session.sessionId]);
 
   const handleGenerateSummary = useCallback(async () => {
     if (finalSummaryState.kind === "loading") return;

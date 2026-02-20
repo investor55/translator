@@ -96,16 +96,16 @@ export const finalSummarySchema = z.object({
     "Open unresolved questions from the meeting. 0-8 items. Empty array if none."
   ),
   agreementTodos: z.array(z.string()).describe(
-    "For agreements that exist, provide 1-3 concrete follow-up todos tied specifically to those agreements. Empty array if no agreements."
+    "For agreements that exist, provide 1-3 concrete follow-up todos tied specifically to those agreements. Keep each todo atomic (one action), imperative, and under 12 words. Empty array if no agreements."
   ),
   missedItemTodos: z.array(z.string()).describe(
-    "For missedItems that exist, provide 1-3 concrete todos to close gaps or blind spots. Empty array if no missedItems."
+    "For missedItems that exist, provide 1-3 concrete todos to close gaps or blind spots. Keep each todo atomic (one action), imperative, and under 12 words. Empty array if no missedItems."
   ),
   unansweredQuestionTodos: z.array(z.string()).describe(
-    "For unansweredQuestions that exist, provide 1-3 concrete investigation/decision todos to resolve them. Empty array if no unansweredQuestions."
+    "For unansweredQuestions that exist, provide 1-3 concrete investigation/decision todos to resolve them. Keep each todo atomic (one action), imperative, and under 12 words. Empty array if no unansweredQuestions."
   ),
   actionItems: z.array(z.string()).describe(
-    "Cross-cutting concrete action items not already captured in section-specific todos. Empty array if none."
+    "Cross-cutting concrete action items not already captured in section-specific todos. Keep each todo atomic (one action), imperative, and under 12 words. Empty array if none."
   ),
 });
 
@@ -160,6 +160,9 @@ Output requirements:
 - "agreementTodos": include a few follow-up todos tied to agreements.
 - "missedItemTodos": include a few corrective/validation todos for missed items.
 - "unansweredQuestionTodos": include a few investigation/decision todos for open questions.
+- Every todo must be a single atomic action a single agent can complete in one focused pass.
+- Keep each todo under 12 words and start with a strong verb.
+- Do not chain actions with "and", commas, or slash-separated tasks.
 - If a section has entries, provide at least 1 todo for that section.
 - If a section has no entries, use an empty todo array for that section.
 - "actionItems": only cross-cutting todos not already in the three section todo lists.

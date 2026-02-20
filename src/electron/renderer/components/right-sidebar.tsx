@@ -279,6 +279,7 @@ export function RightSidebar({
 }: RightSidebarProps) {
   const [mode, setMode] = useLocalStorage<RightRailMode>("ambient-right-rail-mode", "work");
   const [completedOpen, setCompletedOpen] = useState(false);
+  const lastAutoOpenedAgentIdRef = useRef<string | null>(null);
   const processingTodoIdSet = new Set(processingTodoIds);
 
   const { state: debriefState, generate: generateDebrief, canGenerate: canGenerateDebrief, preload: preloadDebrief } =
@@ -324,7 +325,13 @@ export function RightSidebar({
     }
   }, [mode, setMode, transcriptRefs.length]);
   useEffect(() => {
-    if (selectedAgentId && mode !== "agents") {
+    if (!selectedAgentId) {
+      lastAutoOpenedAgentIdRef.current = null;
+      return;
+    }
+    if (selectedAgentId === lastAutoOpenedAgentIdRef.current) return;
+    lastAutoOpenedAgentIdRef.current = selectedAgentId;
+    if (mode !== "agents") {
       setMode("agents");
     }
   }, [mode, selectedAgentId, setMode]);

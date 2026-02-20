@@ -3,6 +3,7 @@ import { PlusIcon, RefreshCwIcon, XIcon } from "lucide-react";
 import type { FinalSummary } from "../../../core/types";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { MessageResponse } from "@/components/ai-elements/message";
 
 export type SummaryModalState =
@@ -26,7 +27,9 @@ function clampPanelHeight(height: number): number {
 type Props = {
   state: SummaryModalState;
   onClose: () => void;
-  onAcceptItems?: (items: Array<{ text: string; details?: string }>) => void;
+  onAcceptItems?: (
+    items: Array<{ text: string; details?: string; source: TodoSource; userIntent?: string }>,
+  ) => void;
   onRegenerate?: () => void;
 };
 
@@ -76,6 +79,43 @@ function sourceMeta(source: TodoSource): {
   }
 }
 
+function buildTodoSuggestions(item: TodoCandidate): string[] {
+  const text = item.text.toLowerCase();
+
+  if (/\b(schedule|meeting|call|sync)\b/.test(text)) {
+    return ["Confirm attendees", "Send invite", "Set agenda"];
+  }
+  if (/\b(document|brief|spec|definition|proposal|outline)\b/.test(text)) {
+    return ["Draft outline", "Add details", "Share for review"];
+  }
+  if (/\b(research|analy|compare|evaluate|investigate)\b/.test(text)) {
+    return ["Define criteria", "Compare options", "Summarize findings"];
+  }
+  if (/\b(set up|setup|configure|integrat|tracking|dashboard|analytics)\b/.test(text)) {
+    return ["Create checklist", "Verify setup", "Track baseline"];
+  }
+  if (/\b(test|experiment|campaign|hypothesis|validate)\b/.test(text)) {
+    return ["Define hypothesis", "Set success metric", "Review results"];
+  }
+  if (/\b(refactor|cleanup|rewrite|modular)\b/.test(text)) {
+    return ["Scope modules", "Add tests", "Plan rollout"];
+  }
+  if (/\b(design|redesign|ui|ux|page)\b/.test(text)) {
+    return ["Define UX goal", "Create mockups", "Review with team"];
+  }
+
+  switch (item.source) {
+    case "agreement":
+      return ["Assign owner", "Set deadline", "Define done"];
+    case "missed":
+      return ["Find evidence", "Reduce risk", "Close gap"];
+    case "question":
+      return ["Answer question", "Compare options", "Choose direction"];
+    case "action":
+      return ["First steps", "One-week plan", "Set metric"];
+  }
+}
+
 function FactList({
   title,
   items,
@@ -119,14 +159,19 @@ function TodoRow({
   candidate,
   selected,
   accepted,
+  userIntent,
+  onIntentChange,
   onToggle,
 }: {
   candidate: TodoCandidate;
   selected: boolean;
   accepted: boolean;
+  userIntent: string;
+  onIntentChange: (value: string) => void;
   onToggle: () => void;
 }) {
   const meta = sourceMeta(candidate.source);
+  const suggestions = buildTodoSuggestions(candidate);
 
   return (
     <li
@@ -135,30 +180,65 @@ function TodoRow({
       tabIndex={accepted ? -1 : 0}
       onClick={accepted ? undefined : onToggle}
       onKeyDown={(e) => {
+        const target = e.target as HTMLElement | null;
+        if (target?.closest("input,button,textarea")) return;
         if (!accepted && (e.key === " " || e.key === "Enter")) {
           e.preventDefault();
           onToggle();
         }
       }}
-      className={`flex items-center gap-2.5 py-1.5 px-2 rounded border-l-2 ${meta.leftBorderClass} transition-colors select-none ${
+      className={`py-1.5 px-2 rounded border-l-2 ${meta.leftBorderClass} transition-colors select-none ${
         accepted ? "opacity-40 cursor-default" : "cursor-pointer hover:bg-muted/60"
       }`}
     >
-      <div
-        data-selected={selected}
-        className={`size-3.5 rounded-[4px] border shrink-0 transition-colors ${meta.checkboxClass} ${
-          accepted
-            ? "border-muted-foreground/40 bg-muted/20"
-            : selected
-              ? "border-foreground/40"
-              : ""
-        }`}
-      />
-      <div className="flex min-w-0 items-start gap-2">
-        <span className={`text-xs/relaxed ${selected && !accepted ? "text-foreground font-medium" : "text-foreground/80"}`}>
-          {candidate.text}
-        </span>
+      <div className="flex items-start gap-2.5">
+        <div
+          data-selected={selected}
+          className={`mt-0.5 size-3.5 rounded-[4px] border shrink-0 transition-colors ${meta.checkboxClass} ${
+            accepted
+              ? "border-muted-foreground/40 bg-muted/20"
+              : selected
+                ? "border-foreground/40"
+                : ""
+          }`}
+        />
+        <div className="flex min-w-0 items-start gap-2">
+          <span className={`text-xs/relaxed ${selected && !accepted ? "text-foreground font-medium" : "text-foreground/80"}`}>
+            {candidate.text}
+          </span>
+        </div>
       </div>
+
+      {selected && !accepted && (
+        <div
+          className="mt-1.5 ml-6 space-y-1.5"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <Input
+            value={userIntent}
+            onChange={(event) => onIntentChange(event.target.value)}
+            placeholder="Optional focus for this todo"
+            className="h-5 rounded-full border-border/70 bg-muted/35 px-2 text-2xs placeholder:text-muted-foreground/90"
+            maxLength={180}
+          />
+          <div className="flex flex-wrap items-center gap-1">
+            {suggestions.map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onIntentChange(suggestion);
+                }}
+                className="inline-flex h-5 items-center rounded-full border border-border/70 bg-muted/35 px-2 text-2xs text-muted-foreground hover:text-foreground hover:bg-muted/55 transition-colors"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </li>
   );
 }
@@ -168,12 +248,16 @@ function TodoSection({
   items,
   selectedIds,
   acceptedIds,
+  intentById,
+  onIntentChange,
   onToggle,
 }: {
   title: string;
   items: TodoCandidate[];
   selectedIds: Set<string>;
   acceptedIds: Set<string>;
+  intentById: Record<string, string>;
+  onIntentChange: (id: string, value: string) => void;
   onToggle: (id: string) => void;
 }) {
   if (items.length === 0) return null;
@@ -190,6 +274,8 @@ function TodoSection({
             candidate={item}
             selected={selectedIds.has(item.id)}
             accepted={acceptedIds.has(item.id)}
+            userIntent={intentById[item.id] ?? ""}
+            onIntentChange={(value) => onIntentChange(item.id, value)}
             onToggle={() => onToggle(item.id)}
           />
         ))}
@@ -204,6 +290,8 @@ function InterleavedSection({
   todos,
   selectedIds,
   acceptedIds,
+  intentById,
+  onIntentChange,
   onToggle,
 }: {
   source: TodoSource;
@@ -211,6 +299,8 @@ function InterleavedSection({
   todos: TodoCandidate[];
   selectedIds: Set<string>;
   acceptedIds: Set<string>;
+  intentById: Record<string, string>;
+  onIntentChange: (id: string, value: string) => void;
   onToggle: (id: string) => void;
 }) {
   const meta = sourceMeta(source);
@@ -224,6 +314,8 @@ function InterleavedSection({
         items={todos}
         selectedIds={selectedIds}
         acceptedIds={acceptedIds}
+        intentById={intentById}
+        onIntentChange={onIntentChange}
         onToggle={onToggle}
       />
     </div>
@@ -233,6 +325,7 @@ function InterleavedSection({
 export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerate }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
+  const [todoIntentById, setTodoIntentById] = useState<Record<string, string>>({});
   const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL_HEIGHT);
   const resizeStartRef = useRef<{ y: number; height: number } | null>(null);
 
@@ -267,8 +360,20 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
     if (state.kind === "ready") {
       setSelected(new Set());
       setAccepted(new Set());
+      setTodoIntentById({});
     }
   }, [state.kind]);
+
+  useEffect(() => {
+    setTodoIntentById((prev) => {
+      const next: Record<string, string> = {};
+      for (const id of selected) {
+        const current = prev[id];
+        if (current && current.trim()) next[id] = current;
+      }
+      return next;
+    });
+  }, [selected]);
 
   const summary = state.kind === "ready" ? state.summary : null;
 
@@ -306,6 +411,10 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
     });
   };
 
+  const setIntentForItem = useCallback((id: string, value: string) => {
+    setTodoIntentById((prev) => ({ ...prev, [id]: value }));
+  }, []);
+
   const handleAcceptSelected = () => {
     if (state.kind !== "ready" || selected.size === 0) return;
 
@@ -315,6 +424,8 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
       .filter((item): item is TodoCandidate => !!item)
       .map((item) => ({
         text: item.text,
+        source: item.source,
+        userIntent: todoIntentById[item.id]?.trim() || undefined,
         details: [
           state.summary.narrative ? `Context summary:\n${state.summary.narrative}` : "",
           `Source section: ${sourceMeta(item.source).sectionTitle}`,
@@ -326,10 +437,10 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
     onAcceptItems?.(payload);
     setAccepted((prev) => new Set([...prev, ...selected]));
     setSelected(new Set());
+    setTodoIntentById({});
   };
 
   const totalItems = todos.all.length;
-  const remainingItems = Math.max(0, totalItems - accepted.size);
 
   if (state.kind === "idle") return null;
 
@@ -399,6 +510,8 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
                 todos={todos.bySource.agreement}
                 selectedIds={selected}
                 acceptedIds={accepted}
+                intentById={todoIntentById}
+                onIntentChange={setIntentForItem}
                 onToggle={toggleItem}
               />
               <InterleavedSection
@@ -407,6 +520,8 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
                 todos={todos.bySource.missed}
                 selectedIds={selected}
                 acceptedIds={accepted}
+                intentById={todoIntentById}
+                onIntentChange={setIntentForItem}
                 onToggle={toggleItem}
               />
               <InterleavedSection
@@ -415,6 +530,8 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
                 todos={todos.bySource.question}
                 selectedIds={selected}
                 acceptedIds={accepted}
+                intentById={todoIntentById}
+                onIntentChange={setIntentForItem}
                 onToggle={toggleItem}
               />
               <InterleavedSection
@@ -423,6 +540,8 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
                 todos={todos.bySource.action}
                 selectedIds={selected}
                 acceptedIds={accepted}
+                intentById={todoIntentById}
+                onIntentChange={setIntentForItem}
                 onToggle={toggleItem}
               />
             </div>
@@ -430,41 +549,25 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
         )}
       </div>
 
-      {state.kind === "ready" && totalItems > 0 && (
+      {state.kind === "ready" && totalItems > 0 && selected.size > 0 && (
         <div className="shrink-0 border-t border-border/80 bg-background px-4 py-2">
           <div className="flex items-center justify-between gap-3">
             <span className="text-2xs text-muted-foreground">
-              {selected.size > 0
-                ? `${selected.size} selected`
-                : `${remainingItems} todo suggestion${remainingItems !== 1 ? "s" : ""} available`}
+              {`${selected.size} selected`}
             </span>
-            {selected.size > 0 ? (
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="text-2xs text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => setSelected(new Set())}
-                >
-                  Deselect all
-                </button>
-                <Button size="sm" onClick={handleAcceptSelected} className="gap-1 h-6 text-2xs px-2">
-                  <PlusIcon className="size-2.5" />
-                  Add to Todos
-                </Button>
-              </div>
-            ) : remainingItems > 0 ? (
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 className="text-2xs text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() =>
-                  setSelected(
-                    new Set(todos.all.map((item) => item.id).filter((id) => !accepted.has(id)))
-                  )
-                }
+                onClick={() => setSelected(new Set())}
               >
-                Select all
+                Deselect all
               </button>
-            ) : null}
+              <Button size="sm" onClick={handleAcceptSelected} className="gap-1 h-6 text-2xs px-2">
+                <PlusIcon className="size-2.5" />
+                Add to Todos
+              </Button>
+            </div>
           </div>
         </div>
       )}
