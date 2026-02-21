@@ -247,8 +247,12 @@ export function App() {
 
   // When the session hook signals session-ended (e.g. computer audio toggled off
   // with mic off), sync the app-level sessionActive state.
+  // Track previous value so we only react to true→false transitions, not initial false.
+  const prevSessionHookActiveRef = useRef(session.sessionActive);
   useEffect(() => {
-    if (sessionActive && session.sessionActive === false) {
+    const wasActive = prevSessionHookActiveRef.current;
+    prevSessionHookActiveRef.current = session.sessionActive;
+    if (sessionActive && wasActive && session.sessionActive === false) {
       micCapture.stop();
       setSessionActive(false);
       setResumeSessionId(null);
@@ -1539,6 +1543,7 @@ export function App() {
                 onAcceptSuggestion={handleAcceptSuggestion}
                 onDismissSuggestion={handleDismissSuggestion}
                 sessionId={selectedSessionId ?? session.sessionId ?? undefined}
+                sessionActive={sessionActive}
                 transcriptRefs={transcriptRefs}
                 onRemoveTranscriptRef={handleRemoveTranscriptRef}
                 onSubmitTaskInput={handleSubmitTaskInput}

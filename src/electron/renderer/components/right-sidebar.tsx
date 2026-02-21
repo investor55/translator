@@ -43,6 +43,7 @@ type RightSidebarProps = {
   onAcceptSuggestion?: (suggestion: TaskSuggestion) => void;
   onDismissSuggestion?: (id: string) => void;
   sessionId?: string;
+  sessionActive?: boolean;
   transcriptRefs?: string[];
   onRemoveTranscriptRef?: (index: number) => void;
   onSubmitTaskInput?: (text: string, refs: string[]) => void;
@@ -273,6 +274,7 @@ export function RightSidebar({
   onAcceptSuggestion,
   onDismissSuggestion,
   sessionId,
+  sessionActive = false,
   transcriptRefs = [],
   onRemoveTranscriptRef,
   onSubmitTaskInput,
@@ -353,14 +355,14 @@ export function RightSidebar({
       <div className="px-2 py-2 shrink-0 border-b border-border/70">
         <div className="grid grid-cols-2 gap-1 rounded-md bg-muted/50 p-1">
           <RailModeButton
-            active={mode === "work"}
-            onClick={() => setMode("work")}
-            label={`Work (${activeTasks.length + suggestions.length})`}
-          />
-          <RailModeButton
             active={mode === "agents"}
             onClick={() => setMode("agents")}
             label={runningAgentsCount > 0 ? `Agents (${runningAgentsCount} live)` : `Agents (${(agents ?? []).length})`}
+          />
+          <RailModeButton
+            active={mode === "work"}
+            onClick={() => setMode("work")}
+            label={`Work (${activeTasks.length + suggestions.length})`}
           />
         </div>
       </div>
@@ -497,14 +499,6 @@ export function RightSidebar({
           </>
         ) : (
           <div className="pt-2">
-            {agents && onSelectAgent && agents.length > 0 && (
-              <AgentDebriefPanel
-                state={debriefState}
-                onGenerate={generateDebrief}
-                canGenerate={canGenerateDebrief}
-                onAddTask={onAddTask}
-              />
-            )}
             <AgentList
               agents={agents ?? []}
               selectedAgentId={selectedAgentId ?? null}
@@ -515,6 +509,14 @@ export function RightSidebar({
               <p className="text-xs text-muted-foreground italic">
                 Agent activity will appear here once you run a task.
               </p>
+            )}
+            {agents && onSelectAgent && agents.length > 0 && (
+              <AgentDebriefPanel
+                state={debriefState}
+                onGenerate={generateDebrief}
+                canGenerate={canGenerateDebrief && sessionActive}
+                onAddTask={onAddTask}
+              />
             )}
           </div>
         )}

@@ -328,6 +328,7 @@ export class Session {
         searchTranscriptHistory: this.db ? (q: string, l?: number) => this.db!.searchBlocks(q, l) : undefined,
         searchAgentHistory: this.db ? (q: string, l?: number) => this.db!.searchAgents(q, l) : undefined,
         getExternalTools: this.getExternalTools,
+        compact: config.compact,
         allowAutoApprove: config.agentAutoApprove,
         db: this.db ?? undefined,
       });

@@ -35,6 +35,7 @@ type AgentManagerDeps = {
   dataDir?: string;
   getAgentsMd: () => string;
   getProjectAgentsMd?: () => string | null;
+  compact?: boolean;
   searchTranscriptHistory?: (query: string, limit?: number) => unknown[];
   searchAgentHistory?: (query: string, limit?: number) => unknown[];
   getExternalTools?: () => Promise<AgentExternalToolSet>;
@@ -407,6 +408,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         getTranscriptContext: deps.getTranscriptContext,
         projectInstructions: deps.getProjectInstructions?.(),
         agentsMd: agentsMd || undefined,
+        compact: deps.compact,
         searchTranscriptHistory: deps.searchTranscriptHistory,
         searchAgentHistory: deps.searchAgentHistory,
         getExternalTools: deps.getExternalTools,
@@ -468,6 +470,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         getTranscriptContext: deps.getTranscriptContext,
         projectInstructions: deps.getProjectInstructions?.(),
         agentsMd: agentsMd || undefined,
+        compact: deps.compact,
         searchTranscriptHistory: deps.searchTranscriptHistory,
         searchAgentHistory: deps.searchAgentHistory,
         getExternalTools: deps.getExternalTools,
@@ -641,6 +644,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         getTranscriptContext: deps.getTranscriptContext,
         projectInstructions: deps.getProjectInstructions?.(),
         agentsMd: agentsMd || undefined,
+        compact: deps.compact,
         searchTranscriptHistory: deps.searchTranscriptHistory,
         searchAgentHistory: deps.searchAgentHistory,
         getExternalTools: deps.getExternalTools,

@@ -37,6 +37,7 @@ type AgentDeps = {
   getTranscriptContext: () => string;
   projectInstructions?: string;
   agentsMd?: string;
+  compact?: boolean;
   searchTranscriptHistory?: (query: string, limit?: number) => unknown[];
   searchAgentHistory?: (query: string, limit?: number) => unknown[];
   getExternalTools?: () => Promise<AgentExternalToolSet>;
@@ -92,6 +93,7 @@ const buildSystemPrompt = (
   transcriptContext: string,
   projectInstructions?: string,
   agentsMd?: string,
+  compact?: boolean,
 ) => {
   const base = renderPromptTemplate(getAgentSystemPromptTemplate(), {
     today: formatCurrentDateForPrompt(new Date()),
@@ -106,6 +108,16 @@ const buildSystemPrompt = (
     sections.push(`## Agent Memory\n\n${agentsMd.trim()}`);
   }
   sections.push(base);
+
+  if (compact) {
+    sections.push(
+      "## Response Length\n\n" +
+      "Be concise. Prefer short paragraphs and bullet points over long prose. " +
+      "Lead with the key finding or answer, then add supporting detail only if it adds clear value. " +
+      "Omit filler, preambles, and restating the question. " +
+      "Aim for the shortest response that fully addresses the task."
+    );
+  }
 
   return sections.join("\n\n---\n\n");
 };
@@ -837,6 +849,7 @@ async function runAgentWithMessages(
     getTranscriptContext,
     projectInstructions,
     agentsMd,
+    compact,
     searchTranscriptHistory,
     searchAgentHistory,
     getExternalTools,
@@ -856,6 +869,7 @@ async function runAgentWithMessages(
       getTranscriptContext(),
       projectInstructions,
       agentsMd,
+      compact,
     );
     const tools = await buildTools(
       exa,
