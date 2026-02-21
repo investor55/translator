@@ -162,7 +162,7 @@ function getDefaultModelId(provider: TranscriptionProvider): string {
     case "elevenlabs":
       return DEFAULT_TRANSCRIPTION_MODEL_ID;
     case "openrouter":
-      return DEFAULT_VERTEX_MODEL_ID;
+      return `google/${DEFAULT_VERTEX_MODEL_ID}`;
     case "vertex":
       return DEFAULT_VERTEX_MODEL_ID;
   }

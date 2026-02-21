@@ -618,7 +618,7 @@ export class Session {
     }
   }
 
-  stopRecording(flushRemaining = true, commitPendingParagraphs = true, clearQueue = true): void {
+  stopRecording(flushRemaining = true, commitPendingParagraphs = true): void {
     if (!this.isRecording) return;
     this.isRecording = false;
 
@@ -647,13 +647,8 @@ export class Session {
       void this.evaluateParagraphs(true);
     }
 
-    if (clearQueue) {
-      this.chunkQueues.set("system", []);
-      this.inFlight.set("system", 0);
-    } else {
-      if (this.chunkQueues.get("system")!.length && this.inFlight.get("system")! < this.maxConcurrency) {
-        void this.processQueue("system");
-      }
+    if (this.chunkQueues.get("system")!.length && this.inFlight.get("system")! < this.maxConcurrency) {
+      void this.processQueue("system");
     }
     this.systemPipeline.overlap = Buffer.alloc(0);
     resetVadState(this.systemPipeline.vadState);
@@ -1065,7 +1060,7 @@ export class Session {
       );
     }
     if (this._micEnabled) this.stopMic(false);
-    if (this.isRecording) this.stopRecording(true, false, false);
+    if (this.isRecording) this.stopRecording(true, false);
     if (this.config.transcriptionProvider !== "elevenlabs") {
       await this.waitForTranscriptionDrain();
     }

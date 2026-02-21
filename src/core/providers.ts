@@ -11,7 +11,7 @@ export function createTranscriptionModel(config: SessionConfig): LanguageModel {
         apiKey: process.env.OPENROUTER_API_KEY,
       });
       return openrouter(config.transcriptionModelId, {
-        provider: { sort: "throughput" as const },
+        provider: { sort: "latency" as const },
       });
     }
     case "vertex": {

@@ -502,6 +502,7 @@ export function createDatabase(dbPath: string) {
               missedItemTodos: Array.isArray(parsed.missedItemTodos) ? parsed.missedItemTodos.filter((v): v is string => typeof v === "string") : [],
               unansweredQuestionTodos: Array.isArray(parsed.unansweredQuestionTodos) ? parsed.unansweredQuestionTodos.filter((v): v is string => typeof v === "string") : [],
               actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems.filter((v): v is string => typeof v === "string") : [],
+              modelId: parsed.modelId,
               generatedAt: typeof parsed.generatedAt === "number" ? parsed.generatedAt : (row.summaryGeneratedAt ?? 0),
             };
           }
