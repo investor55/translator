@@ -34,6 +34,7 @@ import { LeftSidebar } from "./components/left-sidebar";
 import { RightSidebar } from "./components/right-sidebar";
 import { AgentDetailPanel } from "./components/agent-detail-panel";
 import { NewAgentPanel } from "./components/new-agent-panel";
+import { MiddlePanelTabs } from "./components/middle-panel-tabs";
 import { Footer } from "./components/footer";
 import { SettingsPage } from "./components/settings-page";
 import { SplashScreen } from "./components/splash-screen";
@@ -49,15 +50,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-type ResizeHandle = "left" | "right" | "agent";
+type ResizeHandle = "left" | "right";
 
 const MIN_TRANSCRIPT_WIDTH = 360;
 const LEFT_PANEL_MIN_WIDTH = 220;
 const LEFT_PANEL_MAX_WIDTH = 520;
 const RIGHT_PANEL_MIN_WIDTH = 240;
 const RIGHT_PANEL_MAX_WIDTH = 560;
-const AGENT_PANEL_MIN_WIDTH = 320;
-const AGENT_PANEL_MAX_WIDTH = 720;
 const MAX_INSIGHTS = 240;
 
 function clampWidth(value: number, min: number, max: number): number {
@@ -186,12 +185,9 @@ export function App() {
     startX: number;
     startLeft: number;
     startRight: number;
-    startAgent: number;
-    hasAgent: boolean;
   } | null>(null);
   const [leftPanelWidth, setLeftPanelWidth] = useLocalStorage<number>("ambient-left-panel-width", 280);
   const [rightPanelWidth, setRightPanelWidth] = useLocalStorage<number>("ambient-right-panel-width", 300);
-  const [agentPanelWidth, setAgentPanelWidth] = useLocalStorage<number>("ambient-agent-panel-width", 420);
   const appConfig = useMemo(() => normalizeAppConfig(storedAppConfig), [storedAppConfig]);
 
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -687,12 +683,10 @@ export function App() {
       startX: clientX,
       startLeft: leftPanelWidth,
       startRight: rightPanelWidth,
-      startAgent: agentPanelWidth,
-      hasAgent: !!selectedAgent,
     };
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-  }, [agentPanelWidth, leftPanelWidth, rightPanelWidth, selectedAgent]);
+  }, [leftPanelWidth, rightPanelWidth]);
 
   const endResize = useCallback(() => {
     if (!resizeStateRef.current) return;
@@ -719,7 +713,6 @@ export function App() {
       if (activeResize.handle === "left") {
         const maxLeft = totalWidth
           - activeResize.startRight
-          - (activeResize.hasAgent ? activeResize.startAgent : 0)
           - MIN_TRANSCRIPT_WIDTH;
         setLeftPanelWidth(Math.round(clampWidth(
           activeResize.startLeft + delta,
@@ -729,22 +722,11 @@ export function App() {
       } else if (activeResize.handle === "right") {
         const maxRight = totalWidth
           - activeResize.startLeft
-          - (activeResize.hasAgent ? activeResize.startAgent : 0)
           - MIN_TRANSCRIPT_WIDTH;
         setRightPanelWidth(Math.round(clampWidth(
           activeResize.startRight - delta,
           RIGHT_PANEL_MIN_WIDTH,
           Math.min(RIGHT_PANEL_MAX_WIDTH, maxRight),
-        )));
-      } else if (activeResize.handle === "agent" && activeResize.hasAgent) {
-        const maxAgent = totalWidth
-          - activeResize.startLeft
-          - activeResize.startRight
-          - MIN_TRANSCRIPT_WIDTH;
-        setAgentPanelWidth(Math.round(clampWidth(
-          activeResize.startAgent - delta,
-          AGENT_PANEL_MIN_WIDTH,
-          Math.min(AGENT_PANEL_MAX_WIDTH, maxAgent),
         )));
       }
     };
@@ -756,7 +738,7 @@ export function App() {
       window.removeEventListener("mouseup", endResize);
       endResize();
     };
-  }, [endResize, setAgentPanelWidth, setLeftPanelWidth, setRightPanelWidth]);
+  }, [endResize, setLeftPanelWidth, setRightPanelWidth]);
 
   useEffect(() => {
     if (settingsOpen) return;
@@ -768,12 +750,10 @@ export function App() {
       const totalWidth = layoutEl.getBoundingClientRect().width;
       if (totalWidth <= 0) return;
 
-      const hasAgent = !!selectedAgent;
       let nextLeft = clampWidth(leftPanelWidth, LEFT_PANEL_MIN_WIDTH, LEFT_PANEL_MAX_WIDTH);
       let nextRight = clampWidth(rightPanelWidth, RIGHT_PANEL_MIN_WIDTH, RIGHT_PANEL_MAX_WIDTH);
-      let nextAgent = clampWidth(agentPanelWidth, AGENT_PANEL_MIN_WIDTH, AGENT_PANEL_MAX_WIDTH);
 
-      let overflow = nextLeft + nextRight + (hasAgent ? nextAgent : 0) - (totalWidth - MIN_TRANSCRIPT_WIDTH);
+      let overflow = nextLeft + nextRight - (totalWidth - MIN_TRANSCRIPT_WIDTH);
       if (overflow > 0) {
         const consumeOverflow = (current: number, min: number) => {
           const spare = Math.max(0, current - min);
@@ -782,27 +762,20 @@ export function App() {
           return current - reduction;
         };
         nextRight = consumeOverflow(nextRight, RIGHT_PANEL_MIN_WIDTH);
-        if (hasAgent) {
-          nextAgent = consumeOverflow(nextAgent, AGENT_PANEL_MIN_WIDTH);
-        }
         nextLeft = consumeOverflow(nextLeft, LEFT_PANEL_MIN_WIDTH);
       }
 
       if (nextLeft !== leftPanelWidth) setLeftPanelWidth(nextLeft);
       if (nextRight !== rightPanelWidth) setRightPanelWidth(nextRight);
-      if (nextAgent !== agentPanelWidth) setAgentPanelWidth(nextAgent);
     };
 
     clampPanelsToLayout();
     window.addEventListener("resize", clampPanelsToLayout);
     return () => window.removeEventListener("resize", clampPanelsToLayout);
   }, [
-    agentPanelWidth,
     leftPanelWidth,
     rightPanelWidth,
-    selectedAgent,
     settingsOpen,
-    setAgentPanelWidth,
     setLeftPanelWidth,
     setRightPanelWidth,
   ]);
@@ -1479,23 +1452,67 @@ export function App() {
             >
               <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />
             </div>
-            <main className="flex-1 flex flex-col min-h-0 min-w-0 relative">
-              <TranscriptArea
-                ref={transcriptRef}
-                blocks={session.blocks}
-                systemPartial={session.systemPartial}
-                micPartial={session.micPartial}
-                canTranslate={session.uiState?.canTranslate ?? false}
-                translationEnabled={session.uiState?.translationEnabled ?? false}
-                onAddTranscriptRef={handleAddTranscriptRef}
-              />
-              <SessionSummaryPanel
-                state={finalSummaryState}
-                onClose={() => setFinalSummaryState({ kind: "idle" })}
-                onAcceptItems={handleAcceptSummaryItems}
-                onRegenerate={handleRegenerateSummary}
-              />
-            </main>
+            <MiddlePanelTabs
+              summaryState={finalSummaryState}
+              hasAgent={!!selectedAgent || newAgentMode}
+              selectedAgent={selectedAgent}
+              agents={agents}
+              onCloseSummary={() => setFinalSummaryState({ kind: "idle" })}
+              onCloseAgent={() => {
+                selectAgent(null);
+                setNewAgentMode(false);
+              }}
+              onGenerateSummary={handleGenerateSummary}
+              transcriptContent={
+                <>
+                  <TranscriptArea
+                    ref={transcriptRef}
+                    blocks={session.blocks}
+                    systemPartial={session.systemPartial}
+                    micPartial={session.micPartial}
+                    canTranslate={session.uiState?.canTranslate ?? false}
+                    translationEnabled={session.uiState?.translationEnabled ?? false}
+                    onAddTranscriptRef={handleAddTranscriptRef}
+                  />
+                  <SessionSummaryPanel
+                    state={finalSummaryState}
+                    onClose={() => setFinalSummaryState({ kind: "idle" })}
+                    onAcceptItems={handleAcceptSummaryItems}
+                    onRegenerate={handleRegenerateSummary}
+                  />
+                </>
+              }
+              summaryContent={
+                <SessionSummaryPanel
+                  state={finalSummaryState}
+                  onClose={() => setFinalSummaryState({ kind: "idle" })}
+                  onAcceptItems={handleAcceptSummaryItems}
+                  onRegenerate={handleRegenerateSummary}
+                  asTabbedPanel
+                />
+              }
+              agentContent={
+                newAgentMode ? (
+                  <NewAgentPanel
+                    onLaunch={handleLaunchCustomAgent}
+                    onClose={() => setNewAgentMode(false)}
+                  />
+                ) : selectedAgent ? (
+                  <AgentDetailPanel
+                    agent={selectedAgent}
+                    agents={agents}
+                    onSelectAgent={selectAgent}
+                    onClose={() => selectAgent(null)}
+                    onFollowUp={handleFollowUp}
+                    onAnswerQuestion={handleAnswerAgentQuestion}
+                    onAnswerToolApproval={handleAnswerAgentToolApproval}
+                    onCancel={handleCancelAgent}
+                    onRelaunch={handleRelaunchAgent}
+                    onArchive={handleArchiveAgent}
+                  />
+                ) : null
+              }
+            />
             <div
               role="separator"
               aria-label="Resize right panel"
@@ -1527,40 +1544,6 @@ export function App() {
                 onSubmitTaskInput={handleSubmitTaskInput}
               />
             </div>
-            {(selectedAgent || newAgentMode) && (
-              <>
-                <div
-                  role="separator"
-                  aria-label="Resize agent panel"
-                  aria-orientation="vertical"
-                  className="aqua-resizer group relative w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-border/50"
-                  onMouseDown={handleResizeMouseDown("agent")}
-                >
-                  <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-foreground/30" />
-                </div>
-                <div className="shrink-0 min-h-0" style={{ width: agentPanelWidth }}>
-                  {newAgentMode ? (
-                    <NewAgentPanel
-                      onLaunch={handleLaunchCustomAgent}
-                      onClose={() => setNewAgentMode(false)}
-                    />
-                  ) : (
-                    <AgentDetailPanel
-                      agent={selectedAgent!}
-                      agents={agents}
-                      onSelectAgent={selectAgent}
-                      onClose={() => selectAgent(null)}
-                      onFollowUp={handleFollowUp}
-                      onAnswerQuestion={handleAnswerAgentQuestion}
-                      onAnswerToolApproval={handleAnswerAgentToolApproval}
-                      onCancel={handleCancelAgent}
-                      onRelaunch={handleRelaunchAgent}
-                      onArchive={handleArchiveAgent}
-                    />
-                  )}
-                </div>
-              </>
-            )}
           </>
         )}
       </div>

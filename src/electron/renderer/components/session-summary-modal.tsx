@@ -31,6 +31,7 @@ type Props = {
     items: Array<{ text: string; details?: string; source: TaskSource; userIntent?: string }>,
   ) => void;
   onRegenerate?: () => void;
+  asTabbedPanel?: boolean;
 };
 
 type TaskSource = "agreement" | "missed" | "question" | "action";
@@ -322,7 +323,7 @@ function InterleavedSection({
   );
 }
 
-export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerate }: Props) {
+export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerate, asTabbedPanel }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [taskIntentById, setTaskIntentById] = useState<Record<string, string>>({});
@@ -445,20 +446,29 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
   if (state.kind === "idle") return null;
 
   return (
-    <div className="shrink-0 border-t border-border bg-background flex flex-col" style={{ height: panelHeight }}>
-      <div
-        role="separator"
-        aria-label="Resize summary panel"
-        aria-orientation="horizontal"
-        className="group relative h-2 shrink-0 cursor-row-resize bg-transparent hover:bg-border/30"
-        onPointerDown={(event) => {
-          if (event.button !== 0) return;
-          resizeStartRef.current = { y: event.clientY, height: panelHeight };
-          event.preventDefault();
-        }}
-      >
-        <div className="pointer-events-none absolute left-1/2 top-1/2 h-px w-14 -translate-x-1/2 -translate-y-1/2 bg-border/80 transition-colors group-hover:bg-foreground/35" />
-      </div>
+    <div
+      className={
+        asTabbedPanel
+          ? "flex-1 min-h-0 bg-background flex flex-col"
+          : "shrink-0 border-t border-border bg-background flex flex-col"
+      }
+      style={asTabbedPanel ? undefined : { height: panelHeight }}
+    >
+      {!asTabbedPanel && (
+        <div
+          role="separator"
+          aria-label="Resize summary panel"
+          aria-orientation="horizontal"
+          className="group relative h-2 shrink-0 cursor-row-resize bg-transparent hover:bg-border/30"
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            resizeStartRef.current = { y: event.clientY, height: panelHeight };
+            event.preventDefault();
+          }}
+        >
+          <div className="pointer-events-none absolute left-1/2 top-1/2 h-px w-14 -translate-x-1/2 -translate-y-1/2 bg-border/80 transition-colors group-hover:bg-foreground/35" />
+        </div>
+      )}
 
       <div className="flex items-center justify-between px-4 py-2 shrink-0">
         <span className="text-xs font-medium text-foreground">Session Summary</span>

@@ -1031,7 +1031,7 @@ export function AgentDetailPanel({
   }, [agent.id, onCancel]);
 
   return (
-    <div className="w-full h-full shrink-0 border-l border-border flex flex-col min-h-0 bg-sidebar">
+    <div className="w-full h-full shrink-0 flex flex-col min-h-0 bg-sidebar">
       {/* Header */}
       <div className="shrink-0 border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
