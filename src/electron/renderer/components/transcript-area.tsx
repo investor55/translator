@@ -28,6 +28,7 @@ type TranscriptAreaProps = {
   systemPartial?: string;
   micPartial?: string;
   canTranslate?: boolean;
+  translationEnabled?: boolean;
   onAddTranscriptRef?: (text: string) => void;
 };
 
@@ -87,14 +88,13 @@ function joinTexts(
     .join(" ");
 }
 
-function Paragraph({ blocks, isLast, canTranslate }: { blocks: TranscriptBlock[]; isLast: boolean; canTranslate: boolean }) {
+function Paragraph({ blocks, isLast, canTranslate, translationEnabled }: { blocks: TranscriptBlock[]; isLast: boolean; canTranslate: boolean; translationEnabled: boolean }) {
   const first = blocks[0];
-  const isTranscriptionOnly = first.sourceLabel === first.targetLabel;
   const isNonEnglishSource = first.sourceLabel !== "EN";
 
   const sourceText = joinTexts(blocks, (b) => b.sourceText);
   const translationText = joinTexts(blocks, (b) => b.translation);
-  const hasPending = canTranslate && blocks.some((b) => !b.translation);
+  const hasPending = canTranslate && translationEnabled && blocks.some((b) => !b.translation);
 
   return (
     <div className={`pb-3 ${isLast ? "" : "mb-3 border-b border-border/50"}`}>
@@ -114,7 +114,7 @@ function Paragraph({ blocks, isLast, canTranslate }: { blocks: TranscriptBlock[]
           </span>
         )}
       </div>
-      {!isTranscriptionOnly && canTranslate && (
+      {translationEnabled && canTranslate && (
         <div className="text-sm mt-0.5">
           {translationText ? (
             <span className="text-foreground">
@@ -174,7 +174,7 @@ function NoteBlock({ note, isLast }: { note: UserNote; isLast: boolean }) {
 }
 
 export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
-  function TranscriptArea({ blocks, systemPartial, micPartial, canTranslate, onAddTranscriptRef }, ref) {
+  function TranscriptArea({ blocks, systemPartial, micPartial, canTranslate, translationEnabled, onAddTranscriptRef }, ref) {
     const bottomRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const selectionMenuTimerRef = useRef<number | null>(null);
@@ -390,6 +390,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
                   blocks={entry.blocks}
                   isLast={i === entries.length - 1}
                   canTranslate={canTranslate ?? false}
+                  translationEnabled={translationEnabled ?? false}
                 />
               ) : (
                 <NoteBlock

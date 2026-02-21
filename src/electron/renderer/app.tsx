@@ -1474,6 +1474,7 @@ export function App() {
                 systemPartial={session.systemPartial}
                 micPartial={session.micPartial}
                 canTranslate={session.uiState?.canTranslate ?? false}
+                translationEnabled={session.uiState?.translationEnabled ?? false}
                 onAddTranscriptRef={handleAddTranscriptRef}
               />
               <SessionSummaryPanel

@@ -14,6 +14,7 @@ const AUDIO_SOURCE_TARGET_PROMPT_PATH = path.join("prompts", "transcription", "a
 const TRANSCRIPT_POST_PROCESS_PROMPT_PATH = path.join("prompts", "transcription", "post-process.md");
 const AUDIO_TRANSCRIPTION_ONLY_PROMPT_PATH = path.join("prompts", "transcription", "audio-transcription-only.md");
 const PARAGRAPH_DECISION_PROMPT_PATH = path.join("prompts", "transcription", "paragraph-decision.md");
+const TRANSCRIPT_POLISH_PROMPT_PATH = path.join("prompts", "transcription", "transcript-polish.md");
 
 const DEFAULT_SUMMARY_SYSTEM_PROMPT = `You produce concise conversation key points for a live transcript.
 
@@ -212,6 +213,19 @@ Do not commit when:
 Transcript:
 """{{transcript}}"""`;
 
+const DEFAULT_TRANSCRIPT_POLISH_PROMPT = `{{context_block}}You are cleaning up a live speech transcript assembled from multiple overlapping audio chunks.
+
+Transcript to polish:
+"""{{transcript}}"""
+
+Rules:
+- Merge repeated or overlapping fragments into a single natural reading.
+- Fix cut-off words at chunk boundaries when context makes the intended word obvious.
+- Preserve the original meaning exactly. Do not add, remove, or reinterpret content.
+- Keep the original language. Do not translate.
+- If the text is already clean, return it as-is.
+- Return only the polished transcript text.`;
+
 function loadPrompt(relativePath: string, fallback: string): string {
   const fullPath = path.join(process.cwd(), relativePath);
   try {
@@ -285,4 +299,8 @@ export function getAudioTranscriptionOnlyPromptTemplate(): string {
 
 export function getParagraphDecisionPromptTemplate(): string {
   return loadPrompt(PARAGRAPH_DECISION_PROMPT_PATH, DEFAULT_PARAGRAPH_DECISION_PROMPT);
+}
+
+export function getTranscriptPolishPromptTemplate(): string {
+  return loadPrompt(TRANSCRIPT_POLISH_PROMPT_PATH, DEFAULT_TRANSCRIPT_POLISH_PROMPT);
 }

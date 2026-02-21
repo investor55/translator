@@ -95,6 +95,7 @@ import { preloadWhisperPipeline, disposeWhisperPipeline, transcribeWithWhisper }
 import {
   getParagraphDecisionPromptTemplate,
   getTranscriptPostProcessPromptTemplate,
+  getTranscriptPolishPromptTemplate,
   renderPromptTemplate,
 } from "./prompt-loader";
 
@@ -109,7 +110,7 @@ type AudioPipeline = {
   overlap: Buffer;
 };
 
-type WhisperPendingParagraph = {
+type PendingParagraph = {
   transcript: string;
   detectedLangHint: LanguageCode;
   audioSource: AudioSource;
@@ -205,7 +206,7 @@ export class Session {
   private audioTranscriptionSchema: z.ZodObject<z.ZodRawShape>;
   private transcriptionOnlySchema: z.ZodObject<z.ZodRawShape>;
   private textPostProcessSchema: z.ZodObject<z.ZodRawShape>;
-  private whisperParagraphDecisionSchema: z.ZodObject<z.ZodRawShape>;
+  private paragraphDecisionSchema: z.ZodObject<z.ZodRawShape>;
 
   private isRecording = false;
   private audioRecorder: AudioRecorder | null = null;
@@ -242,10 +243,10 @@ export class Session {
   private micConnection: RealtimeConnection | null = null;
   private systemReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private micReconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private whisperPendingParagraphs = new Map<AudioSource, WhisperPendingParagraph>();
-  private whisperParagraphDecisionInFlight = false;
-  private whisperLastParagraphDecisionAt = 0;
-  private readonly whisperParagraphDecisionIntervalMs = 10_000;
+  private pendingParagraphs = new Map<AudioSource, PendingParagraph>();
+  private paragraphDecisionInFlight = false;
+  private lastParagraphDecisionAt = 0;
+  private readonly paragraphDecisionIntervalMs = 10_000;
 
   private contextState: ContextState = createContextState();
   private costAccumulator: CostAccumulator = createCostAccumulator();
@@ -401,7 +402,7 @@ export class Session {
         .describe("True if the transcript shifts to a new topic compared with provided context."),
     });
 
-    this.whisperParagraphDecisionSchema = z.object({
+    this.paragraphDecisionSchema = z.object({
       shouldCommit: z
         .boolean()
         .describe("True if the running transcript has reached a natural paragraph break and should be committed now."),
@@ -448,6 +449,15 @@ export class Session {
 
   get micEnabled(): boolean {
     return this._micEnabled;
+  }
+
+  private get usesParagraphBuffering(): boolean {
+    if (this.config.transcriptionProvider === "whisper") return true;
+    if (
+      (this.config.transcriptionProvider === "vertex" || this.config.transcriptionProvider === "openrouter")
+      && !this._translationEnabled
+    ) return true;
+    return false;
   }
 
   async initialize(): Promise<void> {
@@ -507,8 +517,8 @@ export class Session {
     this.systemPipeline.overlap = Buffer.alloc(0);
     this.inFlight.set("system", 0);
     this.inFlight.set("microphone", 0);
-    this.whisperPendingParagraphs.clear();
-    this.whisperLastParagraphDecisionAt = 0;
+    this.pendingParagraphs.clear();
+    this.lastParagraphDecisionAt = 0;
     this.events.emit("partial", { source: null, text: "" });
 
     if (!resume) {
@@ -605,7 +615,7 @@ export class Session {
     }
   }
 
-  stopRecording(flushRemaining = true, commitWhisperPending = true, clearQueue = true): void {
+  stopRecording(flushRemaining = true, commitPendingParagraphs = true, clearQueue = true): void {
     if (!this.isRecording) return;
     this.isRecording = false;
 
@@ -627,11 +637,11 @@ export class Session {
         void this.processQueue("system");
       }
     }
-    if (commitWhisperPending && this.config.transcriptionProvider === "whisper") {
-      void this.evaluateWhisperParagraphs(true);
+    if (commitPendingParagraphs && this.usesParagraphBuffering) {
+      void this.evaluateParagraphs(true);
     }
 
-    if (this._micEnabled) this.stopMic(commitWhisperPending);
+    if (this._micEnabled) this.stopMic(commitPendingParagraphs);
 
     if (clearQueue) {
       this.chunkQueues.set("system", []);
@@ -759,7 +769,7 @@ export class Session {
     this.handleAudioData(this.micPipeline, data);
   }
 
-  stopMic(commitWhisperPending = true): void {
+  stopMic(commitPendingParagraphs = true): void {
     if (!this._micEnabled) return;
 
     if (this.config.transcriptionProvider === "elevenlabs") {
@@ -770,8 +780,8 @@ export class Session {
         this.enqueueChunk(this.micPipeline, remaining);
         void this.processQueue("microphone");
       }
-      if (commitWhisperPending && this.config.transcriptionProvider === "whisper") {
-        void this.evaluateWhisperParagraphs(true, ["microphone"]);
+      if (commitPendingParagraphs && this.usesParagraphBuffering) {
+        void this.evaluateParagraphs(true, ["microphone"]);
       }
     }
 
@@ -790,7 +800,11 @@ export class Session {
 
   toggleTranslation(): boolean {
     if (!this.canTranslate) return false;
+    const wasBuffering = this.usesParagraphBuffering;
     this._translationEnabled = !this._translationEnabled;
+    if (wasBuffering && this._translationEnabled) {
+      void this.evaluateParagraphs(true);
+    }
     this.events.emit("state-change", this.getUIState(this.isRecording ? "recording" : "paused"));
     log("INFO", `Translation ${this._translationEnabled ? "enabled" : "disabled"}`);
     return this._translationEnabled;
@@ -1022,10 +1036,10 @@ export class Session {
 
   async shutdown(): Promise<void> {
     log("INFO", "Session shutdown");
-    if (this.config.transcriptionProvider === "whisper") {
+    if (this.usesParagraphBuffering) {
       log(
         "INFO",
-        `Whisper shutdown flush start: queue=${this.chunkQueues.get("system")!.length + this.chunkQueues.get("microphone")!.length} inflight=${this.inFlight.get("system")! + this.inFlight.get("microphone")!} pendingParagraphs=${this.whisperPendingParagraphs.size}`,
+        `Paragraph shutdown flush start: queue=${this.chunkQueues.get("system")!.length + this.chunkQueues.get("microphone")!.length} inflight=${this.inFlight.get("system")! + this.inFlight.get("microphone")!} pendingParagraphs=${this.pendingParagraphs.size}`,
       );
     }
     if (this._micEnabled) this.stopMic(false);
@@ -1033,14 +1047,16 @@ export class Session {
     if (this.config.transcriptionProvider !== "elevenlabs") {
       await this.waitForTranscriptionDrain();
     }
-    if (this.config.transcriptionProvider === "whisper") {
-      await this.waitForWhisperParagraphDecisionIdle();
-      await this.evaluateWhisperParagraphs(true);
-      log("INFO", `Whisper shutdown flush done: pendingParagraphs=${this.whisperPendingParagraphs.size}`);
-      this.whisperPendingParagraphs.clear();
-      disposeWhisperPipeline();
+    if (this.usesParagraphBuffering) {
+      await this.waitForParagraphDecisionIdle();
+      await this.evaluateParagraphs(true);
+      log("INFO", `Paragraph shutdown flush done: pendingParagraphs=${this.pendingParagraphs.size}`);
+      this.pendingParagraphs.clear();
     } else {
-      this.whisperPendingParagraphs.clear();
+      this.pendingParagraphs.clear();
+    }
+    if (this.config.transcriptionProvider === "whisper") {
+      disposeWhisperPipeline();
     }
     this.events.emit("partial", { source: null, text: "" });
     writeSummaryLog(this.contextState.allKeyPoints);
@@ -1369,7 +1385,7 @@ export class Session {
     this.scheduleAnalysis(0);
   }
 
-  private mergeWhisperTranscript(existing: string, incoming: string): string {
+  private mergeParagraphTranscript(existing: string, incoming: string): string {
     const a = existing.trim();
     const b = incoming.trim();
     if (!a) return b;
@@ -1381,28 +1397,70 @@ export class Session {
     return `${a} ${b}`.replace(/\s+/g, " ").trim();
   }
 
-  private updateWhisperPreview(): void {
-    for (const [src, para] of this.whisperPendingParagraphs) {
+  private updateParagraphPreview(): void {
+    for (const [src, para] of this.pendingParagraphs) {
       this.events.emit("partial", { source: src, text: para.transcript });
     }
-    if (this.whisperPendingParagraphs.size === 0) {
+    if (this.pendingParagraphs.size === 0) {
       this.events.emit("partial", { source: null, text: "" });
     }
   }
 
-  private async evaluateWhisperParagraphs(forceCommit: boolean, sources?: AudioSource[]): Promise<void> {
-    if (this.config.transcriptionProvider !== "whisper") return;
-    if (this.whisperParagraphDecisionInFlight) return;
+  private async polishTranscript(transcript: string): Promise<string> {
+    const trimmed = transcript.trim();
+    if (trimmed.length < 20) return trimmed;
+
+    const contextWindow = getContextWindow(this.contextState);
+    const contextBlock = contextWindow.length
+      ? `Recent transcript context:\n${contextWindow.join("\n")}\n\n`
+      : "";
+
+    const prompt = renderPromptTemplate(getTranscriptPolishPromptTemplate(), {
+      context_block: contextBlock,
+      transcript: trimmed,
+    });
+
+    try {
+      const { object, usage } = await generateObject({
+        model: this.utilitiesModel,
+        schema: z.object({ polished: z.string() }),
+        prompt,
+        temperature: 0,
+        abortSignal: AbortSignal.timeout(5000),
+      });
+
+      const totalCost = addCostToAcc(
+        this.costAccumulator,
+        usage?.inputTokens ?? 0,
+        usage?.outputTokens ?? 0,
+        "text",
+        "openrouter",
+      );
+      this.events.emit("cost-updated", totalCost);
+
+      const polished = (object as { polished: string }).polished.trim();
+      return polished || trimmed;
+    } catch (error) {
+      if (this.config.debug) {
+        log("WARN", `Transcript polish failed: ${toReadableError(error)}`);
+      }
+      return trimmed;
+    }
+  }
+
+  private async evaluateParagraphs(forceCommit: boolean, sources?: AudioSource[]): Promise<void> {
+    if (!this.usesParagraphBuffering) return;
+    if (this.paragraphDecisionInFlight) return;
     const sourceSet = sources ? new Set(sources) : null;
-    const candidates = [...this.whisperPendingParagraphs.values()].filter((entry) =>
+    const candidates = [...this.pendingParagraphs.values()].filter((entry) =>
       sourceSet ? sourceSet.has(entry.audioSource) : true
     );
     if (candidates.length === 0) return;
 
-    this.whisperParagraphDecisionInFlight = true;
+    this.paragraphDecisionInFlight = true;
     try {
       for (const state of candidates) {
-        const pending = this.whisperPendingParagraphs.get(state.audioSource);
+        const pending = this.pendingParagraphs.get(state.audioSource);
         if (!pending) continue;
         if (!forceCommit && pending.transcript.trim().length < 24) continue;
 
@@ -1416,7 +1474,7 @@ export class Session {
           try {
             const { object } = await generateObject({
               model: this.taskModel,
-              schema: this.whisperParagraphDecisionSchema,
+              schema: this.paragraphDecisionSchema,
               prompt,
               temperature: 0,
               abortSignal: AbortSignal.timeout(6000),
@@ -1427,7 +1485,7 @@ export class Session {
             }
           } catch (error) {
             if (this.config.debug) {
-              log("WARN", `Whisper paragraph decision failed: ${toReadableError(error)}`);
+              log("WARN", `Paragraph decision failed: ${toReadableError(error)}`);
             }
             // Fallback heuristic when model decision is unavailable.
             shouldCommit = /[.!?\u3002\uFF01\uFF1F…]["')\]]?$/.test(transcriptForDecision);
@@ -1435,35 +1493,39 @@ export class Session {
         }
 
         if (!transcriptForDecision) {
-          this.whisperPendingParagraphs.delete(pending.audioSource);
-          this.updateWhisperPreview();
+          this.pendingParagraphs.delete(pending.audioSource);
+          this.updateParagraphPreview();
           continue;
         }
 
         if (!shouldCommit) {
           pending.transcript = transcriptForDecision;
           pending.lastUpdatedAt = Date.now();
-          this.whisperPendingParagraphs.set(pending.audioSource, pending);
-          this.updateWhisperPreview();
+          this.pendingParagraphs.set(pending.audioSource, pending);
+          this.updateParagraphPreview();
           continue;
         }
 
-        this.whisperPendingParagraphs.delete(pending.audioSource);
-        this.updateWhisperPreview();
+        this.pendingParagraphs.delete(pending.audioSource);
+        this.updateParagraphPreview();
+        let finalTranscript = transcriptForDecision;
+        if (this.config.transcriptionProvider !== "whisper") {
+          finalTranscript = await this.polishTranscript(transcriptForDecision);
+        }
         await this.handleElevenLabsCommit(
-          transcriptForDecision,
+          finalTranscript,
           pending.detectedLangHint,
           pending.audioSource,
           pending.capturedAt,
         );
-        this.updateWhisperPreview();
+        this.updateParagraphPreview();
       }
     } finally {
-      this.whisperParagraphDecisionInFlight = false;
+      this.paragraphDecisionInFlight = false;
     }
   }
 
-  private queueWhisperParagraphChunk(
+  private queueParagraphChunk(
     transcript: string,
     detectedLangHint: LanguageCode,
     audioSource: AudioSource,
@@ -1472,9 +1534,9 @@ export class Session {
     const incoming = transcript.trim();
     if (!incoming) return;
 
-    const existing = this.whisperPendingParagraphs.get(audioSource);
+    const existing = this.pendingParagraphs.get(audioSource);
     if (!existing) {
-      this.whisperPendingParagraphs.set(audioSource, {
+      this.pendingParagraphs.set(audioSource, {
         transcript: incoming,
         detectedLangHint,
         audioSource,
@@ -1482,18 +1544,18 @@ export class Session {
         lastUpdatedAt: Date.now(),
       });
     } else {
-      existing.transcript = this.mergeWhisperTranscript(existing.transcript, incoming);
+      existing.transcript = this.mergeParagraphTranscript(existing.transcript, incoming);
       existing.detectedLangHint = detectedLangHint;
       existing.lastUpdatedAt = Date.now();
-      this.whisperPendingParagraphs.set(audioSource, existing);
+      this.pendingParagraphs.set(audioSource, existing);
     }
 
-    this.updateWhisperPreview();
+    this.updateParagraphPreview();
 
     const now = Date.now();
-    if (now - this.whisperLastParagraphDecisionAt >= this.whisperParagraphDecisionIntervalMs) {
-      this.whisperLastParagraphDecisionAt = now;
-      void this.evaluateWhisperParagraphs(false, [audioSource]);
+    if (now - this.lastParagraphDecisionAt >= this.paragraphDecisionIntervalMs) {
+      this.lastParagraphDecisionAt = now;
+      void this.evaluateParagraphs(false, [audioSource]);
     }
   }
 
@@ -1570,12 +1632,12 @@ export class Session {
     }
   }
 
-  private async waitForWhisperParagraphDecisionIdle(timeoutMs = 3000): Promise<void> {
-    if (!this.whisperParagraphDecisionInFlight) return;
+  private async waitForParagraphDecisionIdle(timeoutMs = 3000): Promise<void> {
+    if (!this.paragraphDecisionInFlight) return;
     const deadline = Date.now() + timeoutMs;
-    while (this.whisperParagraphDecisionInFlight) {
+    while (this.paragraphDecisionInFlight) {
       if (Date.now() >= deadline) {
-        log("WARN", "Timed out waiting for Whisper paragraph decision to finish");
+        log("WARN", "Timed out waiting for paragraph decision to finish");
         return;
       }
       await new Promise<void>((resolve) => setTimeout(resolve, 25));
@@ -1611,7 +1673,7 @@ export class Session {
 
       if (this.config.transcriptionProvider === "whisper") {
         const result = await transcribeWithWhisper(chunk, this.config.transcriptionModelId, this.config.sourceLang, this.config.targetLang);
-        this.queueWhisperParagraphChunk(
+        this.queueParagraphChunk(
           result.transcript,
           result.detectedLang,
           audioSource,
@@ -1688,6 +1750,12 @@ export class Session {
 
       if (!translation && !transcript) {
         log("WARN", "Transcription returned empty transcript and translation");
+        return;
+      }
+
+      // Transcription-only mode for Vertex/OpenRouter: buffer into paragraph preview
+      if (!this._translationEnabled && this.usesParagraphBuffering) {
+        this.queueParagraphChunk(transcript, detectedLang, audioSource, capturedAt);
         return;
       }
 
@@ -1927,8 +1995,8 @@ export class Session {
       || (
         hasNewTaskBlocks
         && (
-          // Whisper/ElevenLabs have preview text; run task scan when a paragraph is committed.
-          this.config.transcriptionProvider === "whisper"
+          // Providers with paragraph buffering or streaming commit paragraphs; run task scan on commit.
+          this.usesParagraphBuffering
           || this.config.transcriptionProvider === "elevenlabs"
           || now - this.lastTaskAnalysisAt >= this.taskAnalysisIntervalMs
         )
