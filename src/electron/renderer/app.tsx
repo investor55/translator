@@ -8,8 +8,8 @@ import type {
   Language,
   LanguageCode,
   McpProviderToolSummary,
-  TodoItem,
-  TodoSuggestion,
+  TaskItem,
+  TaskSuggestion,
   Insight,
   ProjectMeta,
   SessionMeta,
@@ -64,7 +64,7 @@ function clampWidth(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
-function buildAiSuggestionDetails(suggestion: TodoSuggestion): string | undefined {
+function buildAiSuggestionDetails(suggestion: TaskSuggestion): string | undefined {
   const sections = [
     suggestion.details?.trim()
       ? `Context summary:\n${suggestion.details.trim()}`
@@ -77,7 +77,7 @@ function buildAiSuggestionDetails(suggestion: TodoSuggestion): string | undefine
   return sections.length > 0 ? sections.join("\n\n") : undefined;
 }
 
-function normalizeAgentTodoTitle(text: string): string {
+function normalizeAgentTaskTitle(text: string): string {
   const collapsed = text
     .trim()
     .replace(/\s+/g, " ")
@@ -115,14 +115,14 @@ function buildSummarySelectionText(item: {
   source?: "agreement" | "missed" | "question" | "action";
 }): string {
   const sections = [
-    `Suggested todo:\n${item.text.trim()}`,
+    `Suggested task:\n${item.text.trim()}`,
     item.source ? `Section:\n${summarySourceTitle(item.source)}` : "",
     item.details?.trim() ? item.details.trim() : "",
   ].filter(Boolean);
   return sections.join("\n\n");
 }
 
-function buildSummaryTodoIntent(
+function buildSummaryTaskIntent(
   userIntent?: string,
   source?: "agreement" | "missed" | "question" | "action",
 ): string {
@@ -130,7 +130,7 @@ function buildSummaryTodoIntent(
   const sections = [
     trimmedIntent ? `User requested outcome:\n${trimmedIntent}` : "",
     source ? `Summary section:\n${summarySourceTitle(source)}` : "",
-    "Create one narrow, agent-executable todo focused on the highest-impact next step. Avoid combining multiple actions.",
+    "Create one narrow, agent-executable task focused on the highest-impact next step. Avoid combining multiple actions.",
   ].filter(Boolean);
   return sections.join("\n\n");
 }
@@ -194,11 +194,11 @@ export function App() {
   const [agentPanelWidth, setAgentPanelWidth] = useLocalStorage<number>("ambient-agent-panel-width", 420);
   const appConfig = useMemo(() => normalizeAppConfig(storedAppConfig), [storedAppConfig]);
 
-  const [todos, setTodos] = useState<TodoItem[]>([]);
-  const [pendingApprovalTodo, setPendingApprovalTodo] = useState<TodoItem | null>(null);
-  const [approvingLargeTodo, setApprovingLargeTodo] = useState(false);
-  const [suggestions, setSuggestions] = useState<TodoSuggestion[]>([]);
-  const [processingTodoIds, setProcessingTodoIds] = useState<string[]>([]);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [pendingApprovalTask, setPendingApprovalTask] = useState<TaskItem | null>(null);
+  const [approvingLargeTask, setApprovingLargeTask] = useState(false);
+  const [suggestions, setSuggestions] = useState<TaskSuggestion[]>([]);
+  const [processingTaskIds, setProcessingTaskIds] = useState<string[]>([]);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
@@ -226,8 +226,8 @@ export function App() {
 
   const handleResumed = useCallback((data: ResumeData) => {
     setSelectedSessionId(data.sessionId);
-    setTodos(data.todos);
-    setProcessingTodoIds([]);
+    setTasks(data.tasks);
+    setProcessingTaskIds([]);
     setInsights(mergeInsights([], data.insights));
     seedAgents(data.agents);
     setFinalSummaryState({ kind: "idle" });
@@ -261,8 +261,8 @@ export function App() {
       setSelectedSessionId(null);
       setSessionActive(false);
       setResumeSessionId(null);
-      setTodos([]);
-      setProcessingTodoIds([]);
+      setTasks([]);
+      setProcessingTaskIds([]);
       setSuggestions([]);
       setInsights([]);
       seedAgents([]);
@@ -279,8 +279,8 @@ export function App() {
       setSelectedSessionId(null);
       setSessionActive(false);
       setResumeSessionId(null);
-      setTodos([]);
-      setProcessingTodoIds([]);
+      setTasks([]);
+      setProcessingTaskIds([]);
       setSuggestions([]);
       setInsights([]);
       seedAgents([]);
@@ -293,8 +293,8 @@ export function App() {
     setSplashDone(true);
     setSettingsOpen(false);
     setSuggestions([]);
-    setTodos([]);
-    setProcessingTodoIds([]);
+    setTasks([]);
+    setProcessingTaskIds([]);
     setInsights([]);
     seedAgents([]);
     setFinalSummaryState({ kind: "idle" });
@@ -381,7 +381,7 @@ export function App() {
 
   useThemeMode(appConfig.themeMode, appConfig.lightVariant, appConfig.darkVariant, appConfig.fontSize, appConfig.fontFamily);
 
-  const appendSuggestions = useCallback((incoming: TodoSuggestion[]) => {
+  const appendSuggestions = useCallback((incoming: TaskSuggestion[]) => {
     if (incoming.length === 0) return;
     setSuggestions((prev) => {
       const existingIds = new Set(prev.map((item) => item.id));
@@ -395,7 +395,7 @@ export function App() {
     });
   }, []);
 
-  const handleTodoSuggested = useCallback((suggestion: TodoSuggestion) => {
+  const handleTaskSuggested = useCallback((suggestion: TaskSuggestion) => {
     appendSuggestions([suggestion]);
   }, [appendSuggestions]);
 
@@ -411,9 +411,9 @@ export function App() {
     setFinalSummaryState({ kind: "error", message: error });
   }, []);
 
-  // Keep these listeners active so todo suggestions and insights stream into the UI.
+  // Keep these listeners active so task suggestions and insights stream into the UI.
   useSessionEventStream({
-    onTodoSuggested: handleTodoSuggested,
+    onTaskSuggested: handleTaskSuggested,
     onInsightAdded: handleInsightAdded,
     onFinalSummaryReady: handleFinalSummaryReady,
     onFinalSummaryError: handleFinalSummaryError,
@@ -622,8 +622,8 @@ export function App() {
     replaceSessionPath(null);
     setSelectedSessionId(null);
     setResumeSessionId(null);
-    setTodos([]);
-    setProcessingTodoIds([]);
+    setTasks([]);
+    setProcessingTaskIds([]);
     setInsights([]);
     seedAgents([]);
     setFinalSummaryState({ kind: "idle" });
@@ -649,8 +649,8 @@ export function App() {
     pendingNewSessionRouteRef.current = true;
     setSelectedSessionId(null);
     setResumeSessionId(null);
-    setTodos([]);
-    setProcessingTodoIds([]);
+    setTasks([]);
+    setProcessingTaskIds([]);
     setSuggestions([]);
     setInsights([]);
     seedAgents([]);
@@ -795,7 +795,7 @@ export function App() {
     setRightPanelWidth,
   ]);
 
-  const persistTodo = useCallback(async ({
+  const persistTask = useCallback(async ({
     targetSessionId,
     text,
     details,
@@ -806,11 +806,11 @@ export function App() {
     targetSessionId: string;
     text: string;
     details?: string;
-    source: TodoItem["source"];
+    source: TaskItem["source"];
     id?: string;
     createdAt?: number;
-  }): Promise<{ ok: boolean; todo?: TodoItem; error?: string }> => {
-    const todo: TodoItem = {
+  }): Promise<{ ok: boolean; task?: TaskItem; error?: string }> => {
+    const task: TaskItem = {
       id: id ?? crypto.randomUUID(),
       text,
       details,
@@ -820,17 +820,17 @@ export function App() {
       createdAt: createdAt ?? Date.now(),
       sessionId: targetSessionId,
     };
-    const result = await window.electronAPI.addTodo(todo, appConfig);
+    const result = await window.electronAPI.addTask(task, appConfig);
     if (!result.ok) {
       return { ok: false, error: result.error ?? "Unknown error" };
     }
-    return { ok: true, todo: result.todo ?? todo };
+    return { ok: true, task: result.task ?? task };
   }, [appConfig]);
 
-  const handleAddTodo = useCallback(async (text: string, details?: string) => {
+  const handleAddTask = useCallback(async (text: string, details?: string) => {
     const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
     if (!targetSessionId) {
-      setRouteNotice("Select or start a session before adding todos.");
+      setRouteNotice("Select or start a session before adding tasks.");
       return false;
     }
 
@@ -840,7 +840,7 @@ export function App() {
     }
 
     const optimisticId = crypto.randomUUID();
-    const optimisticTodo: TodoItem = {
+    const optimisticTask: TaskItem = {
       id: optimisticId,
       text: trimmedText,
       details,
@@ -852,42 +852,42 @@ export function App() {
     };
 
     setRouteNotice("");
-    setTodos((prev) => [optimisticTodo, ...prev]);
-    setProcessingTodoIds((prev) => (prev.includes(optimisticId) ? prev : [optimisticId, ...prev]));
+    setTasks((prev) => [optimisticTask, ...prev]);
+    setProcessingTaskIds((prev) => (prev.includes(optimisticId) ? prev : [optimisticId, ...prev]));
 
-    const result = await persistTodo({
+    const result = await persistTask({
       targetSessionId,
       text: trimmedText,
       details,
       source: "manual",
       id: optimisticId,
-      createdAt: optimisticTodo.createdAt,
+      createdAt: optimisticTask.createdAt,
     });
 
-    setProcessingTodoIds((prev) => prev.filter((id) => id !== optimisticId));
+    setProcessingTaskIds((prev) => prev.filter((id) => id !== optimisticId));
     if (!result.ok) {
-      setTodos((prev) => prev.filter((todo) => todo.id !== optimisticId));
-      setRouteNotice(`Failed to add todo: ${result.error ?? "Unknown error"}`);
+      setTasks((prev) => prev.filter((t) => t.id !== optimisticId));
+      setRouteNotice(`Failed to add task: ${result.error ?? "Unknown error"}`);
       return false;
     }
 
-    setTodos((prev) =>
-      prev.map((todo) => (todo.id === optimisticId ? result.todo! : todo))
+    setTasks((prev) =>
+      prev.map((t) => (t.id === optimisticId ? result.task! : t))
     );
     return true;
-  }, [persistTodo, selectedSessionId, session.sessionId]);
+  }, [persistTask, selectedSessionId, session.sessionId]);
 
-  const handleCreateTodoFromSelection = useCallback(async (selectionText: string, userIntentText?: string) => {
+  const handleCreateTaskFromSelection = useCallback(async (selectionText: string, userIntentText?: string) => {
     const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
     if (!targetSessionId) {
-      const message = "Select or start a session before creating todos.";
+      const message = "Select or start a session before creating tasks.";
       setRouteNotice(message);
       return { ok: false, message };
     }
 
     const placeholderId = `processing-${crypto.randomUUID()}`;
     const trimmedIntent = userIntentText?.trim() ?? "";
-    const placeholderTodo: TodoItem = {
+    const placeholderTask: TaskItem = {
       id: placeholderId,
       text: trimmedIntent
         ? `Processing: ${trimmedIntent}`
@@ -898,19 +898,19 @@ export function App() {
       createdAt: Date.now(),
       sessionId: targetSessionId,
     };
-    setTodos((prev) => [placeholderTodo, ...prev]);
-    setProcessingTodoIds((prev) => [placeholderId, ...prev]);
-    setRouteNotice("Processing highlighted text into a todo...");
+    setTasks((prev) => [placeholderTask, ...prev]);
+    setProcessingTaskIds((prev) => [placeholderId, ...prev]);
+    setRouteNotice("Processing highlighted text into a task...");
 
     void (async () => {
       const finalizeProcessing = () => {
-        setProcessingTodoIds((prev) => prev.filter((id) => id !== placeholderId));
+        setProcessingTaskIds((prev) => prev.filter((id) => id !== placeholderId));
       };
       const removePlaceholder = () => {
-        setTodos((prev) => prev.filter((todo) => todo.id !== placeholderId));
+        setTasks((prev) => prev.filter((t) => t.id !== placeholderId));
       };
 
-      const extractResult = await window.electronAPI.extractTodoFromSelectionInSession(
+      const extractResult = await window.electronAPI.extractTaskFromSelectionInSession(
         targetSessionId,
         selectionText,
         trimmedIntent || undefined,
@@ -924,22 +924,22 @@ export function App() {
         return;
       }
 
-      if (!extractResult.todoTitle) {
+      if (!extractResult.taskTitle) {
         removePlaceholder();
         finalizeProcessing();
-        setRouteNotice(extractResult.reason ?? "No actionable todo found in selection.");
+        setRouteNotice(extractResult.reason ?? "No actionable task found in selection.");
         return;
       }
 
-      const persistResult = await persistTodo({
+      const persistResult = await persistTask({
         targetSessionId,
-        text: extractResult.todoTitle,
+        text: extractResult.taskTitle,
         details: [
           trimmedIntent
-            ? `Requested todo intent:\n${trimmedIntent}`
+            ? `Requested task intent:\n${trimmedIntent}`
             : "",
-          extractResult.todoDetails?.trim()
-            ? `Context summary:\n${extractResult.todoDetails.trim()}`
+          extractResult.taskDetails?.trim()
+            ? `Context summary:\n${extractResult.taskDetails.trim()}`
             : "",
           `Original transcript excerpt:\n${selectionText.trim()}`,
         ]
@@ -950,20 +950,20 @@ export function App() {
       if (!persistResult.ok) {
         removePlaceholder();
         finalizeProcessing();
-        setRouteNotice(`Failed to add todo: ${persistResult.error ?? "Unknown error"}`);
+        setRouteNotice(`Failed to add task: ${persistResult.error ?? "Unknown error"}`);
         return;
       }
 
-      setTodos((prev) => [
-        persistResult.todo!,
-        ...prev.filter((todo) => todo.id !== placeholderId),
+      setTasks((prev) => [
+        persistResult.task!,
+        ...prev.filter((t) => t.id !== placeholderId),
       ]);
       finalizeProcessing();
-      setRouteNotice(`Todo created: ${persistResult.todo!.text}`);
+      setRouteNotice(`Task created: ${persistResult.task!.text}`);
     })();
 
     return { ok: true };
-  }, [appConfig, persistTodo, selectedSessionId, session.sessionId]);
+  }, [appConfig, persistTask, selectedSessionId, session.sessionId]);
 
   const [transcriptRefs, setTranscriptRefs] = useState<string[]>([]);
 
@@ -975,66 +975,66 @@ export function App() {
     setTranscriptRefs((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  const handleSubmitTodoInput = useCallback(async (intentText: string, refs: string[]) => {
+  const handleSubmitTaskInput = useCallback(async (intentText: string, refs: string[]) => {
     const trimmedIntent = intentText.trim();
     if (!trimmedIntent && refs.length === 0) return;
-    // Always route through AI extraction so todos get a proper title + context summary.
+    // Always route through AI extraction so tasks get a proper title + context summary.
     // When refs exist, they are the "selection" and intentText is the user's framing.
     // When there are no refs, the typed text itself becomes the selection to extract from.
     const selectionText = refs.length > 0 ? refs.join("\n\n---\n\n") : trimmedIntent;
-    await handleCreateTodoFromSelection(selectionText, refs.length > 0 ? (trimmedIntent || undefined) : undefined);
+    await handleCreateTaskFromSelection(selectionText, refs.length > 0 ? (trimmedIntent || undefined) : undefined);
     setTranscriptRefs([]);
-  }, [handleCreateTodoFromSelection]);
+  }, [handleCreateTaskFromSelection]);
 
-  const handleToggleTodo = useCallback((id: string) => {
-    if (processingTodoIds.includes(id)) {
+  const handleToggleTask = useCallback((id: string) => {
+    if (processingTaskIds.includes(id)) {
       return;
     }
-    setTodos((prev) =>
+    setTasks((prev) =>
       prev.map((t) =>
         t.id === id
           ? { ...t, completed: !t.completed, completedAt: !t.completed ? Date.now() : undefined }
           : t
       )
     );
-    window.electronAPI.toggleTodo(id);
-  }, [processingTodoIds]);
+    window.electronAPI.toggleTask(id);
+  }, [processingTaskIds]);
 
-  const handleDeleteTodo = useCallback(async (id: string) => {
-    if (processingTodoIds.includes(id)) {
-      setProcessingTodoIds((prev) => prev.filter((itemId) => itemId !== id));
-      setTodos((prev) => prev.filter((todo) => todo.id !== id));
+  const handleDeleteTask = useCallback(async (id: string) => {
+    if (processingTaskIds.includes(id)) {
+      setProcessingTaskIds((prev) => prev.filter((itemId) => itemId !== id));
+      setTasks((prev) => prev.filter((t) => t.id !== id));
       return;
     }
 
-    let removedTodo: TodoItem | undefined;
-    setTodos((prev) => {
-      removedTodo = prev.find((todo) => todo.id === id);
-      return prev.filter((todo) => todo.id !== id);
+    let removedTask: TaskItem | undefined;
+    setTasks((prev) => {
+      removedTask = prev.find((t) => t.id === id);
+      return prev.filter((t) => t.id !== id);
     });
 
-    const result = await window.electronAPI.deleteTodo(id);
+    const result = await window.electronAPI.deleteTask(id);
     if (result.ok) {
       setRouteNotice("");
       return;
     }
 
-    if (removedTodo) {
-      setTodos((prev) => [removedTodo!, ...prev]);
+    if (removedTask) {
+      setTasks((prev) => [removedTask!, ...prev]);
     }
-    setRouteNotice(`Failed to delete todo: ${result.error ?? "Unknown error"}`);
-  }, [processingTodoIds]);
+    setRouteNotice(`Failed to delete task: ${result.error ?? "Unknown error"}`);
+  }, [processingTaskIds]);
 
-  const handleUpdateTodo = useCallback(async (id: string, text: string) => {
-    setTodos((prev) => prev.map((t) => t.id === id ? { ...t, text } : t));
-    const result = await window.electronAPI.updateTodoText(id, text);
+  const handleUpdateTask = useCallback(async (id: string, text: string) => {
+    setTasks((prev) => prev.map((t) => t.id === id ? { ...t, text } : t));
+    const result = await window.electronAPI.updateTaskText(id, text);
     if (!result.ok) {
-      setRouteNotice(`Failed to update todo: ${result.error ?? "Unknown error"}`);
+      setRouteNotice(`Failed to update task: ${result.error ?? "Unknown error"}`);
     }
   }, []);
 
 
-  const handleAcceptSuggestion = useCallback(async (suggestion: TodoSuggestion) => {
+  const handleAcceptSuggestion = useCallback(async (suggestion: TaskSuggestion) => {
     const targetSessionId = suggestion.sessionId ?? selectedSessionId ?? session.sessionId ?? null;
     if (!targetSessionId) {
       setRouteNotice("Missing session id for suggestion.");
@@ -1042,7 +1042,7 @@ export function App() {
     }
     const suggestionDetails = buildAiSuggestionDetails(suggestion);
 
-    const optimisticTodo: TodoItem = {
+    const optimisticTask: TaskItem = {
       id: suggestion.id,
       text: suggestion.text,
       details: suggestionDetails,
@@ -1055,10 +1055,10 @@ export function App() {
 
     setRouteNotice("");
     setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
-    setTodos((prev) => [optimisticTodo, ...prev.filter((todo) => todo.id !== suggestion.id)]);
-    setProcessingTodoIds((prev) => (prev.includes(suggestion.id) ? prev : [suggestion.id, ...prev]));
+    setTasks((prev) => [optimisticTask, ...prev.filter((t) => t.id !== suggestion.id)]);
+    setProcessingTaskIds((prev) => (prev.includes(suggestion.id) ? prev : [suggestion.id, ...prev]));
 
-    const result = await persistTodo({
+    const result = await persistTask({
       targetSessionId,
       text: suggestion.text,
       details: suggestionDetails,
@@ -1067,29 +1067,29 @@ export function App() {
       createdAt: suggestion.createdAt,
     });
 
-    setProcessingTodoIds((prev) => prev.filter((id) => id !== suggestion.id));
+    setProcessingTaskIds((prev) => prev.filter((id) => id !== suggestion.id));
     if (!result.ok) {
-      setTodos((prev) => prev.filter((todo) => todo.id !== suggestion.id));
+      setTasks((prev) => prev.filter((t) => t.id !== suggestion.id));
       setSuggestions((prev) => [suggestion, ...prev.filter((item) => item.id !== suggestion.id)]);
-      setRouteNotice(`Failed to add todo from suggestion: ${result.error ?? "Unknown error"}`);
+      setRouteNotice(`Failed to add task from suggestion: ${result.error ?? "Unknown error"}`);
       return;
     }
 
-    setTodos((prev) =>
-      prev.map((todo) => (todo.id === suggestion.id ? result.todo! : todo))
+    setTasks((prev) =>
+      prev.map((t) => (t.id === suggestion.id ? result.task! : t))
     );
-    if (result.todo!.size === "large") {
+    if (result.task!.size === "large") {
       setRouteNotice("Suggestion accepted as large. Approval is required before running the agent.");
     }
-  }, [persistTodo, selectedSessionId, session.sessionId]);
+  }, [persistTask, selectedSessionId, session.sessionId]);
 
   const handleDismissSuggestion = useCallback((id: string) => {
     setSuggestions((prev) => prev.filter((s) => s.id !== id));
   }, []);
 
-  const launchTodoAgent = useCallback(async (todo: TodoItem, approvalToken?: string) => {
-    const todoSessionId = todo.sessionId ?? null;
-    const targetSessionId = todoSessionId ?? selectedSessionId ?? session.sessionId ?? null;
+  const launchTaskAgent = useCallback(async (task: TaskItem, approvalToken?: string) => {
+    const taskSessionId = task.sessionId ?? null;
+    const targetSessionId = taskSessionId ?? selectedSessionId ?? session.sessionId ?? null;
     if (!targetSessionId) {
       setRouteNotice("Missing session id for this task.");
       return false;
@@ -1097,12 +1097,12 @@ export function App() {
 
     const useActiveRuntime = sessionActive && session.sessionId === targetSessionId;
     const result = useActiveRuntime
-      ? await window.electronAPI.launchAgent(todo.id, todo.text, todo.details, approvalToken)
+      ? await window.electronAPI.launchAgent(task.id, task.text, task.details, approvalToken)
       : await window.electronAPI.launchAgentInSession(
           targetSessionId,
-          todo.id,
-          todo.text,
-          todo.details,
+          task.id,
+          task.text,
+          task.details,
           appConfig,
           approvalToken,
         );
@@ -1116,17 +1116,17 @@ export function App() {
     return false;
   }, [appConfig, selectAgent, selectedSessionId, session.sessionId, sessionActive]);
 
-  const handleLaunchAgent = useCallback(async (todo: TodoItem) => {
-    if (processingTodoIds.includes(todo.id)) {
-      setRouteNotice("Todo is still processing. Wait a moment before launching.");
+  const handleLaunchAgent = useCallback(async (task: TaskItem) => {
+    if (processingTaskIds.includes(task.id)) {
+      setRouteNotice("Task is still processing. Wait a moment before launching.");
       return;
     }
-    if (todo.size === "large") {
-      setPendingApprovalTodo(todo);
+    if (task.size === "large") {
+      setPendingApprovalTask(task);
       return;
     }
-    await launchTodoAgent(todo);
-  }, [launchTodoAgent, processingTodoIds]);
+    await launchTaskAgent(task);
+  }, [launchTaskAgent, processingTaskIds]);
 
   const handleNewAgent = useCallback(() => {
     selectAgent(null);
@@ -1154,22 +1154,22 @@ export function App() {
     }
   }, []);
 
-  const handleApproveLargeTodo = useCallback(async () => {
-    if (!pendingApprovalTodo) return;
-    setApprovingLargeTodo(true);
-    const approval = await window.electronAPI.approveLargeTodo(pendingApprovalTodo.id);
+  const handleApproveLargeTask = useCallback(async () => {
+    if (!pendingApprovalTask) return;
+    setApprovingLargeTask(true);
+    const approval = await window.electronAPI.approveLargeTask(pendingApprovalTask.id);
     if (!approval.ok || !approval.approvalToken) {
-      setApprovingLargeTodo(false);
-      setRouteNotice(`Failed to approve large todo: ${approval.error ?? "Unknown error"}`);
+      setApprovingLargeTask(false);
+      setRouteNotice(`Failed to approve large task: ${approval.error ?? "Unknown error"}`);
       return;
     }
 
-    const launched = await launchTodoAgent(pendingApprovalTodo, approval.approvalToken);
-    setApprovingLargeTodo(false);
+    const launched = await launchTaskAgent(pendingApprovalTask, approval.approvalToken);
+    setApprovingLargeTask(false);
     if (launched) {
-      setPendingApprovalTodo(null);
+      setPendingApprovalTask(null);
     }
-  }, [launchTodoAgent, pendingApprovalTodo]);
+  }, [launchTaskAgent, pendingApprovalTask]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
     micCapture.stop();
@@ -1179,8 +1179,8 @@ export function App() {
     setSelectedSessionId(sessionId);
     setResumeSessionId(sessionId);
     setSuggestions([]);
-    setTodos([]);
-    setProcessingTodoIds([]);
+    setTasks([]);
+    setProcessingTaskIds([]);
     setInsights([]);
     seedAgents([]);
     setSessionActive(true);
@@ -1196,8 +1196,8 @@ export function App() {
       setSessionActive(false);
       setResumeSessionId(null);
       setSuggestions([]);
-      setTodos([]);
-      setProcessingTodoIds([]);
+      setTasks([]);
+      setProcessingTaskIds([]);
       setInsights([]);
       seedAgents([]);
       session.clearSession();
@@ -1254,7 +1254,7 @@ export function App() {
     const modelChanged =
       prev.analysisModelId !== normalized.analysisModelId ||
       prev.analysisProvider !== normalized.analysisProvider ||
-      prev.todoModelId !== normalized.todoModelId ||
+      prev.taskModelId !== normalized.taskModelId ||
       prev.utilityModelId !== normalized.utilityModelId ||
       prev.memoryModelId !== normalized.memoryModelId ||
       prev.transcriptionProvider !== normalized.transcriptionProvider ||
@@ -1280,9 +1280,9 @@ export function App() {
         if (!trimmed) continue;
         const trimmedUserIntent = userIntent?.trim();
 
-        const placeholderText = normalizeAgentTodoTitle(trimmed) || trimmed;
+        const placeholderText = normalizeAgentTaskTitle(trimmed) || trimmed;
         const optimisticId = crypto.randomUUID();
-        const optimisticTodo: TodoItem = {
+        const optimisticTask: TaskItem = {
           id: optimisticId,
           text: placeholderText,
           details: details?.trim() || undefined,
@@ -1293,22 +1293,22 @@ export function App() {
           sessionId: targetSessionId,
         };
 
-        setTodos((prev) => [optimisticTodo, ...prev]);
-        setProcessingTodoIds((prev) => [optimisticId, ...prev]);
+        setTasks((prev) => [optimisticTask, ...prev]);
+        setProcessingTaskIds((prev) => [optimisticId, ...prev]);
 
         let refinedTitle = trimmed;
         let refinedDetails = details?.trim() || undefined;
 
-        const extractResult = await window.electronAPI.extractTodoFromSelectionInSession(
+        const extractResult = await window.electronAPI.extractTaskFromSelectionInSession(
           targetSessionId,
           buildSummarySelectionText({ text: trimmed, details, source }),
-          buildSummaryTodoIntent(trimmedUserIntent, source),
+          buildSummaryTaskIntent(trimmedUserIntent, source),
           appConfig,
         );
 
-        if (extractResult.ok && extractResult.todoTitle?.trim()) {
-          refinedTitle = extractResult.todoTitle.trim();
-          const extractedDetails = extractResult.todoDetails?.trim();
+        if (extractResult.ok && extractResult.taskTitle?.trim()) {
+          refinedTitle = extractResult.taskTitle.trim();
+          const extractedDetails = extractResult.taskDetails?.trim();
           const mergedDetails = [
             trimmedUserIntent ? `Requested outcome:\n${trimmedUserIntent}` : "",
             extractedDetails ? `Task context:\n${extractedDetails}` : "",
@@ -1318,24 +1318,24 @@ export function App() {
             : refinedDetails;
         }
 
-        const finalTitle = normalizeAgentTodoTitle(refinedTitle) || placeholderText;
-        const result = await persistTodo({
+        const finalTitle = normalizeAgentTaskTitle(refinedTitle) || placeholderText;
+        const result = await persistTask({
           targetSessionId,
           text: finalTitle,
           details: refinedDetails,
           source: "ai",
           id: optimisticId,
-          createdAt: optimisticTodo.createdAt,
+          createdAt: optimisticTask.createdAt,
         });
-        setProcessingTodoIds((prev) => prev.filter((id) => id !== optimisticId));
+        setProcessingTaskIds((prev) => prev.filter((id) => id !== optimisticId));
         if (!result.ok) {
-          setTodos((prev) => prev.filter((t) => t.id !== optimisticId));
+          setTasks((prev) => prev.filter((t) => t.id !== optimisticId));
         } else {
-          setTodos((prev) => prev.map((t) => (t.id === optimisticId ? result.todo! : t)));
+          setTasks((prev) => prev.map((t) => (t.id === optimisticId ? result.task! : t)));
         }
       }
     })();
-  }, [appConfig, persistTodo, selectedSessionId, session.sessionId]);
+  }, [appConfig, persistTask, selectedSessionId, session.sessionId]);
 
   const handleGenerateSummary = useCallback(async () => {
     if (finalSummaryState.kind === "loading") return;
@@ -1494,24 +1494,24 @@ export function App() {
             </div>
             <div className="shrink-0 min-h-0" style={{ width: rightPanelWidth }}>
               <RightSidebar
-                todos={todos}
+                tasks={tasks}
                 suggestions={suggestions}
                 agents={agents}
                 selectedAgentId={selectedAgentId}
                 onSelectAgent={selectAgent}
                 onLaunchAgent={handleLaunchAgent}
                 onNewAgent={handleNewAgent}
-                onAddTodo={handleAddTodo}
-                onToggleTodo={handleToggleTodo}
-                onDeleteTodo={handleDeleteTodo}
-                onUpdateTodo={handleUpdateTodo}
-                processingTodoIds={processingTodoIds}
+                onAddTask={handleAddTask}
+                onToggleTask={handleToggleTask}
+                onDeleteTask={handleDeleteTask}
+                onUpdateTask={handleUpdateTask}
+                processingTaskIds={processingTaskIds}
                 onAcceptSuggestion={handleAcceptSuggestion}
                 onDismissSuggestion={handleDismissSuggestion}
                 sessionId={selectedSessionId ?? session.sessionId ?? undefined}
                 transcriptRefs={transcriptRefs}
                 onRemoveTranscriptRef={handleRemoveTranscriptRef}
-                onSubmitTodoInput={handleSubmitTodoInput}
+                onSubmitTaskInput={handleSubmitTaskInput}
               />
             </div>
             {(selectedAgent || newAgentMode) && (
@@ -1553,38 +1553,38 @@ export function App() {
       </div>
 
       <Dialog
-        open={!!pendingApprovalTodo}
+        open={!!pendingApprovalTask}
         onOpenChange={(open) => {
-          if (!open && !approvingLargeTodo) {
-            setPendingApprovalTodo(null);
+          if (!open && !approvingLargeTask) {
+            setPendingApprovalTask(null);
           }
         }}
       >
-        <DialogContent showCloseButton={!approvingLargeTodo}>
+        <DialogContent showCloseButton={!approvingLargeTask}>
           <DialogHeader>
-            <DialogTitle>Approve Large Todo</DialogTitle>
+            <DialogTitle>Approve Large Task</DialogTitle>
             <DialogDescription>
-              This todo was classified as large and needs human approval before the agent can run.
+              This task was classified as large and needs human approval before the agent can run.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-sm border border-border bg-muted/40 px-3 py-2 text-xs text-foreground">
-            {pendingApprovalTodo?.text}
+            {pendingApprovalTask?.text}
           </div>
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
-              disabled={approvingLargeTodo}
-              onClick={() => setPendingApprovalTodo(null)}
+              disabled={approvingLargeTask}
+              onClick={() => setPendingApprovalTask(null)}
             >
               Cancel
             </Button>
             <Button
               type="button"
-              disabled={approvingLargeTodo}
-              onClick={() => void handleApproveLargeTodo()}
+              disabled={approvingLargeTask}
+              onClick={() => void handleApproveLargeTask()}
             >
-              {approvingLargeTodo ? "Approving..." : "Approve & Run"}
+              {approvingLargeTask ? "Approving..." : "Approve & Run"}
             </Button>
           </DialogFooter>
         </DialogContent>

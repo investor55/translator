@@ -18,7 +18,7 @@ type AgentDebriefPanelProps = {
   state: AgentsSummaryState;
   onGenerate: () => void;
   canGenerate: boolean;
-  onAddTodo?: (text: string, details?: string) => void;
+  onAddTask?: (text: string, details?: string) => void;
 };
 
 function formatDuration(totalSecs: number): string {
@@ -101,10 +101,10 @@ function NextStepRow({
 
 function DebriefContent({
   summary,
-  onAddTodo,
+  onAddTask,
 }: {
   summary: AgentsSummary;
-  onAddTodo?: (text: string, details?: string) => void;
+  onAddTask?: (text: string, details?: string) => void;
 }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [accepted, setAccepted] = useState<Set<number>>(new Set());
@@ -126,13 +126,13 @@ function DebriefContent({
   }, [accepted]);
 
   const handleAddSelected = useCallback(() => {
-    if (!onAddTodo || selected.size === 0) return;
+    if (!onAddTask || selected.size === 0) return;
     for (const i of selected) {
-      onAddTodo(summary.nextSteps[i]);
+      onAddTask(summary.nextSteps[i]);
     }
     setAccepted((prev) => new Set([...prev, ...selected]));
     setSelected(new Set());
-  }, [onAddTodo, selected, summary]);
+  }, [onAddTask, selected, summary]);
 
   const remainingSteps = summary.nextSteps.length - accepted.size;
 
@@ -188,7 +188,7 @@ function DebriefContent({
             <SectionLabel as="p">
               {selected.size > 0 ? `${selected.size} selected` : "Next Steps"}
             </SectionLabel>
-            {onAddTodo && (
+            {onAddTask && (
               selected.size > 0 ? (
                 <div className="flex items-center gap-2">
                   <button
@@ -200,7 +200,7 @@ function DebriefContent({
                   </button>
                   <Button size="sm" onClick={handleAddSelected} className="gap-1 h-5 text-2xs px-2">
                     <PlusIcon className="size-2.5" />
-                    Add to Todos
+                    Add to Tasks
                   </Button>
                 </div>
               ) : remainingSteps > 0 ? (
@@ -238,7 +238,7 @@ export function AgentDebriefPanel({
   state,
   onGenerate,
   canGenerate,
-  onAddTodo,
+  onAddTask,
 }: AgentDebriefPanelProps) {
   if (state.kind === "idle") return null;
 
@@ -284,7 +284,7 @@ export function AgentDebriefPanel({
       )}
 
       {state.kind === "ready" && (
-        <DebriefContent summary={state.summary} onAddTodo={onAddTodo} />
+        <DebriefContent summary={state.summary} onAddTask={onAddTask} />
       )}
     </div>
   );

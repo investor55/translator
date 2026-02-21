@@ -1,18 +1,18 @@
 import { ipcMain } from "electron";
-import type { AppConfigOverrides, TodoItem } from "../../core/types";
+import type { AppConfigOverrides, TaskItem } from "../../core/types";
 import { log } from "../../core/logger";
 import type { EnsureSession, IpcDeps } from "./types";
 
-type TodoInsightDeps = IpcDeps & {
+type TaskInsightDeps = IpcDeps & {
   ensureSession: EnsureSession;
 };
 
-export function registerTodoInsightHandlers({
+export function registerTaskInsightHandlers({
   db,
   ensureSession,
   sessionRef,
-}: TodoInsightDeps) {
-  const buildTodoClassifierInput = (title: string, details?: string) => {
+}: TaskInsightDeps) {
+  const buildTaskClassifierInput = (title: string, details?: string) => {
     const trimmedTitle = title.trim();
     const trimmedDetails = details?.trim();
     if (!trimmedDetails) return trimmedTitle;
@@ -25,7 +25,7 @@ export function registerTodoInsightHandlers({
     reason,
   });
 
-  const classifyTodo = async (
+  const classifyTask = async (
     text: string,
     sessionId?: string,
     appConfig?: AppConfigOverrides,
@@ -35,7 +35,7 @@ export function registerTodoInsightHandlers({
     const ensured = await ensureSession(sessionId, appConfig);
     if (ensured.ok === false) {
       const message = ensured.error;
-      log("WARN", `Todo classifier fallback (ensure session failed): ${message}`);
+      log("WARN", `Task classifier fallback (ensure session failed): ${message}`);
       return classifyAsLarge("Could not initialize classifier session");
     }
 
@@ -43,57 +43,57 @@ export function registerTodoInsightHandlers({
       return classifyAsLarge("Classifier session unavailable");
     }
 
-    return sessionRef.current.classifyTodoSize(text);
+    return sessionRef.current.classifyTaskSize(text);
   };
 
-  ipcMain.handle("get-todos", () => {
-    return db.getTodos();
+  ipcMain.handle("get-tasks", () => {
+    return db.getTasks();
   });
 
-  ipcMain.handle("get-session-todos", (_event, sessionId: string) => {
-    return db.getTodosForSession(sessionId);
+  ipcMain.handle("get-session-tasks", (_event, sessionId: string) => {
+    return db.getTasksForSession(sessionId);
   });
 
-  ipcMain.handle("add-todo", async (_event, todo: TodoItem, appConfig?: AppConfigOverrides) => {
-    const text = todo.text.trim();
-    if (!text) return { ok: false, error: "Todo text is required" };
-    const details = todo.details?.trim();
+  ipcMain.handle("add-task", async (_event, task: TaskItem, appConfig?: AppConfigOverrides) => {
+    const text = task.text.trim();
+    if (!text) return { ok: false, error: "Task text is required" };
+    const details = task.details?.trim();
 
-    const classification = await classifyTodo(
-      buildTodoClassifierInput(text, details),
-      todo.sessionId,
+    const classification = await classifyTask(
+      buildTaskClassifierInput(text, details),
+      task.sessionId,
       appConfig,
     );
-    const persistedTodo: TodoItem = {
-      ...todo,
+    const persistedTask: TaskItem = {
+      ...task,
       text,
       details: details || undefined,
       size: classification.size,
     };
 
-    db.insertTodo(persistedTodo);
-    return { ok: true, todo: persistedTodo };
+    db.insertTask(persistedTask);
+    return { ok: true, task: persistedTask };
   });
 
   ipcMain.handle(
-    "update-todo-text",
+    "update-task-text",
     async (_event, id: string, text: string, appConfig?: AppConfigOverrides) => {
-      const existing = db.getTodo(id);
-      if (!existing) return { ok: false, error: "Todo not found" };
+      const existing = db.getTask(id);
+      if (!existing) return { ok: false, error: "Task not found" };
 
       const trimmed = text.trim();
-      if (!trimmed) return { ok: false, error: "Todo text is required" };
+      if (!trimmed) return { ok: false, error: "Task text is required" };
 
-      const classification = await classifyTodo(
-        buildTodoClassifierInput(trimmed, existing.details),
+      const classification = await classifyTask(
+        buildTaskClassifierInput(trimmed, existing.details),
         existing.sessionId,
         appConfig,
       );
-      db.updateTodoText(id, trimmed, classification.size);
+      db.updateTaskText(id, trimmed, classification.size);
 
       return {
         ok: true,
-        todo: {
+        task: {
           ...existing,
           text: trimmed,
           size: classification.size,
@@ -102,23 +102,23 @@ export function registerTodoInsightHandlers({
     },
   );
 
-  ipcMain.handle("toggle-todo", (_event, id: string) => {
-    const todos = db.getTodos();
-    const todo = todos.find((item) => item.id === id);
-    if (!todo) return { ok: false, error: "Todo not found" };
-    db.updateTodo(id, !todo.completed);
+  ipcMain.handle("toggle-task", (_event, id: string) => {
+    const tasks = db.getTasks();
+    const task = tasks.find((item) => item.id === id);
+    if (!task) return { ok: false, error: "Task not found" };
+    db.updateTask(id, !task.completed);
     return { ok: true };
   });
 
-  ipcMain.handle("delete-todo", (_event, id: string) => {
-    const todo = db.getTodo(id);
-    if (!todo) return { ok: false, error: "Todo not found" };
-    db.deleteTodo(id);
+  ipcMain.handle("delete-task", (_event, id: string) => {
+    const task = db.getTask(id);
+    if (!task) return { ok: false, error: "Task not found" };
+    db.deleteTask(id);
     return { ok: true };
   });
 
   ipcMain.handle(
-    "extract-todo-from-selection-in-session",
+    "extract-task-from-selection-in-session",
     async (
       _event,
       sessionId: string,
@@ -132,7 +132,7 @@ export function registerTodoInsightHandlers({
       const ensured = await ensureSession(sessionId, appConfig);
       if (!ensured.ok) return ensured;
       if (!sessionRef.current) return { ok: false, error: "Could not load session" };
-      return sessionRef.current.extractTodoFromSelection(trimmedSelection, userIntentText);
+      return sessionRef.current.extractTaskFromSelection(trimmedSelection, userIntentText);
     },
   );
 

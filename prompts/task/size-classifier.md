@@ -1,7 +1,7 @@
-Classify this todo for autonomous execution risk.
+Classify this task for autonomous execution risk.
 
-Todo:
-{{todo_text}}
+Task:
+{{task_text}}
 
 Rules:
 - small: single, low-risk, straightforward action that can be run automatically.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAnalysisPrompt, buildTodoPrompt } from "./analysis";
+import { buildAnalysisPrompt, buildTaskPrompt } from "./analysis";
 import type { TranscriptBlock } from "../types";
 
 const SAMPLE_BLOCKS: TranscriptBlock[] = [
@@ -30,19 +30,19 @@ describe("buildAnalysisPrompt", () => {
   });
 });
 
-describe("buildTodoPrompt", () => {
-  it("includes transcript and existing todos", () => {
-    const prompt = buildTodoPrompt(SAMPLE_BLOCKS, [{ text: "Book flights", completed: false }]);
+describe("buildTaskPrompt", () => {
+  it("includes transcript and existing tasks", () => {
+    const prompt = buildTaskPrompt(SAMPLE_BLOCKS, [{ text: "Book flights", completed: false }]);
     expect(prompt).toContain("[system] I want to visit Austin next month.");
-    expect(prompt).toContain("Existing todos:");
+    expect(prompt).toContain("Existing tasks:");
     expect(prompt).toContain("[ ] Book flights");
-    expect(prompt).toContain("todoTitle");
-    expect(prompt).toContain("todoDetails");
+    expect(prompt).toContain("taskTitle");
+    expect(prompt).toContain("taskDetails");
     expect(prompt).toContain("transcriptExcerpt");
   });
 
   it("includes historical suggestions context", () => {
-    const prompt = buildTodoPrompt(
+    const prompt = buildTaskPrompt(
       SAMPLE_BLOCKS,
       [{ text: "Book flights", completed: false }],
       ["Research neighborhoods in Austin", "Dive into whether to rent a car?"],

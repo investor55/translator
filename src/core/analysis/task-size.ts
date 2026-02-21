@@ -1,21 +1,21 @@
 import { generateObject, type LanguageModel } from "ai";
 import { z } from "zod";
-import type { TodoSize } from "../types";
+import type { TaskSize } from "../types";
 import { toReadableError } from "../text/text-utils";
-import { getTodoSizeClassifierPromptTemplate, renderPromptTemplate } from "../prompt-loader";
+import { getTaskSizeClassifierPromptTemplate, renderPromptTemplate } from "../prompt-loader";
 
-const TODO_SIZE_TIMEOUT_MS = 12_000;
+const TASK_SIZE_TIMEOUT_MS = 12_000;
 const DEFAULT_MIN_CONFIDENCE = 0.65;
 
-export const todoSizeClassificationSchema = z.object({
+export const taskSizeClassificationSchema = z.object({
   size: z.enum(["small", "large"]),
   confidence: z.number().min(0).max(1),
   reason: z.string().min(1).max(160),
 });
 
-export type TodoSizeClassification = z.infer<typeof todoSizeClassificationSchema>;
+export type TaskSizeClassification = z.infer<typeof taskSizeClassificationSchema>;
 
-function defaultClassification(reason: string): TodoSizeClassification {
+function defaultClassification(reason: string): TaskSizeClassification {
   return {
     size: "large",
     confidence: 0,
@@ -28,15 +28,15 @@ function normalizeReason(reason: string): string {
   return trimmed.length > 0 ? trimmed : "No reason provided";
 }
 
-function buildTodoSizePrompt(text: string): string {
-  return renderPromptTemplate(getTodoSizeClassifierPromptTemplate(), {
-    todo_text: text,
+function buildTaskSizePrompt(text: string): string {
+  return renderPromptTemplate(getTaskSizeClassifierPromptTemplate(), {
+    task_text: text,
   });
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Todo size classification timed out")), timeoutMs);
+    const timer = setTimeout(() => reject(new Error("Task size classification timed out")), timeoutMs);
     void promise
       .then((value) => {
         clearTimeout(timer);
@@ -49,28 +49,28 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
-function isValidSize(value: string): value is TodoSize {
+function isValidSize(value: string): value is TaskSize {
   return value === "small" || value === "large";
 }
 
-export async function classifyTodoSize(
+export async function classifyTaskSize(
   model: LanguageModel,
   text: string,
   minConfidence = DEFAULT_MIN_CONFIDENCE,
-): Promise<TodoSizeClassification> {
+): Promise<TaskSizeClassification> {
   const trimmed = text.trim();
   if (!trimmed) {
-    return defaultClassification("Empty todo text");
+    return defaultClassification("Empty task text");
   }
 
   try {
     const { object } = await withTimeout(
       generateObject({
         model,
-        schema: todoSizeClassificationSchema,
-        prompt: buildTodoSizePrompt(trimmed),
+        schema: taskSizeClassificationSchema,
+        prompt: buildTaskSizePrompt(trimmed),
       }),
-      TODO_SIZE_TIMEOUT_MS,
+      TASK_SIZE_TIMEOUT_MS,
     );
 
     if (!isValidSize(object.size)) {

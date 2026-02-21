@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useCallback, useRef } from "react";
-import type { UIState, TranscriptBlock, Summary, LanguageCode, TodoItem, Insight, Agent, AppConfig, AudioSource } from "../../../core/types";
+import type { UIState, TranscriptBlock, Summary, LanguageCode, TaskItem, Insight, Agent, AppConfig, AudioSource } from "../../../core/types";
 
 export type SessionState = {
   sessionId: string | null;
@@ -18,7 +18,7 @@ export type SessionState = {
 type ResumeData = {
   sessionId: string;
   blocks: TranscriptBlock[];
-  todos: TodoItem[];
+  tasks: TaskItem[];
   insights: Insight[];
   agents: Agent[];
 };
@@ -231,7 +231,7 @@ export function useSession(
           const data: ResumeData = {
             sessionId: result.sessionId,
             blocks: result.blocks ?? [],
-            todos: result.todos ?? [],
+            tasks: result.tasks ?? [],
             insights: result.insights ?? [],
             agents: result.agents ?? [],
           };

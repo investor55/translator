@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocalStorage } from "usehooks-ts";
-import type { TodoItem, TodoSuggestion, Agent } from "../../../core/types";
+import type { TaskItem, TaskSuggestion, Agent } from "../../../core/types";
 import {
   ChevronDownIcon,
   CheckIcon,
@@ -28,24 +28,24 @@ const SUGGESTION_TTL_MS = 30_000;
 type RightRailMode = "work" | "agents";
 
 type RightSidebarProps = {
-  todos: TodoItem[];
-  suggestions: TodoSuggestion[];
+  tasks: TaskItem[];
+  suggestions: TaskSuggestion[];
   agents?: Agent[];
   selectedAgentId?: string | null;
   onSelectAgent?: (id: string | null) => void;
-  onLaunchAgent?: (todo: TodoItem) => void;
+  onLaunchAgent?: (task: TaskItem) => void;
   onNewAgent?: () => void;
-  onAddTodo?: (text: string, details?: string) => void;
-  onToggleTodo?: (id: string) => void;
-  onDeleteTodo?: (id: string) => void;
-  onUpdateTodo?: (id: string, text: string) => void;
-  processingTodoIds?: string[];
-  onAcceptSuggestion?: (suggestion: TodoSuggestion) => void;
+  onAddTask?: (text: string, details?: string) => void;
+  onToggleTask?: (id: string) => void;
+  onDeleteTask?: (id: string) => void;
+  onUpdateTask?: (id: string, text: string) => void;
+  processingTaskIds?: string[];
+  onAcceptSuggestion?: (suggestion: TaskSuggestion) => void;
   onDismissSuggestion?: (id: string) => void;
   sessionId?: string;
   transcriptRefs?: string[];
   onRemoveTranscriptRef?: (index: number) => void;
-  onSubmitTodoInput?: (text: string, refs: string[]) => void;
+  onSubmitTaskInput?: (text: string, refs: string[]) => void;
 };
 
 function SuggestionItem({
@@ -53,7 +53,7 @@ function SuggestionItem({
   onAccept,
   onDismiss,
 }: {
-  suggestion: TodoSuggestion;
+  suggestion: TaskSuggestion;
   onAccept: () => void;
   onDismiss: () => void;
 }) {
@@ -115,8 +115,8 @@ function SuggestionItem({
   );
 }
 
-function EditableTodoItem({
-  todo,
+function EditableTaskItem({
+  task,
   isProcessing,
   agent,
   onToggle,
@@ -125,7 +125,7 @@ function EditableTodoItem({
   onLaunchAgent,
   onSelectAgent,
 }: {
-  todo: TodoItem;
+  task: TaskItem;
   isProcessing: boolean;
   agent?: Agent;
   onToggle?: () => void;
@@ -135,7 +135,7 @@ function EditableTodoItem({
   onSelectAgent?: (id: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(todo.text);
+  const [draft, setDraft] = useState(task.text);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -144,13 +144,13 @@ function EditableTodoItem({
 
   function handleDoubleClick() {
     if (isProcessing || !onUpdate) return;
-    setDraft(todo.text);
+    setDraft(task.text);
     setEditing(true);
   }
 
   function commit() {
     const trimmed = draft.trim();
-    if (trimmed && trimmed !== todo.text) onUpdate?.(trimmed);
+    if (trimmed && trimmed !== task.text) onUpdate?.(trimmed);
     setEditing(false);
   }
 
@@ -185,7 +185,7 @@ function EditableTodoItem({
           onDoubleClick={handleDoubleClick}
           className={`text-xs flex-1 break-words leading-normal ${isProcessing ? "text-muted-foreground italic" : "text-foreground"} ${onUpdate && !isProcessing ? "cursor-text" : ""}`}
         >
-          {todo.text}
+          {task.text}
         </span>
       )}
       {agent && onSelectAgent ? (
@@ -203,7 +203,7 @@ function EditableTodoItem({
         </button>
       ) : (
         <div className="flex items-center gap-0.5 shrink-0 mt-px">
-          {todo.source === "ai" && !isProcessing && !editing && (
+          {task.source === "ai" && !isProcessing && !editing && (
             <ZapIcon className="size-3 text-muted-foreground/40 group-hover:invisible" />
           )}
           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -221,7 +221,7 @@ function EditableTodoItem({
               type="button"
               onClick={onDelete}
               className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"
-              aria-label="Delete todo"
+              aria-label="Delete task"
             >
               <Trash2Icon className="size-3" />
             </button>
@@ -258,29 +258,29 @@ function RailModeButton({
 }
 
 export function RightSidebar({
-  todos,
+  tasks,
   suggestions,
   agents,
   selectedAgentId,
   onSelectAgent,
   onLaunchAgent,
   onNewAgent,
-  onAddTodo,
-  onToggleTodo,
-  onDeleteTodo,
-  onUpdateTodo,
-  processingTodoIds = [],
+  onAddTask,
+  onToggleTask,
+  onDeleteTask,
+  onUpdateTask,
+  processingTaskIds = [],
   onAcceptSuggestion,
   onDismissSuggestion,
   sessionId,
   transcriptRefs = [],
   onRemoveTranscriptRef,
-  onSubmitTodoInput,
+  onSubmitTaskInput,
 }: RightSidebarProps) {
   const [mode, setMode] = useLocalStorage<RightRailMode>("ambient-right-rail-mode", "work");
   const [completedOpen, setCompletedOpen] = useState(false);
   const lastAutoOpenedAgentIdRef = useRef<string | null>(null);
-  const processingTodoIdSet = new Set(processingTodoIds);
+  const processingTaskIdSet = new Set(processingTaskIds);
 
   const { state: debriefState, generate: generateDebrief, canGenerate: canGenerateDebrief, preload: preloadDebrief } =
     useAgentsSummary(agents ?? []);
@@ -292,30 +292,30 @@ export function RightSidebar({
     });
   }, [sessionId, preloadDebrief]);
 
-  const agentByTodoId = new Map<string, Agent>();
+  const agentByTaskId = new Map<string, Agent>();
   for (const agent of agents ?? []) {
-    if (agent.todoId && !agentByTodoId.has(agent.todoId)) {
-      agentByTodoId.set(agent.todoId, agent);
+    if (agent.taskId && !agentByTaskId.has(agent.taskId)) {
+      agentByTaskId.set(agent.taskId, agent);
     }
   }
 
-  const activeTodos: TodoItem[] = [];
-  const completedTodos: TodoItem[] = [];
+  const activeTasks: TaskItem[] = [];
+  const completedTasks: TaskItem[] = [];
   let pendingInAgentsCount = 0;
-  for (const todo of todos) {
-    if (todo.completed) {
-      completedTodos.push(todo);
+  for (const task of tasks) {
+    if (task.completed) {
+      completedTasks.push(task);
       continue;
     }
-    if (agentByTodoId.get(todo.id)?.status === "running") {
+    if (agentByTaskId.get(task.id)?.status === "running") {
       pendingInAgentsCount += 1;
       continue;
     }
-    activeTodos.push(todo);
+    activeTasks.push(task);
   }
 
-  const isViewingPast = !onSubmitTodoInput;
-  const completedHaveAgents = completedTodos.some((t) => agentByTodoId.has(t.id));
+  const isViewingPast = !onSubmitTaskInput;
+  const completedHaveAgents = completedTasks.some((t) => agentByTaskId.has(t.id));
   useEffect(() => {
     if (isViewingPast && completedHaveAgents) setCompletedOpen(true);
   }, [isViewingPast, completedHaveAgents]);
@@ -340,9 +340,9 @@ export function RightSidebar({
     ({ text }: { text: string }) => {
       const refs = transcriptRefs;
       if (!text.trim() && refs.length === 0) return;
-      onSubmitTodoInput?.(text.trim(), refs);
+      onSubmitTaskInput?.(text.trim(), refs);
     },
-    [transcriptRefs, onSubmitTodoInput]
+    [transcriptRefs, onSubmitTaskInput]
   );
 
   const hasRefs = transcriptRefs.length > 0;
@@ -355,7 +355,7 @@ export function RightSidebar({
           <RailModeButton
             active={mode === "work"}
             onClick={() => setMode("work")}
-            label={`Work (${activeTodos.length + suggestions.length})`}
+            label={`Work (${activeTasks.length + suggestions.length})`}
           />
           <RailModeButton
             active={mode === "agents"}
@@ -384,21 +384,21 @@ export function RightSidebar({
               </div>
             )}
 
-            {/* Active todos */}
+            {/* Active tasks */}
             <div className="mb-3">
               <div className="sticky top-0 bg-sidebar z-10 -mx-3 px-3 py-1.5 flex items-center justify-between mb-1.5">
                 <SectionLabel as="span">
-                  {pendingInAgentsCount > 0 ? `Todos · ${pendingInAgentsCount} in agents` : "Todos"}
+                  {pendingInAgentsCount > 0 ? `Tasks · ${pendingInAgentsCount} in agents` : "Tasks"}
                 </SectionLabel>
                 {(() => {
-                  const completedByAgent = activeTodos.filter(
-                    (t) => agentByTodoId.get(t.id)?.status === "completed"
+                  const completedByAgent = activeTasks.filter(
+                    (t) => agentByTaskId.get(t.id)?.status === "completed"
                   );
                   if (completedByAgent.length === 0) return null;
                   return (
                     <button
                       type="button"
-                      onClick={() => completedByAgent.forEach((t) => onToggleTodo?.(t.id))}
+                      onClick={() => completedByAgent.forEach((t) => onToggleTask?.(t.id))}
                       className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                     >
                       Complete all ({completedByAgent.length})
@@ -406,31 +406,31 @@ export function RightSidebar({
                   );
                 })()}
               </div>
-              {activeTodos.length > 0 ? (
+              {activeTasks.length > 0 ? (
                 <ul className="space-y-px">
-                  {activeTodos.map((todo) => (
-                    <EditableTodoItem
-                      key={todo.id}
-                      todo={todo}
-                      isProcessing={processingTodoIdSet.has(todo.id)}
-                      agent={agentByTodoId.get(todo.id)}
-                      onToggle={() => onToggleTodo?.(todo.id)}
-                      onDelete={() => onDeleteTodo?.(todo.id)}
-                      onUpdate={onUpdateTodo ? (text) => onUpdateTodo(todo.id, text) : undefined}
-                      onLaunchAgent={onLaunchAgent ? () => onLaunchAgent(todo) : undefined}
+                  {activeTasks.map((task) => (
+                    <EditableTaskItem
+                      key={task.id}
+                      task={task}
+                      isProcessing={processingTaskIdSet.has(task.id)}
+                      agent={agentByTaskId.get(task.id)}
+                      onToggle={() => onToggleTask?.(task.id)}
+                      onDelete={() => onDeleteTask?.(task.id)}
+                      onUpdate={onUpdateTask ? (text) => onUpdateTask(task.id, text) : undefined}
+                      onLaunchAgent={onLaunchAgent ? () => onLaunchAgent(task) : undefined}
                       onSelectAgent={onSelectAgent ?? undefined}
                     />
                   ))}
                 </ul>
               ) : (
                 <p className="text-xs text-muted-foreground italic">
-                  No active todos
+                  No active tasks
                 </p>
               )}
             </div>
 
-            {/* Completed todos */}
-            {completedTodos.length > 0 && (
+            {/* Completed tasks */}
+            {completedTasks.length > 0 && (
               <div>
                 <button
                   type="button"
@@ -440,38 +440,38 @@ export function RightSidebar({
                   <ChevronDownIcon
                     className={`size-3 transition-transform ${completedOpen ? "" : "-rotate-90"}`}
                   />
-                  Completed ({completedTodos.length})
+                  Completed ({completedTasks.length})
                 </button>
                 {completedOpen && (
                   <ul className="mt-1.5 space-y-px">
-                    {completedTodos.map((todo) => {
-                      const todoAgent = agentByTodoId.get(todo.id);
+                    {completedTasks.map((task) => {
+                      const taskAgent = agentByTaskId.get(task.id);
                       return (
-                        <li key={todo.id} className="flex items-center gap-2 h-7 group px-1 -mx-1 rounded-sm hover:bg-muted/30 transition-colors">
+                        <li key={task.id} className="flex items-center gap-2 h-7 group px-1 -mx-1 rounded-sm hover:bg-muted/30 transition-colors">
                           <input
                             type="checkbox"
                             checked
-                            onChange={() => onToggleTodo?.(todo.id)}
+                            onChange={() => onToggleTask?.(task.id)}
                             className="size-3 shrink-0 rounded-sm border-border accent-primary cursor-pointer"
                           />
-                          {todoAgent && onSelectAgent ? (
+                          {taskAgent && onSelectAgent ? (
                             <button
                               type="button"
-                              onClick={() => onSelectAgent(todoAgent.id)}
+                              onClick={() => onSelectAgent(taskAgent.id)}
                               className="text-xs text-muted-foreground/60 truncate flex-1 text-left line-through hover:text-muted-foreground transition-colors"
                             >
-                              {todo.text}
+                              {task.text}
                             </button>
                           ) : (
                             <span className="text-xs text-muted-foreground/60 truncate flex-1 line-through">
-                              {todo.text}
+                              {task.text}
                             </span>
                           )}
                           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                            {todoAgent && onSelectAgent && (
+                            {taskAgent && onSelectAgent && (
                               <button
                                 type="button"
-                                onClick={() => onSelectAgent(todoAgent.id)}
+                                onClick={() => onSelectAgent(taskAgent.id)}
                                 className="p-0.5 text-muted-foreground hover:text-primary transition-colors"
                                 aria-label="View agent results"
                               >
@@ -480,9 +480,9 @@ export function RightSidebar({
                             )}
                             <button
                               type="button"
-                              onClick={() => onDeleteTodo?.(todo.id)}
+                              onClick={() => onDeleteTask?.(task.id)}
                               className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"
-                              aria-label="Delete todo"
+                              aria-label="Delete task"
                             >
                               <Trash2Icon className="size-3" />
                             </button>
@@ -502,7 +502,7 @@ export function RightSidebar({
                 state={debriefState}
                 onGenerate={generateDebrief}
                 canGenerate={canGenerateDebrief}
-                onAddTodo={onAddTodo}
+                onAddTask={onAddTask}
               />
             )}
             <AgentList
@@ -520,7 +520,7 @@ export function RightSidebar({
         )}
       </div>
 
-      {onSubmitTodoInput && mode === "work" && (
+      {onSubmitTaskInput && mode === "work" && (
         <div className="px-2 pt-2 pb-2 shrink-0">
           <PromptInput onSubmit={handleSubmit}>
             <PromptInputHeader className="px-2 pt-1.5 pb-1 gap-1 min-h-[28px]">
@@ -546,7 +546,7 @@ export function RightSidebar({
               )}
             </PromptInputHeader>
             <PromptInputTextarea
-              placeholder={hasRefs ? "What should these become?" : "Add a todo..."}
+              placeholder={hasRefs ? "What should these become?" : "Add a task..."}
               className="min-h-0 text-xs"
             />
             <PromptInputFooter className="px-1 py-1">
@@ -558,9 +558,9 @@ export function RightSidebar({
           </PromptInput>
         </div>
       )}
-      {onSubmitTodoInput && mode === "agents" && hasRefs && (
+      {onSubmitTaskInput && mode === "agents" && hasRefs && (
         <div className="px-3 py-2 border-t border-border text-2xs text-muted-foreground">
-          {transcriptRefs.length} selected snippet{transcriptRefs.length !== 1 ? "s" : ""} ready for todo input.
+          {transcriptRefs.length} selected snippet{transcriptRefs.length !== 1 ? "s" : ""} ready for task input.
           <button
             type="button"
             onClick={() => setMode("work")}

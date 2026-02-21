@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { LanguageModel } from "ai";
 import { generateObject } from "ai";
-import { classifyTodoSize } from "./todo-size";
+import { classifyTaskSize } from "./task-size";
 
 vi.mock("ai", async () => {
   const actual = await vi.importActual<typeof import("ai")>("ai");
@@ -14,7 +14,7 @@ vi.mock("ai", async () => {
 const mockedGenerateObject = vi.mocked(generateObject);
 const DUMMY_MODEL = {} as LanguageModel;
 
-describe("classifyTodoSize", () => {
+describe("classifyTaskSize", () => {
   beforeEach(() => {
     mockedGenerateObject.mockReset();
   });
@@ -28,7 +28,7 @@ describe("classifyTodoSize", () => {
       },
     } as Awaited<ReturnType<typeof generateObject>>);
 
-    const result = await classifyTodoSize(DUMMY_MODEL, "Email the venue");
+    const result = await classifyTaskSize(DUMMY_MODEL, "Email the venue");
     expect(result.size).toBe("small");
     expect(result.confidence).toBe(0.91);
   });
@@ -42,7 +42,7 @@ describe("classifyTodoSize", () => {
       },
     } as Awaited<ReturnType<typeof generateObject>>);
 
-    const result = await classifyTodoSize(DUMMY_MODEL, "Plan the full migration rollout");
+    const result = await classifyTaskSize(DUMMY_MODEL, "Plan the full migration rollout");
     expect(result.size).toBe("large");
     expect(result.confidence).toBe(0.84);
   });
@@ -56,7 +56,7 @@ describe("classifyTodoSize", () => {
       },
     } as Awaited<ReturnType<typeof generateObject>>);
 
-    const result = await classifyTodoSize(DUMMY_MODEL, "Refactor auth and billing", 0.65);
+    const result = await classifyTaskSize(DUMMY_MODEL, "Refactor auth and billing", 0.65);
     expect(result.size).toBe("large");
     expect(result.confidence).toBe(0);
   });
@@ -64,7 +64,7 @@ describe("classifyTodoSize", () => {
   it("falls back to large when classifier throws", async () => {
     mockedGenerateObject.mockRejectedValueOnce(new Error("provider unavailable"));
 
-    const result = await classifyTodoSize(DUMMY_MODEL, "Book flight");
+    const result = await classifyTaskSize(DUMMY_MODEL, "Book flight");
     expect(result.size).toBe("large");
     expect(result.confidence).toBe(0);
     expect(result.reason).toContain("Classifier error:");

@@ -43,7 +43,7 @@ type AgentManagerDeps = {
 };
 
 export type AgentManager = {
-  launchAgent: (kind: AgentKind, todoId: string | undefined, task: string, sessionId?: string, taskContext?: string) => Agent;
+  launchAgent: (kind: AgentKind, taskId: string | undefined, task: string, sessionId?: string, taskContext?: string) => Agent;
   relaunchAgent: (agentId: string) => Agent | null;
   archiveAgent: (agentId: string) => boolean;
   followUpAgent: (agentId: string, question: string) => boolean;
@@ -353,7 +353,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
   function launchAgent(
     kind: AgentKind,
-    todoId: string | undefined,
+    taskId: string | undefined,
     task: string,
     sessionId?: string,
     taskContext?: string,
@@ -361,7 +361,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     const agent: Agent = {
       id: crypto.randomUUID(),
       kind,
-      todoId,
+      taskId,
       task,
       taskContext,
       status: "running",
@@ -373,7 +373,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     agents.set(agent.id, agent);
     deps.db?.insertAgent(agent);
     deps.events.emit("agent-started", agent);
-    log("INFO", `Agent launched: ${agent.id} (${kind})${todoId ? ` for todo ${todoId}` : ""}`);
+    log("INFO", `Agent launched: ${agent.id} (${kind})${taskId ? ` for task ${taskId}` : ""}`);
 
     if (kind === "custom") {
       void generateAgentTitle(agent, deps, agents);
@@ -593,7 +593,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     agent.completedAt = undefined;
     agent.createdAt = Date.now();
     // Refresh task context so the agent starts with current transcript, not the
-    // stale snapshot captured when the todo was originally created.
+    // stale snapshot captured when the task was originally created.
     agent.taskContext = deps.getTranscriptContext();
 
     deps.db?.updateAgent(agentId, { status: "running", steps: [], result: undefined, completedAt: undefined });

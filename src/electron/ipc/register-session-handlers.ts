@@ -97,7 +97,7 @@ export function registerSessionHandlers({ db, getWindow, sessionRef, getExternal
           ok: true,
           sessionId,
           blocks: db.getBlocksForSession(sessionId),
-          todos: db.getTodosForSession(sessionId),
+          tasks: db.getTasksForSession(sessionId),
           insights: db.getInsightsForSession(sessionId),
           agents: db.getAgentsForSession(sessionId),
         };

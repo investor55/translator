@@ -2,7 +2,7 @@ export function normalizeText(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
 
-const TODO_STOP_WORDS = new Set([
+const TASK_STOP_WORDS = new Set([
   "a",
   "an",
   "and",
@@ -31,7 +31,7 @@ const TODO_STOP_WORDS = new Set([
   "me",
 ]);
 
-export function normalizeTodoText(text: string): string {
+export function normalizeTaskText(text: string): string {
   return text
     .toLowerCase()
     .replace(/\b(\d+)(am|pm)\b/g, "$1 $2")
@@ -41,27 +41,27 @@ export function normalizeTodoText(text: string): string {
     .trim();
 }
 
-function canonicalizeTodoToken(token: string): string {
+function canonicalizeTaskToken(token: string): string {
   if (!token) return token;
   if (/^[a-z]{5,}es$/.test(token)) return token.slice(0, -2);
   if (/^[a-z]{4,}s$/.test(token)) return token.slice(0, -1);
   return token;
 }
 
-function todoTokenSet(text: string): Set<string> {
-  const normalized = normalizeTodoText(text);
+function taskTokenSet(text: string): Set<string> {
+  const normalized = normalizeTaskText(text);
   if (!normalized) return new Set();
   return new Set(
     normalized
       .split(" ")
-      .map((token) => canonicalizeTodoToken(token.trim()))
-      .filter((token) => token.length > 1 && !TODO_STOP_WORDS.has(token))
+      .map((token) => canonicalizeTaskToken(token.trim()))
+      .filter((token) => token.length > 1 && !TASK_STOP_WORDS.has(token))
   );
 }
 
-export function isLikelyDuplicateTodoText(left: string, right: string): boolean {
-  const a = normalizeTodoText(left);
-  const b = normalizeTodoText(right);
+export function isLikelyDuplicateTaskText(left: string, right: string): boolean {
+  const a = normalizeTaskText(left);
+  const b = normalizeTaskText(right);
 
   if (!a || !b) return false;
   if (a === b) return true;
@@ -71,8 +71,8 @@ export function isLikelyDuplicateTodoText(left: string, right: string): boolean 
     return true;
   }
 
-  const aTokens = todoTokenSet(a);
-  const bTokens = todoTokenSet(b);
+  const aTokens = taskTokenSet(a);
+  const bTokens = taskTokenSet(b);
   if (aTokens.size === 0 || bTokens.size === 0) return false;
 
   let overlap = 0;

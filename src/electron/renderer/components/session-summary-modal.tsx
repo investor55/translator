@@ -28,22 +28,22 @@ type Props = {
   state: SummaryModalState;
   onClose: () => void;
   onAcceptItems?: (
-    items: Array<{ text: string; details?: string; source: TodoSource; userIntent?: string }>,
+    items: Array<{ text: string; details?: string; source: TaskSource; userIntent?: string }>,
   ) => void;
   onRegenerate?: () => void;
 };
 
-type TodoSource = "agreement" | "missed" | "question" | "action";
+type TaskSource = "agreement" | "missed" | "question" | "action";
 
-type TodoCandidate = {
+type TaskCandidate = {
   id: string;
   text: string;
-  source: TodoSource;
+  source: TaskSource;
 };
 
-function sourceMeta(source: TodoSource): {
+function sourceMeta(source: TaskSource): {
   sectionTitle: string;
-  todoTitle: string;
+  taskTitle: string;
   leftBorderClass: string;
   checkboxClass: string;
 } {
@@ -51,35 +51,35 @@ function sourceMeta(source: TodoSource): {
     case "agreement":
       return {
         sectionTitle: "Agreements",
-        todoTitle: "Agreement Todos",
+        taskTitle: "Agreement Tasks",
         leftBorderClass: "border-emerald-500/70",
         checkboxClass: "border-emerald-500/60 data-[selected=true]:bg-emerald-500/25",
       };
     case "missed":
       return {
         sectionTitle: "What We Might Have Missed",
-        todoTitle: "Missed Item Todos",
+        taskTitle: "Missed Item Tasks",
         leftBorderClass: "border-amber-500/70",
         checkboxClass: "border-amber-500/60 data-[selected=true]:bg-amber-500/25",
       };
     case "question":
       return {
         sectionTitle: "Unanswered Questions",
-        todoTitle: "Unanswered Question Todos",
+        taskTitle: "Unanswered Question Tasks",
         leftBorderClass: "border-sky-500/70",
         checkboxClass: "border-sky-500/60 data-[selected=true]:bg-sky-500/25",
       };
     case "action":
       return {
         sectionTitle: "General Action Items",
-        todoTitle: "General Action Item Todos",
+        taskTitle: "General Action Item Tasks",
         leftBorderClass: "border-violet-500/70",
         checkboxClass: "border-violet-500/60 data-[selected=true]:bg-violet-500/25",
       };
   }
 }
 
-function buildTodoSuggestions(item: TodoCandidate): string[] {
+function buildTaskSuggestions(item: TaskCandidate): string[] {
   const text = item.text.toLowerCase();
 
   if (/\b(schedule|meeting|call|sync)\b/.test(text)) {
@@ -123,7 +123,7 @@ function FactList({
 }: {
   title: string;
   items: string[];
-  source: TodoSource;
+  source: TaskSource;
 }) {
   if (items.length === 0) return null;
   const meta = sourceMeta(source);
@@ -155,7 +155,7 @@ function FactList({
   );
 }
 
-function TodoRow({
+function TaskRow({
   candidate,
   selected,
   accepted,
@@ -163,7 +163,7 @@ function TodoRow({
   onIntentChange,
   onToggle,
 }: {
-  candidate: TodoCandidate;
+  candidate: TaskCandidate;
   selected: boolean;
   accepted: boolean;
   userIntent: string;
@@ -171,7 +171,7 @@ function TodoRow({
   onToggle: () => void;
 }) {
   const meta = sourceMeta(candidate.source);
-  const suggestions = buildTodoSuggestions(candidate);
+  const suggestions = buildTaskSuggestions(candidate);
 
   return (
     <li
@@ -218,7 +218,7 @@ function TodoRow({
           <Input
             value={userIntent}
             onChange={(event) => onIntentChange(event.target.value)}
-            placeholder="Optional focus for this todo"
+            placeholder="Optional focus for this task"
             className="h-5 rounded-full border-border/70 bg-muted/35 px-2 text-2xs placeholder:text-muted-foreground/90"
             maxLength={180}
           />
@@ -243,7 +243,7 @@ function TodoRow({
   );
 }
 
-function TodoSection({
+function TaskSection({
   title,
   items,
   selectedIds,
@@ -253,7 +253,7 @@ function TodoSection({
   onToggle,
 }: {
   title: string;
-  items: TodoCandidate[];
+  items: TaskCandidate[];
   selectedIds: Set<string>;
   acceptedIds: Set<string>;
   intentById: Record<string, string>;
@@ -269,7 +269,7 @@ function TodoSection({
       </div>
       <ul>
         {items.map((item) => (
-          <TodoRow
+          <TaskRow
             key={item.id}
             candidate={item}
             selected={selectedIds.has(item.id)}
@@ -287,16 +287,16 @@ function TodoSection({
 function InterleavedSection({
   source,
   facts,
-  todos,
+  taskCandidates,
   selectedIds,
   acceptedIds,
   intentById,
   onIntentChange,
   onToggle,
 }: {
-  source: TodoSource;
+  source: TaskSource;
   facts: string[];
-  todos: TodoCandidate[];
+  taskCandidates: TaskCandidate[];
   selectedIds: Set<string>;
   acceptedIds: Set<string>;
   intentById: Record<string, string>;
@@ -304,14 +304,14 @@ function InterleavedSection({
   onToggle: (id: string) => void;
 }) {
   const meta = sourceMeta(source);
-  if (facts.length === 0 && todos.length === 0) return null;
+  if (facts.length === 0 && taskCandidates.length === 0) return null;
 
   return (
     <div className="space-y-1.5">
       <FactList title={meta.sectionTitle} items={facts} source={source} />
-      <TodoSection
-        title={meta.todoTitle}
-        items={todos}
+      <TaskSection
+        title={meta.taskTitle}
+        items={taskCandidates}
         selectedIds={selectedIds}
         acceptedIds={acceptedIds}
         intentById={intentById}
@@ -325,7 +325,7 @@ function InterleavedSection({
 export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerate }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
-  const [todoIntentById, setTodoIntentById] = useState<Record<string, string>>({});
+  const [taskIntentById, setTaskIntentById] = useState<Record<string, string>>({});
   const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL_HEIGHT);
   const resizeStartRef = useRef<{ y: number; height: number } | null>(null);
 
@@ -360,12 +360,12 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
     if (state.kind === "ready") {
       setSelected(new Set());
       setAccepted(new Set());
-      setTodoIntentById({});
+      setTaskIntentById({});
     }
   }, [state.kind]);
 
   useEffect(() => {
-    setTodoIntentById((prev) => {
+    setTaskIntentById((prev) => {
       const next: Record<string, string> = {};
       for (const id of selected) {
         const current = prev[id];
@@ -377,23 +377,23 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
 
   const summary = state.kind === "ready" ? state.summary : null;
 
-  const todos = useMemo(() => {
+  const allTaskCandidates = useMemo(() => {
     if (!summary) {
       return {
-        all: [] as TodoCandidate[],
+        all: [] as TaskCandidate[],
         bySource: {
-          agreement: [] as TodoCandidate[],
-          missed: [] as TodoCandidate[],
-          question: [] as TodoCandidate[],
-          action: [] as TodoCandidate[],
+          agreement: [] as TaskCandidate[],
+          missed: [] as TaskCandidate[],
+          question: [] as TaskCandidate[],
+          action: [] as TaskCandidate[],
         },
       };
     }
 
-    const agreement = summary.agreementTodos.map((text, i) => ({ id: `agreement-todo-${i}`, text, source: "agreement" as const }));
-    const missed = summary.missedItemTodos.map((text, i) => ({ id: `missed-todo-${i}`, text, source: "missed" as const }));
-    const question = summary.unansweredQuestionTodos.map((text, i) => ({ id: `question-todo-${i}`, text, source: "question" as const }));
-    const action = summary.actionItems.map((text, i) => ({ id: `action-todo-${i}`, text, source: "action" as const }));
+    const agreement = summary.agreementTodos.map((text, i) => ({ id: `agreement-task-${i}`, text, source: "agreement" as const }));
+    const missed = summary.missedItemTodos.map((text, i) => ({ id: `missed-task-${i}`, text, source: "missed" as const }));
+    const question = summary.unansweredQuestionTodos.map((text, i) => ({ id: `question-task-${i}`, text, source: "question" as const }));
+    const action = summary.actionItems.map((text, i) => ({ id: `action-task-${i}`, text, source: "action" as const }));
 
     return {
       all: [...agreement, ...missed, ...question, ...action],
@@ -412,24 +412,24 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
   };
 
   const setIntentForItem = useCallback((id: string, value: string) => {
-    setTodoIntentById((prev) => ({ ...prev, [id]: value }));
+    setTaskIntentById((prev) => ({ ...prev, [id]: value }));
   }, []);
 
   const handleAcceptSelected = () => {
     if (state.kind !== "ready" || selected.size === 0) return;
 
-    const byId = new Map(todos.all.map((item) => [item.id, item]));
+    const byId = new Map(allTaskCandidates.all.map((item) => [item.id, item]));
     const payload = [...selected]
       .map((id) => byId.get(id))
-      .filter((item): item is TodoCandidate => !!item)
+      .filter((item): item is TaskCandidate => !!item)
       .map((item) => ({
         text: item.text,
         source: item.source,
-        userIntent: todoIntentById[item.id]?.trim() || undefined,
+        userIntent: taskIntentById[item.id]?.trim() || undefined,
         details: [
           state.summary.narrative ? `Context summary:\n${state.summary.narrative}` : "",
           `Source section: ${sourceMeta(item.source).sectionTitle}`,
-          `Source todo:\n- ${item.text}`,
+          `Source task:\n- ${item.text}`,
         ].filter(Boolean).join("\n\n"),
       }));
 
@@ -437,10 +437,10 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
     onAcceptItems?.(payload);
     setAccepted((prev) => new Set([...prev, ...selected]));
     setSelected(new Set());
-    setTodoIntentById({});
+    setTaskIntentById({});
   };
 
-  const totalItems = todos.all.length;
+  const totalItems = allTaskCandidates.all.length;
 
   if (state.kind === "idle") return null;
 
@@ -507,40 +507,40 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
               <InterleavedSection
                 source="agreement"
                 facts={summary.agreements}
-                todos={todos.bySource.agreement}
+                taskCandidates={allTaskCandidates.bySource.agreement}
                 selectedIds={selected}
                 acceptedIds={accepted}
-                intentById={todoIntentById}
+                intentById={taskIntentById}
                 onIntentChange={setIntentForItem}
                 onToggle={toggleItem}
               />
               <InterleavedSection
                 source="missed"
                 facts={summary.missedItems}
-                todos={todos.bySource.missed}
+                taskCandidates={allTaskCandidates.bySource.missed}
                 selectedIds={selected}
                 acceptedIds={accepted}
-                intentById={todoIntentById}
+                intentById={taskIntentById}
                 onIntentChange={setIntentForItem}
                 onToggle={toggleItem}
               />
               <InterleavedSection
                 source="question"
                 facts={summary.unansweredQuestions}
-                todos={todos.bySource.question}
+                taskCandidates={allTaskCandidates.bySource.question}
                 selectedIds={selected}
                 acceptedIds={accepted}
-                intentById={todoIntentById}
+                intentById={taskIntentById}
                 onIntentChange={setIntentForItem}
                 onToggle={toggleItem}
               />
               <InterleavedSection
                 source="action"
                 facts={[]}
-                todos={todos.bySource.action}
+                taskCandidates={allTaskCandidates.bySource.action}
                 selectedIds={selected}
                 acceptedIds={accepted}
-                intentById={todoIntentById}
+                intentById={taskIntentById}
                 onIntentChange={setIntentForItem}
                 onToggle={toggleItem}
               />
@@ -565,7 +565,7 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
               </button>
               <Button size="sm" onClick={handleAcceptSelected} className="gap-1 h-6 text-2xs px-2">
                 <PlusIcon className="size-2.5" />
-                Add to Todos
+                Add to Tasks
               </Button>
             </div>
           </div>

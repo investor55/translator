@@ -731,7 +731,7 @@ function TaskContextCard({ task, taskContext }: { task: string; taskContext?: st
   return (
     <div className="shrink-0 border-b border-border bg-muted/20 px-3 py-2">
       <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">
-        Todo
+        Task
       </p>
       <p className="mt-0.5 text-xs leading-relaxed text-foreground">{task}</p>
       <details className="mt-1">

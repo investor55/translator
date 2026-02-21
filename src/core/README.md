@@ -1,7 +1,7 @@
 # Core Module Layout
 
 - `agents/`: Agent execution and orchestration.
-- `analysis/`: Summary/todo analysis prompts and todo-size classification.
+- `analysis/`: Summary/task analysis prompts and task-size classification.
 - `audio/`: Audio helpers, VAD logic, and audio module re-exports.
 - `db/`: SQLite access layer and schema.
 - `text/`: Text normalization and related helpers.

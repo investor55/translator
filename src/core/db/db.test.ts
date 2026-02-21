@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createDatabase, type AppDatabase } from "./db";
-import type { TranscriptBlock, TodoItem, Insight, Agent, FinalSummary } from "../types";
+import type { TranscriptBlock, TaskItem, Insight, Agent, FinalSummary } from "../types";
 
 let db: AppDatabase;
 
@@ -204,9 +204,9 @@ describe("blocks", () => {
   });
 });
 
-describe("todos", () => {
-  it("inserts and retrieves todos", () => {
-    const todo: TodoItem = {
+describe("tasks", () => {
+  it("inserts and retrieves tasks", () => {
+    const task: TaskItem = {
       id: "t1",
       text: "Buy groceries",
       size: "small",
@@ -214,40 +214,40 @@ describe("todos", () => {
       source: "manual",
       createdAt: Date.now(),
     };
-    db.insertTodo(todo);
+    db.insertTask(task);
 
-    const todos = db.getTodos();
-    expect(todos).toHaveLength(1);
-    expect(todos[0].text).toBe("Buy groceries");
-    expect(todos[0].size).toBe("small");
-    expect(todos[0].completed).toBe(false);
-    expect(todos[0].source).toBe("manual");
+    const tasks = db.getTasks();
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].text).toBe("Buy groceries");
+    expect(tasks[0].size).toBe("small");
+    expect(tasks[0].completed).toBe(false);
+    expect(tasks[0].source).toBe("manual");
   });
 
-  it("toggles todo completion", () => {
-    db.insertTodo({
+  it("toggles task completion", () => {
+    db.insertTask({
       id: "t1", text: "Task", size: "large", completed: false, source: "ai", createdAt: Date.now(),
     });
 
-    db.updateTodo("t1", true);
-    let todos = db.getTodos();
-    expect(todos[0].completed).toBe(true);
-    expect(todos[0].completedAt).toBeDefined();
+    db.updateTask("t1", true);
+    let tasks = db.getTasks();
+    expect(tasks[0].completed).toBe(true);
+    expect(tasks[0].completedAt).toBeDefined();
 
-    db.updateTodo("t1", false);
-    todos = db.getTodos();
-    expect(todos[0].completed).toBe(false);
-    expect(todos[0].completedAt).toBeUndefined();
+    db.updateTask("t1", false);
+    tasks = db.getTasks();
+    expect(tasks[0].completed).toBe(false);
+    expect(tasks[0].completedAt).toBeUndefined();
   });
 
-  it("returns todos ordered by most recent first", () => {
+  it("returns tasks ordered by most recent first", () => {
     const now = Date.now();
-    db.insertTodo({ id: "t1", text: "First", size: "small", completed: false, source: "manual", createdAt: now });
-    db.insertTodo({ id: "t2", text: "Second", size: "large", completed: false, source: "manual", createdAt: now + 100 });
+    db.insertTask({ id: "t1", text: "First", size: "small", completed: false, source: "manual", createdAt: now });
+    db.insertTask({ id: "t2", text: "Second", size: "large", completed: false, source: "manual", createdAt: now + 100 });
 
-    const todos = db.getTodos();
-    expect(todos[0].text).toBe("Second");
-    expect(todos[1].text).toBe("First");
+    const tasks = db.getTasks();
+    expect(tasks[0].text).toBe("Second");
+    expect(tasks[1].text).toBe("First");
   });
 });
 
@@ -359,7 +359,7 @@ describe("agents", () => {
     const running: Agent = {
       id: "a1",
       kind: "analysis",
-      todoId: "t1",
+      taskId: "t1",
       task: "Running task",
       status: "running",
       steps: [],
@@ -369,7 +369,7 @@ describe("agents", () => {
     const completed: Agent = {
       id: "a2",
       kind: "analysis",
-      todoId: "t2",
+      taskId: "t2",
       task: "Done task",
       status: "completed",
       steps: [],

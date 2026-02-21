@@ -1,35 +1,35 @@
 import { useEffect, useRef } from "react";
-import type { FinalSummary, Insight, TodoSuggestion } from "../../../core/types";
+import type { FinalSummary, Insight, TaskSuggestion } from "../../../core/types";
 
 type UseSessionEventStreamParams = {
-  onTodoSuggested: (suggestion: TodoSuggestion) => void;
+  onTaskSuggested: (suggestion: TaskSuggestion) => void;
   onInsightAdded: (insight: Insight) => void;
   onFinalSummaryReady?: (summary: FinalSummary) => void;
   onFinalSummaryError?: (error: string) => void;
 };
 
 export function useSessionEventStream({
-  onTodoSuggested,
+  onTaskSuggested,
   onInsightAdded,
   onFinalSummaryReady,
   onFinalSummaryError,
 }: UseSessionEventStreamParams) {
-  const onTodoSuggestedRef = useRef(onTodoSuggested);
+  const onTaskSuggestedRef = useRef(onTaskSuggested);
   const onInsightAddedRef = useRef(onInsightAdded);
   const onFinalSummaryReadyRef = useRef(onFinalSummaryReady);
   const onFinalSummaryErrorRef = useRef(onFinalSummaryError);
 
   useEffect(() => {
-    onTodoSuggestedRef.current = onTodoSuggested;
+    onTaskSuggestedRef.current = onTaskSuggested;
     onInsightAddedRef.current = onInsightAdded;
     onFinalSummaryReadyRef.current = onFinalSummaryReady;
     onFinalSummaryErrorRef.current = onFinalSummaryError;
-  }, [onInsightAdded, onTodoSuggested, onFinalSummaryReady, onFinalSummaryError]);
+  }, [onInsightAdded, onTaskSuggested, onFinalSummaryReady, onFinalSummaryError]);
 
   useEffect(() => {
     const cleanups = [
-      window.electronAPI.onTodoSuggested((suggestion) => {
-        onTodoSuggestedRef.current(suggestion);
+      window.electronAPI.onTaskSuggested((suggestion) => {
+        onTaskSuggestedRef.current(suggestion);
       }),
       window.electronAPI.onInsightAdded((insight) => {
         onInsightAddedRef.current(insight);

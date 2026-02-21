@@ -16,7 +16,7 @@ describe("useSession reducer", () => {
       data: {
         sessionId: "s1",
         blocks: [],
-        todos: [],
+        tasks: [],
         insights: [],
         agents: [],
       },
@@ -79,7 +79,7 @@ describe("useSession reducer", () => {
       data: {
         sessionId: "s1",
         blocks: [],
-        todos: [],
+        tasks: [],
         agents: [],
         insights: [
           {

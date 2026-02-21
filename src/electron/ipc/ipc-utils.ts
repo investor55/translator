@@ -10,8 +10,8 @@ import type {
   LanguageCode,
   SessionConfig,
   Summary,
-  TodoItem,
-  TodoSuggestion,
+  TaskItem,
+  TaskSuggestion,
   TranscriptBlock,
   UIState,
 } from "../../core/types";
@@ -47,8 +47,8 @@ export function buildSessionConfig(
     analysisModelId: config.analysisModelId,
     analysisProviderOnly: config.analysisProviderOnly,
     analysisReasoning: config.analysisReasoning,
-    todoModelId: config.todoModelId,
-    todoProviders: config.todoProviders,
+    taskModelId: config.taskModelId,
+    taskProviders: config.taskProviders,
     utilityModelId: config.utilityModelId,
     memoryModelId: config.memoryModelId,
     vertexProject: config.vertexProject ?? process.env.GOOGLE_VERTEX_PROJECT_ID,
@@ -108,13 +108,13 @@ export function wireSessionEvents(
     if (!isCurrentSession()) return;
     sendToRenderer(getWindow, "session:error", text);
   });
-  activeSession.events.on("todo-added", (todo: TodoItem) => {
+  activeSession.events.on("task-added", (task: TaskItem) => {
     if (!isCurrentSession()) return;
-    sendToRenderer(getWindow, "session:todo-added", todo);
+    sendToRenderer(getWindow, "session:task-added", task);
   });
-  activeSession.events.on("todo-suggested", (suggestion: TodoSuggestion) => {
+  activeSession.events.on("task-suggested", (suggestion: TaskSuggestion) => {
     if (!isCurrentSession()) return;
-    sendToRenderer(getWindow, "session:todo-suggested", suggestion);
+    sendToRenderer(getWindow, "session:task-suggested", suggestion);
   });
   activeSession.events.on("insight-added", (insight) => {
     if (!isCurrentSession()) return;

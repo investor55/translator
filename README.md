@@ -8,7 +8,7 @@ Ambient is an Electron desktop app for live conversation capture, transcription,
 - Optional microphone capture in parallel with system audio
 - Transcription via ElevenLabs (`scribe_v2`) by default
 - Translation and analysis via configurable LLM providers
-- Session history with transcripts, todos, insights, and agents
+- Session history with transcripts, tasks, insights, and agents
 - Hash-route session navigation (`#/chat` and `#/chat/:sessionId`)
 
 ## Tech Stack
@@ -67,16 +67,16 @@ pnpm run check:deadcode
 ### Core runtime
 
 - `src/core/session.ts`: live audio/transcription/analysis orchestration
-- `src/core/db.ts`: session/todo/insight/agent persistence
+- `src/core/db.ts`: session/task/insight/agent persistence
 - `src/core/providers.ts`: model provider wiring
-- `src/core/analysis.ts`: insight/todo extraction prompts and schemas
+- `src/core/analysis.ts`: insight/task extraction prompts and schemas
 - `src/core/language.ts`: language helpers and prompt building
 
 ### IPC organization
 
 - `src/electron/ipc-handlers.ts`: IPC composition root
 - `src/electron/ipc/register-session-handlers.ts`: session lifecycle and recording handlers
-- `src/electron/ipc/register-todo-insight-handlers.ts`: todos, insights, and session persistence handlers
+- `src/electron/ipc/register-task-insight-handlers.ts`: tasks, insights, and session persistence handlers
 - `src/electron/ipc/register-agent-handlers.ts`: agent lifecycle handlers
 - `src/electron/ipc/ipc-utils.ts`: shared IPC utilities
 

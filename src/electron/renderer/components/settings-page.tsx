@@ -20,7 +20,7 @@ import {
   DEFAULT_WHISPER_MODEL_ID,
   DEFAULT_VERTEX_MODEL_ID,
 } from "../../../core/types";
-import { ANALYSIS_MODEL_PRESETS, TODO_MODEL_PRESETS, UTILITY_MODEL_PRESETS } from "../../../core/models";
+import { ANALYSIS_MODEL_PRESETS, TASK_MODEL_PRESETS, UTILITY_MODEL_PRESETS } from "../../../core/models";
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -751,18 +751,18 @@ export function SettingsPage({
               )}
               <div className="space-y-1">
                 <label className="text-2xs text-muted-foreground">
-                  Todo Model
+                  Task Model
                 </label>
                 <Select
-                  value={config.todoModelId}
+                  value={config.taskModelId}
                   onValueChange={(modelId) => {
-                    const preset = TODO_MODEL_PRESETS.find(
+                    const preset = TASK_MODEL_PRESETS.find(
                       (p) => p.modelId === modelId
                     );
                     onConfigChange({
                       ...config,
-                      todoModelId: modelId,
-                      todoProviders: preset?.providers ?? [],
+                      taskModelId: modelId,
+                      taskProviders: preset?.providers ?? [],
                     });
                   }}
                 >
@@ -770,7 +770,7 @@ export function SettingsPage({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {TODO_MODEL_PRESETS.map((preset) => (
+                    {TASK_MODEL_PRESETS.map((preset) => (
                       <SelectItem key={preset.modelId} value={preset.modelId}>
                         {preset.label}
                       </SelectItem>

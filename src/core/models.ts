@@ -9,7 +9,7 @@ export type AnalysisModelPreset = {
   providerOnly?: string;
 };
 
-export type TodoModelPreset = {
+export type TaskModelPreset = {
   label: string;
   modelId: string;
   providers: string[];
@@ -49,8 +49,8 @@ export const ANALYSIS_MODEL_PRESETS: AnalysisModelPreset[] = [
   },
 ];
 
-// Todo extraction models
-export const TODO_MODEL_PRESETS: TodoModelPreset[] = [
+// Task extraction models
+export const TASK_MODEL_PRESETS: TaskModelPreset[] = [
   {
     label: "GPT-OSS 120B",
     modelId: "openai/gpt-oss-120b",

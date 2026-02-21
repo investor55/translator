@@ -85,15 +85,15 @@ export function createMemoryModel(config: SessionConfig): LanguageModel {
   return openrouter(config.memoryModelId, { provider: { sort: "throughput" as const } });
 }
 
-export function createTodoModel(config: SessionConfig): LanguageModel {
+export function createTaskModel(config: SessionConfig): LanguageModel {
   const openrouter = createOpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY,
   });
   const provider = {
     sort: "throughput" as const,
-    ...(config.todoProviders?.length ? { only: config.todoProviders } : {}),
+    ...(config.taskProviders?.length ? { only: config.taskProviders } : {}),
   };
-  return openrouter(config.todoModelId, {
+  return openrouter(config.taskModelId, {
     reasoning: { max_tokens: 1024, exclude: false },
     provider,
   });

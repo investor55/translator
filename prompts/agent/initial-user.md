@@ -1,2 +1,2 @@
-Todo:
-{{todo}}{{context_section}}
+Task:
+{{task}}{{context_section}}

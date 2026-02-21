@@ -8,8 +8,8 @@ import type {
   AgentsSummary,
   LanguageCode,
   Device,
-  TodoItem,
-  TodoSuggestion,
+  TaskItem,
+  TaskSuggestion,
   Insight,
   SessionMeta,
   ProjectMeta,
@@ -44,7 +44,7 @@ export type ElectronAPI = {
   updateProject: (id: string, patch: { name?: string; instructions?: string }) => Promise<{ ok: boolean; project?: ProjectMeta; error?: string }>;
   deleteProject: (id: string) => Promise<{ ok: boolean; error?: string }>;
   updateSessionProject: (sessionId: string, projectId: string | null) => Promise<{ ok: boolean; session?: SessionMeta; error?: string }>;
-  resumeSession: (sessionId: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; sessionId?: string; blocks?: TranscriptBlock[]; todos?: TodoItem[]; insights?: Insight[]; agents?: Agent[]; error?: string }>;
+  resumeSession: (sessionId: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; sessionId?: string; blocks?: TranscriptBlock[]; tasks?: TaskItem[]; insights?: Insight[]; agents?: Agent[]; error?: string }>;
   startRecording: () => Promise<{ ok: boolean; error?: string }>;
   stopRecording: () => Promise<{ ok: boolean; error?: string }>;
   toggleRecording: () => Promise<{ ok: boolean; recording?: boolean; error?: string }>;
@@ -62,30 +62,30 @@ export type ElectronAPI = {
   onAgentsSummaryReady: (cb: (summary: AgentsSummary) => void) => () => void;
   onAgentsSummaryError: (cb: (error: string) => void) => () => void;
 
-  getTodos: () => Promise<TodoItem[]>;
-  addTodo: (todo: TodoItem, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; todo?: TodoItem; error?: string }>;
-  updateTodoText: (id: string, text: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; todo?: TodoItem; error?: string }>;
-  toggleTodo: (id: string) => Promise<{ ok: boolean; error?: string }>;
-  deleteTodo: (id: string) => Promise<{ ok: boolean; error?: string }>;
-  extractTodoFromSelectionInSession: (
+  getTasks: () => Promise<TaskItem[]>;
+  addTask: (task: TaskItem, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; task?: TaskItem; error?: string }>;
+  updateTaskText: (id: string, text: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; task?: TaskItem; error?: string }>;
+  toggleTask: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  deleteTask: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  extractTaskFromSelectionInSession: (
     sessionId: string,
     selectedText: string,
     userIntentText?: string,
     appConfig?: AppConfigOverrides,
-  ) => Promise<{ ok: boolean; todoTitle?: string; todoDetails?: string; reason?: string; error?: string }>;
+  ) => Promise<{ ok: boolean; taskTitle?: string; taskDetails?: string; reason?: string; error?: string }>;
   getSessions: (limit?: number) => Promise<SessionMeta[]>;
   getSessionBlocks: (sessionId: string) => Promise<TranscriptBlock[]>;
   deleteSession: (id: string) => Promise<{ ok: boolean }>;
   getInsights: (limit?: number) => Promise<Insight[]>;
-  getSessionTodos: (sessionId: string) => Promise<TodoItem[]>;
+  getSessionTasks: (sessionId: string) => Promise<TaskItem[]>;
   getSessionInsights: (sessionId: string) => Promise<Insight[]>;
 
-  approveLargeTodo: (todoId: string) => Promise<{ ok: boolean; approvalToken?: string; error?: string }>;
-  launchAgent: (todoId: string, task: string, taskContext?: string, approvalToken?: string) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
+  approveLargeTask: (taskId: string) => Promise<{ ok: boolean; approvalToken?: string; error?: string }>;
+  launchAgent: (taskId: string, task: string, taskContext?: string, approvalToken?: string) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
   launchCustomAgent: (task: string, taskContext?: string, kind?: AgentKind) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
   launchAgentInSession: (
     sessionId: string,
-    todoId: string,
+    taskId: string,
     task: string,
     taskContext?: string,
     appConfig?: AppConfigOverrides,
@@ -134,8 +134,8 @@ export type ElectronAPI = {
   onPartial: (callback: (payload: { source: AudioSource | null; text: string }) => void) => () => void;
   onStatus: (callback: (text: string) => void) => () => void;
   onError: (callback: (text: string) => void) => () => void;
-  onTodoAdded: (callback: (todo: TodoItem) => void) => () => void;
-  onTodoSuggested: (callback: (suggestion: TodoSuggestion) => void) => () => void;
+  onTaskAdded: (callback: (task: TaskItem) => void) => () => void;
+  onTaskSuggested: (callback: (suggestion: TaskSuggestion) => void) => () => void;
   onInsightAdded: (callback: (insight: Insight) => void) => () => void;
   onAgentStarted: (callback: (agent: Agent) => void) => () => void;
   onAgentStep: (callback: (agentId: string, step: AgentStep) => void) => () => void;
@@ -185,14 +185,14 @@ const api: ElectronAPI = {
   onAgentsSummaryReady: createListener<AgentsSummary>("session:agents-summary-ready"),
   onAgentsSummaryError: createListener<string>("session:agents-summary-error"),
 
-  getTodos: () => ipcRenderer.invoke("get-todos"),
-  addTodo: (todo, appConfig) => ipcRenderer.invoke("add-todo", todo, appConfig),
-  updateTodoText: (id, text, appConfig) => ipcRenderer.invoke("update-todo-text", id, text, appConfig),
-  toggleTodo: (id) => ipcRenderer.invoke("toggle-todo", id),
-  deleteTodo: (id) => ipcRenderer.invoke("delete-todo", id),
-  extractTodoFromSelectionInSession: (sessionId, selectedText, userIntentText, appConfig) =>
+  getTasks: () => ipcRenderer.invoke("get-tasks"),
+  addTask: (task, appConfig) => ipcRenderer.invoke("add-task", task, appConfig),
+  updateTaskText: (id, text, appConfig) => ipcRenderer.invoke("update-task-text", id, text, appConfig),
+  toggleTask: (id) => ipcRenderer.invoke("toggle-task", id),
+  deleteTask: (id) => ipcRenderer.invoke("delete-task", id),
+  extractTaskFromSelectionInSession: (sessionId, selectedText, userIntentText, appConfig) =>
     ipcRenderer.invoke(
-      "extract-todo-from-selection-in-session",
+      "extract-task-from-selection-in-session",
       sessionId,
       selectedText,
       userIntentText,
@@ -202,16 +202,16 @@ const api: ElectronAPI = {
   getSessionBlocks: (sessionId) => ipcRenderer.invoke("get-session-blocks", sessionId),
   deleteSession: (id) => ipcRenderer.invoke("delete-session", id),
   getInsights: (limit) => ipcRenderer.invoke("get-insights", limit),
-  getSessionTodos: (sessionId) => ipcRenderer.invoke("get-session-todos", sessionId),
+  getSessionTasks: (sessionId) => ipcRenderer.invoke("get-session-tasks", sessionId),
   getSessionInsights: (sessionId) => ipcRenderer.invoke("get-session-insights", sessionId),
 
-  approveLargeTodo: (todoId) => ipcRenderer.invoke("approve-large-todo", todoId),
-  launchAgent: (todoId, task, taskContext, approvalToken) =>
-    ipcRenderer.invoke("launch-agent", todoId, task, taskContext, approvalToken),
+  approveLargeTask: (taskId) => ipcRenderer.invoke("approve-large-task", taskId),
+  launchAgent: (taskId, task, taskContext, approvalToken) =>
+    ipcRenderer.invoke("launch-agent", taskId, task, taskContext, approvalToken),
   launchCustomAgent: (task, taskContext, kind) =>
     ipcRenderer.invoke("launch-custom-agent", task, taskContext, kind),
-  launchAgentInSession: (sessionId, todoId, task, taskContext, appConfig, approvalToken) =>
-    ipcRenderer.invoke("launch-agent-in-session", sessionId, todoId, task, taskContext, appConfig, approvalToken),
+  launchAgentInSession: (sessionId, taskId, task, taskContext, appConfig, approvalToken) =>
+    ipcRenderer.invoke("launch-agent-in-session", sessionId, taskId, task, taskContext, appConfig, approvalToken),
   archiveAgent: (agentId) => ipcRenderer.invoke("archive-agent", agentId),
   relaunchAgent: (agentId) => ipcRenderer.invoke("relaunch-agent", agentId),
   followUpAgent: (agentId, question) => ipcRenderer.invoke("follow-up-agent", agentId, question),
@@ -247,8 +247,8 @@ const api: ElectronAPI = {
   onPartial: createListener<{ source: AudioSource | null; text: string }>("session:partial"),
   onStatus: createListener<string>("session:status"),
   onError: createListener<string>("session:error"),
-  onTodoAdded: createListener<TodoItem>("session:todo-added"),
-  onTodoSuggested: createListener<TodoSuggestion>("session:todo-suggested"),
+  onTaskAdded: createListener<TaskItem>("session:task-added"),
+  onTaskSuggested: createListener<TaskSuggestion>("session:task-suggested"),
   onInsightAdded: createListener<Insight>("session:insight-added"),
   onAgentStarted: createListener<Agent>("session:agent-started"),
   onAgentStep: (callback: (agentId: string, step: AgentStep) => void) => {

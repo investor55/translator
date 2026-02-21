@@ -354,7 +354,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
           {/* "Added" confirmation toast */}
           {addedFeedback && (
             <div className="sticky top-2 z-20 float-right mr-0 mb-0 flex items-center gap-1 px-2 py-1 text-2xs bg-background border border-border shadow-sm rounded-sm text-muted-foreground">
-              Added to todo input
+              Added to task input
             </div>
           )}
 
@@ -373,7 +373,7 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
                 onKeyUp={(e) => e.stopPropagation()}
               >
                 <span className="font-mono opacity-60">⌘L</span>
-                <span>Add to todo</span>
+                <span>Add to task</span>
               </button>
             </div>
           )}

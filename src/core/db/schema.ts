@@ -40,7 +40,7 @@ export const blocks = sqliteTable("blocks", {
   createdAt: integer("created_at").notNull(),
 });
 
-export const todos = sqliteTable("todos", {
+export const tasks = sqliteTable("tasks", {
   id: text("id").primaryKey(),
   text: text("text").notNull(),
   details: text("details"),
@@ -63,7 +63,7 @@ export const insights = sqliteTable("insights", {
 export const agents = sqliteTable("agents", {
   id: text("id").primaryKey(),
   kind: text("kind").notNull().default("analysis"),
-  todoId: text("todo_id").notNull(),
+  taskId: text("task_id").notNull(),
   sessionId: text("session_id").references(() => sessions.id),
   task: text("task").notNull(),
   taskContext: text("task_context"),

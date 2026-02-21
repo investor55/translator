@@ -4,9 +4,9 @@ import path from "node:path";
 const SUMMARY_PROMPT_PATH = path.join("prompts", "summary", "system.md");
 const INSIGHTS_PROMPT_PATH = path.join("prompts", "insights", "system.md");
 const ANALYSIS_REQUEST_PROMPT_PATH = path.join("prompts", "analysis", "request.md");
-const TODO_EXTRACT_PROMPT_PATH = path.join("prompts", "todo", "extract.md");
-const TODO_FROM_SELECTION_PROMPT_PATH = path.join("prompts", "todo", "from-selection.md");
-const TODO_SIZE_CLASSIFIER_PROMPT_PATH = path.join("prompts", "todo", "size-classifier.md");
+const TASK_EXTRACT_PROMPT_PATH = path.join("prompts", "task", "extract.md");
+const TASK_FROM_SELECTION_PROMPT_PATH = path.join("prompts", "task", "from-selection.md");
+const TASK_SIZE_CLASSIFIER_PROMPT_PATH = path.join("prompts", "task", "size-classifier.md");
 const AGENT_SYSTEM_PROMPT_PATH = path.join("prompts", "agent", "system.md");
 const AGENT_INITIAL_USER_PROMPT_PATH = path.join("prompts", "agent", "initial-user.md");
 const AUDIO_AUTO_PROMPT_PATH = path.join("prompts", "transcription", "audio-auto.md");
@@ -61,49 +61,49 @@ Grounding requirements:
 - Avoid duplicating previous key points unless the new transcript adds materially new detail.
 - If transcript details are sparse, return fewer items rather than inventing details.`;
 
-const DEFAULT_TODO_EXTRACT_PROMPT = `You extract TODOs from live conversation transcripts.
+const DEFAULT_TASK_EXTRACT_PROMPT = `You extract tasks from live conversation transcripts.
 
 Recent transcript:
-{{transcript}}{{existing_todos_section}}{{historical_suggestions_section}}
+{{transcript}}{{existing_tasks_section}}{{historical_suggestions_section}}
 
 Task:
 - Extract only clear tasks, action items, or follow-ups.
-- Suggest todos when there is explicit intent, commitment, or concrete planning (for example: "I need to", "we should", "add a todo", "remind me to", "don't forget to", "I'm planning to", "I'm going to", "I'm looking to", "I want to", "I wanna").
-- Treat first-person planning statements as actionable TODOs even when dates are not fixed yet.
-- Treat travel planning and scheduling intent as TODOs (for example: "I'm planning to visit X", "we should decide where else to go", "need to book X").
+- Suggest tasks when there is explicit intent, commitment, or concrete planning (for example: "I need to", "we should", "add a task", "remind me to", "don't forget to", "I'm planning to", "I'm going to", "I'm looking to", "I want to", "I wanna").
+- Treat first-person planning statements as actionable tasks even when dates are not fixed yet.
+- Treat travel planning and scheduling intent as tasks (for example: "I'm planning to visit X", "we should decide where else to go", "need to book X").
 - Skip vague brainstorming and informational statements without a clear next action.
 - Prioritize impactful next steps over shallow restatements. If a candidate is too broad, reframe it into a deeper exploratory prompt (for example: "Dive into whether X is the right approach?").
 - Ignore bracketed non-speech tags like [silence], [music], [noise], [laughs].
 - Preserve details exactly: names, places, dates, times, constraints.
-- Merge fragments across neighboring lines into one complete todo.
-- For each todo, return:
-  - todoTitle: short high-impact action phrase or focused exploratory question.
-  - todoDetails: rich context and constraints needed by an autonomous agent, including background, assumptions, boundaries, and success criteria.
-  - transcriptExcerpt: short verbatim excerpt from the transcript that grounds the todo.
-- Do NOT duplicate existing todos or historical suggestions that are semantically similar.
-- Return an empty list when no clear actionable todo was discussed.`;
+- Merge fragments across neighboring lines into one complete task.
+- For each task, return:
+  - taskTitle: short high-impact action phrase or focused exploratory question.
+  - taskDetails: rich context and constraints needed by an autonomous agent, including background, assumptions, boundaries, and success criteria.
+  - transcriptExcerpt: short verbatim excerpt from the transcript that grounds the task.
+- Do NOT duplicate existing tasks or historical suggestions that are semantically similar.
+- Return an empty list when no clear actionable task was discussed.`;
 
-const DEFAULT_TODO_FROM_SELECTION_PROMPT = `You convert highlighted transcript text into one concrete TODO.
+const DEFAULT_TASK_FROM_SELECTION_PROMPT = `You convert highlighted transcript text into one concrete task.
 
 Highlighted transcript:
-{{selected_text}}{{user_intent_section}}{{existing_todos_section}}
+{{selected_text}}{{user_intent_section}}{{existing_tasks_section}}
 
 Task:
 - Treat the highlighted transcript as grounding context.
-- If user intent is provided, prioritize it and convert it into one short imperative todo that is consistent with context.
+- If user intent is provided, prioritize it and convert it into one short imperative task that is consistent with context.
 - If no user intent is provided, decide whether the highlighted text contains a clear actionable commitment, follow-up, or planning intent.
 - Return both:
-  - todoTitle: concise action title.
-  - todoDetails: rich context and constraints needed by an autonomous agent, including relevant background, assumptions, scope boundaries, and success criteria.
+  - taskTitle: concise action title.
+  - taskDetails: rich context and constraints needed by an autonomous agent, including relevant background, assumptions, scope boundaries, and success criteria.
 - Preserve critical details (names, places, dates, constraints).
-- Do not create a todo when the text is unclear, conversational filler, or non-actionable.
-- Do not duplicate an existing todo.
-- Return empty todoTitle and todoDetails when shouldCreateTodo is false.`;
+- Do not create a task when the text is unclear, conversational filler, or non-actionable.
+- Do not duplicate an existing task.
+- Return empty taskTitle and taskDetails when shouldCreateTask is false.`;
 
-const DEFAULT_TODO_SIZE_CLASSIFIER_PROMPT = `Classify this todo for autonomous execution risk.
+const DEFAULT_TASK_SIZE_CLASSIFIER_PROMPT = `Classify this task for autonomous execution risk.
 
-Todo:
-{{todo_text}}
+Task:
+{{task_text}}
 
 Rules:
 - small: single, low-risk, straightforward action that can be run automatically.
@@ -140,8 +140,8 @@ MCP integrations (Notion, Linear, and others):
 - If callMcpTool says a tool was not found or ambiguous, rerun searchMcpTools and use the exact tool name returned.
 - If callMcpTool returns an error about invalid or missing arguments, do not retry. Instead, use askQuestion to ask the user for the specific values needed.`;
 
-const DEFAULT_AGENT_INITIAL_USER_PROMPT = `Todo:
-{{todo}}
+const DEFAULT_AGENT_INITIAL_USER_PROMPT = `Task:
+{{task}}
 {{context_section}}`;
 
 const DEFAULT_AUDIO_AUTO_PROMPT = `{{summary_block}}{{context_block}}Listen to the audio clip. The speaker may be speaking {{lang_list}}. The speaker may occasionally use English words or phrases even when primarily speaking another language - treat code-switching as part of the primary language, not as a language change.
@@ -233,16 +233,16 @@ export function getAnalysisRequestPromptTemplate(): string {
   return loadPrompt(ANALYSIS_REQUEST_PROMPT_PATH, DEFAULT_ANALYSIS_REQUEST_PROMPT);
 }
 
-export function getTodoExtractPromptTemplate(): string {
-  return loadPrompt(TODO_EXTRACT_PROMPT_PATH, DEFAULT_TODO_EXTRACT_PROMPT);
+export function getTaskExtractPromptTemplate(): string {
+  return loadPrompt(TASK_EXTRACT_PROMPT_PATH, DEFAULT_TASK_EXTRACT_PROMPT);
 }
 
-export function getTodoFromSelectionPromptTemplate(): string {
-  return loadPrompt(TODO_FROM_SELECTION_PROMPT_PATH, DEFAULT_TODO_FROM_SELECTION_PROMPT);
+export function getTaskFromSelectionPromptTemplate(): string {
+  return loadPrompt(TASK_FROM_SELECTION_PROMPT_PATH, DEFAULT_TASK_FROM_SELECTION_PROMPT);
 }
 
-export function getTodoSizeClassifierPromptTemplate(): string {
-  return loadPrompt(TODO_SIZE_CLASSIFIER_PROMPT_PATH, DEFAULT_TODO_SIZE_CLASSIFIER_PROMPT);
+export function getTaskSizeClassifierPromptTemplate(): string {
+  return loadPrompt(TASK_SIZE_CLASSIFIER_PROMPT_PATH, DEFAULT_TASK_SIZE_CLASSIFIER_PROMPT);
 }
 
 export function getAgentSystemPromptTemplate(): string {

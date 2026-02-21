@@ -17,29 +17,29 @@ import type {
   FinalSummary,
   UIState,
   LanguageCode,
-  TodoSuggestion,
+  TaskSuggestion,
   Insight,
 } from "./types";
-import { createTranscriptionModel, createAnalysisModel, createTodoModel, createUtilitiesModel, createMemoryModel } from "./providers";
+import { createTranscriptionModel, createAnalysisModel, createTaskModel, createUtilitiesModel, createMemoryModel } from "./providers";
 import { log } from "./logger";
 import { pcmToWavBuffer, computeRms } from "./audio/audio-utils";
-import { isLikelyDuplicateTodoText, normalizeTodoText, toReadableError } from "./text/text-utils";
+import { isLikelyDuplicateTaskText, normalizeTaskText, toReadableError } from "./text/text-utils";
 import {
   analysisSchema,
-  todoAnalysisSchema,
-  type TodoExtractSuggestion,
-  todoFromSelectionSchema,
+  taskAnalysisSchema,
+  type TaskExtractSuggestion,
+  taskFromSelectionSchema,
   finalSummarySchema,
   agentsSummarySchema,
   sessionTitleSchema,
   buildAnalysisPrompt,
-  buildTodoPrompt,
-  buildTodoFromSelectionPrompt,
+  buildTaskPrompt,
+  buildTaskFromSelectionPrompt,
   buildFinalSummaryPrompt,
   buildAgentsSummaryPrompt,
   buildSessionTitlePrompt,
 } from "./analysis/analysis";
-import { classifyTodoSize as classifyTodoSizeWithModel, type TodoSizeClassification } from "./analysis/todo-size";
+import { classifyTaskSize as classifyTaskSizeWithModel, type TaskSizeClassification } from "./analysis/task-size";
 import type { AppDatabase } from "./db/db";
 import {
   LANG_NAMES,
@@ -116,7 +116,7 @@ type WhisperPendingParagraph = {
   lastUpdatedAt: number;
 };
 
-type TodoSuggestionDraft = {
+type TaskSuggestionDraft = {
   text: string;
   details?: string;
   transcriptExcerpt?: string;
@@ -199,7 +199,7 @@ export class Session {
 
   private transcriptionModel: LanguageModel | null;
   private analysisModel: LanguageModel;
-  private todoModel: LanguageModel;
+  private taskModel: LanguageModel;
   private utilitiesModel: LanguageModel;
   private audioTranscriptionSchema: z.ZodObject<z.ZodRawShape>;
   private transcriptionOnlySchema: z.ZodObject<z.ZodRawShape>;
@@ -259,12 +259,12 @@ export class Session {
   private readonly analysisDebounceMs = 300;
   private readonly analysisHeartbeatMs = 5000;
   private readonly analysisRetryDelayMs = 2000;
-  private readonly todoAnalysisIntervalMs = 10_000;
-  private readonly todoAnalysisMaxBlocks = 60;
-  private recentSuggestedTodoTexts: string[] = [];
-  private todoScanRequested = false;
-  private lastTodoAnalysisAt = 0;
-  private lastTodoAnalysisBlockCount = 0;
+  private readonly taskAnalysisIntervalMs = 10_000;
+  private readonly taskAnalysisMaxBlocks = 60;
+  private recentSuggestedTaskTexts: string[] = [];
+  private taskScanRequested = false;
+  private lastTaskAnalysisAt = 0;
+  private lastTaskAnalysisBlockCount = 0;
   /** Timestamp of last mic speech detection, for system-audio ducking */
   private micSpeechLastDetectedAt = 0;
   private readonly MIC_PRIORITY_GRACE_MS = 300;
@@ -296,7 +296,7 @@ export class Session {
         ? null
         : createTranscriptionModel(config);
     this.analysisModel = createAnalysisModel(config);
-    this.todoModel = createTodoModel(config);
+    this.taskModel = createTaskModel(config);
     this.utilitiesModel = createUtilitiesModel(config);
     const memoryModel = createMemoryModel(config);
 
@@ -515,9 +515,9 @@ export class Session {
       resetCost(this.costAccumulator);
       this.lastSummary = null;
       this.lastAnalysisBlockCount = 0;
-      this.lastTodoAnalysisBlockCount = 0;
-      this.lastTodoAnalysisAt = 0;
-      this.recentSuggestedTodoTexts = [];
+      this.lastTaskAnalysisBlockCount = 0;
+      this.lastTaskAnalysisAt = 0;
+      this.recentSuggestedTaskTexts = [];
       this.titleGenerated = false;
       this.events.emit("blocks-cleared");
       this.events.emit("summary-updated", null);
@@ -795,33 +795,33 @@ export class Session {
     return this._translationEnabled;
   }
 
-  async requestTodoScan(): Promise<{
+  async requestTaskScan(): Promise<{
     ok: boolean;
     queued: boolean;
-    todoAnalysisRan: boolean;
-    todoSuggestionsEmitted: number;
-    suggestions: TodoSuggestion[];
+    taskAnalysisRan: boolean;
+    taskSuggestionsEmitted: number;
+    suggestions: TaskSuggestion[];
     error?: string;
   }> {
     if (this.contextState.transcriptBlocks.size === 0) {
       this.hydrateTranscriptContextFromDb();
     }
     if (this.contextState.transcriptBlocks.size === 0) {
-      this.events.emit("status", "Todo scan: no transcript available yet.");
+      this.events.emit("status", "Task scan: no transcript available yet.");
       return {
         ok: false,
         queued: false,
-        todoAnalysisRan: false,
-        todoSuggestionsEmitted: 0,
+        taskAnalysisRan: false,
+        taskSuggestionsEmitted: 0,
         suggestions: [],
         error: "No transcript available to scan yet",
       };
     }
 
-    this.todoScanRequested = true;
-    this.events.emit("status", "Todo scan running...");
+    this.taskScanRequested = true;
+    this.events.emit("status", "Task scan running...");
     if (this.analysisInFlight) {
-      this.events.emit("status", "Todo scan waiting for current analysis...");
+      this.events.emit("status", "Task scan waiting for current analysis...");
       await this.waitForAnalysisIdle();
     }
 
@@ -832,7 +832,7 @@ export class Session {
     this.analysisRequested = false;
 
     let analysisResult = await this.generateAnalysis();
-    if (!analysisResult.todoAnalysisRan && this.todoScanRequested) {
+    if (!analysisResult.taskAnalysisRan && this.taskScanRequested) {
       // Rare race: another analysis started between idle/wakeup and our forced scan.
       await this.waitForAnalysisIdle();
       analysisResult = await this.generateAnalysis();
@@ -841,8 +841,8 @@ export class Session {
     return {
       ok: true,
       queued: false,
-      todoAnalysisRan: analysisResult.todoAnalysisRan,
-      todoSuggestionsEmitted: analysisResult.todoSuggestionsEmitted,
+      taskAnalysisRan: analysisResult.taskAnalysisRan,
+      taskSuggestionsEmitted: analysisResult.taskSuggestionsEmitted,
       suggestions: analysisResult.suggestions,
     };
   }
@@ -860,7 +860,7 @@ export class Session {
     const excerpt = blocks.map((b) => b.sourceText).join(" ").slice(0, 600);
     try {
       const { object } = await generateObject({
-        model: this.todoModel,
+        model: this.taskModel,
         schema: sessionTitleSchema,
         prompt: buildSessionTitlePrompt(excerpt),
         abortSignal: AbortSignal.timeout(15_000),
@@ -1015,7 +1015,7 @@ export class Session {
     }
 
     this.contextState.nextBlockId = Math.max(this.contextState.nextBlockId, maxBlockId + 1);
-    // Prevent backfilling summary/insights when the user only requests a todo scan.
+    // Prevent backfilling summary/insights when the user only requests a task scan.
     this.lastAnalysisBlockCount = this.contextState.transcriptBlocks.size;
   }
 
@@ -1045,9 +1045,9 @@ export class Session {
     writeSummaryLog(this.contextState.allKeyPoints);
   }
 
-  launchAgent(kind: AgentKind, todoId: string | undefined, task: string, taskContext?: string): Agent | null {
+  launchAgent(kind: AgentKind, taskId: string | undefined, task: string, taskContext?: string): Agent | null {
     if (!this.agentManager) return null;
-    return this.agentManager.launchAgent(kind, todoId, task, this.sessionId, taskContext);
+    return this.agentManager.launchAgent(kind, taskId, task, this.sessionId, taskContext);
   }
 
   relaunchAgent(agentId: string): Agent | null {
@@ -1060,74 +1060,74 @@ export class Session {
     return this.agentManager.archiveAgent(agentId);
   }
 
-  async classifyTodoSize(text: string): Promise<TodoSizeClassification> {
-    const result = await classifyTodoSizeWithModel(this.todoModel, text);
+  async classifyTaskSize(text: string): Promise<TaskSizeClassification> {
+    const result = await classifyTaskSizeWithModel(this.taskModel, text);
     log(
       "INFO",
-      `Todo size classified: size=${result.size} confidence=${result.confidence.toFixed(2)} reason=${result.reason}`
+      `Task size classified: size=${result.size} confidence=${result.confidence.toFixed(2)} reason=${result.reason}`
     );
     return result;
   }
 
-  async extractTodoFromSelection(
+  async extractTaskFromSelection(
     selectedText: string,
     userIntentText?: string,
-  ): Promise<{ ok: boolean; todoTitle?: string; todoDetails?: string; reason?: string; error?: string }> {
+  ): Promise<{ ok: boolean; taskTitle?: string; taskDetails?: string; reason?: string; error?: string }> {
     const trimmedSelection = selectedText.trim();
     if (!trimmedSelection) {
       return { ok: false, error: "Selected text is required" };
     }
 
-    const existingTodos = this.db
-      ? this.db.getTodosForSession(this.sessionId)
+    const existingTasks = this.db
+      ? this.db.getTasksForSession(this.sessionId)
       : [];
-    const prompt = buildTodoFromSelectionPrompt(trimmedSelection, existingTodos, userIntentText);
+    const prompt = buildTaskFromSelectionPrompt(trimmedSelection, existingTasks, userIntentText);
 
     try {
       const { object, usage } = await generateObject({
-        model: this.todoModel,
-        schema: todoFromSelectionSchema,
+        model: this.taskModel,
+        schema: taskFromSelectionSchema,
         prompt,
         abortSignal: AbortSignal.timeout(10000),
         temperature: 0,
       });
 
-      const totalWithTodo = addCostToAcc(
+      const totalWithTask = addCostToAcc(
         this.costAccumulator,
         usage?.inputTokens ?? 0,
         usage?.outputTokens ?? 0,
         "text",
         "openrouter"
       );
-      this.events.emit("cost-updated", totalWithTodo);
+      this.events.emit("cost-updated", totalWithTask);
 
-      const todoTitle = object.todoTitle.trim();
-      const todoDetails = object.todoDetails.trim();
-      if (!object.shouldCreateTodo || !todoTitle) {
+      const taskTitle = object.taskTitle.trim();
+      const taskDetails = object.taskDetails.trim();
+      if (!object.shouldCreateTask || !taskTitle) {
         return {
           ok: true,
-          reason: object.reason || "No actionable todo found in selection.",
+          reason: object.reason || "No actionable task found in selection.",
         };
       }
 
-      const existingTexts = existingTodos.map((todo) => todo.text);
-      const isDuplicate = this.isDuplicateTodoSuggestion(todoTitle, existingTexts, []);
+      const existingTexts = existingTasks.map((task) => task.text);
+      const isDuplicate = this.isDuplicateTaskSuggestion(taskTitle, existingTexts, []);
       if (isDuplicate) {
         return {
           ok: true,
-          reason: "This todo already exists.",
+          reason: "This task already exists.",
         };
       }
 
       return {
         ok: true,
-        todoTitle,
-        todoDetails,
+        taskTitle,
+        taskDetails,
         reason: object.reason,
       };
     } catch (error) {
       if (this.config.debug) {
-        log("WARN", `Todo extraction from selection failed: ${toReadableError(error)}`);
+        log("WARN", `Task extraction from selection failed: ${toReadableError(error)}`);
       }
       return { ok: false, error: toReadableError(error) };
     }
@@ -1414,7 +1414,7 @@ export class Session {
 
           try {
             const { object } = await generateObject({
-              model: this.todoModel,
+              model: this.taskModel,
               schema: this.whisperParagraphDecisionSchema,
               prompt,
               temperature: 0,
@@ -1812,7 +1812,7 @@ export class Session {
     try {
       const { object, usage } = await generateObject({
         // Use the low-latency model path for per-chunk post-processing.
-        model: this.todoModel,
+        model: this.taskModel,
         schema: this.textPostProcessSchema,
         prompt,
         abortSignal: AbortSignal.timeout(8000),
@@ -1892,43 +1892,43 @@ export class Session {
   }
 
   private async generateAnalysis(): Promise<{
-    todoAnalysisRan: boolean;
-    todoSuggestionsEmitted: number;
-    suggestions: TodoSuggestion[];
+    taskAnalysisRan: boolean;
+    taskSuggestionsEmitted: number;
+    suggestions: TaskSuggestion[];
   }> {
     if (this.analysisInFlight) {
       this.analysisRequested = true;
       return {
-        todoAnalysisRan: false,
-        todoSuggestionsEmitted: 0,
+        taskAnalysisRan: false,
+        taskSuggestionsEmitted: 0,
         suggestions: [],
       };
     }
 
     const allBlocks = [...this.contextState.transcriptBlocks.values()];
     const now = Date.now();
-    const forceTodoAnalysis = this.todoScanRequested;
-    this.todoScanRequested = false;
+    const forceTaskAnalysis = this.taskScanRequested;
+    this.taskScanRequested = false;
     const hasNewAnalysisBlocks = allBlocks.length > this.lastAnalysisBlockCount;
     const shouldRunSummaryAnalysis =
       hasNewAnalysisBlocks
-      && !(forceTodoAnalysis && !this.isRecording);
-    const hasNewTodoBlocks = allBlocks.length > this.lastTodoAnalysisBlockCount;
-    const shouldRunTodoAnalysis =
-      (forceTodoAnalysis && allBlocks.length > 0)
+      && !(forceTaskAnalysis && !this.isRecording);
+    const hasNewTaskBlocks = allBlocks.length > this.lastTaskAnalysisBlockCount;
+    const shouldRunTaskAnalysis =
+      (forceTaskAnalysis && allBlocks.length > 0)
       || (
-        hasNewTodoBlocks
+        hasNewTaskBlocks
         && (
-          // Whisper/ElevenLabs have preview text; run todo scan when a paragraph is committed.
+          // Whisper/ElevenLabs have preview text; run task scan when a paragraph is committed.
           this.config.transcriptionProvider === "whisper"
           || this.config.transcriptionProvider === "elevenlabs"
-          || now - this.lastTodoAnalysisAt >= this.todoAnalysisIntervalMs
+          || now - this.lastTaskAnalysisAt >= this.taskAnalysisIntervalMs
         )
       );
-    if (!shouldRunSummaryAnalysis && !shouldRunTodoAnalysis) {
+    if (!shouldRunSummaryAnalysis && !shouldRunTaskAnalysis) {
       return {
-        todoAnalysisRan: false,
-        todoSuggestionsEmitted: 0,
+        taskAnalysisRan: false,
+        taskSuggestionsEmitted: 0,
         suggestions: [],
       };
     }
@@ -1945,13 +1945,13 @@ export class Session {
     let analysisElapsedMs = 0;
     let analysisKeyPointsCount = 0;
     let analysisInsightsCount = 0;
-    let todoAnalysisRan = false;
-    let todoSuggestionsEmitted = 0;
-    let emittedTodoSuggestions: TodoSuggestion[] = [];
+    let taskAnalysisRan = false;
+    let taskSuggestionsEmitted = 0;
+    let emittedTaskSuggestions: TaskSuggestion[] = [];
 
     try {
-      const existingTodos = this.db
-        ? this.db.getTodosForSession(this.sessionId)
+      const existingTasks = this.db
+        ? this.db.getTasksForSession(this.sessionId)
         : [];
       const previousKeyPoints = this.contextState.allKeyPoints.slice(-20);
       const previousEducationalInsights = dedupeInsightHistory(
@@ -2033,93 +2033,93 @@ export class Session {
         }
       }
 
-      let todoSuggestions: TodoSuggestionDraft[] = [];
-      let todoBlocks: typeof allBlocks = [];
+      let taskSuggestions: TaskSuggestionDraft[] = [];
+      let taskBlocks: typeof allBlocks = [];
 
-      if (shouldRunTodoAnalysis) {
-        todoAnalysisRan = true;
-        if (forceTodoAnalysis) {
-          todoBlocks = allBlocks;
+      if (shouldRunTaskAnalysis) {
+        taskAnalysisRan = true;
+        if (forceTaskAnalysis) {
+          taskBlocks = allBlocks;
         } else {
-          const todoContextStart = Math.max(
+          const taskContextStart = Math.max(
             0,
-            this.lastTodoAnalysisBlockCount - 10,
-            analysisTargetBlockCount - this.todoAnalysisMaxBlocks,
+            this.lastTaskAnalysisBlockCount - 10,
+            analysisTargetBlockCount - this.taskAnalysisMaxBlocks,
           );
-          todoBlocks = allBlocks.slice(todoContextStart, analysisTargetBlockCount);
+          taskBlocks = allBlocks.slice(taskContextStart, analysisTargetBlockCount);
         }
-        this.lastTodoAnalysisAt = now;
+        this.lastTaskAnalysisAt = now;
 
         try {
-          const todoPrompt = buildTodoPrompt(
-            todoBlocks,
-            existingTodos,
-            this.recentSuggestedTodoTexts,
+          const taskPrompt = buildTaskPrompt(
+            taskBlocks,
+            existingTasks,
+            this.recentSuggestedTaskTexts,
           );
-          const { object: todoResult, usage: todoUsage } = await generateObject({
-            model: this.todoModel,
-            schema: todoAnalysisSchema,
-            prompt: todoPrompt,
+          const { object: taskResult, usage: taskUsage } = await generateObject({
+            model: this.taskModel,
+            schema: taskAnalysisSchema,
+            prompt: taskPrompt,
             abortSignal: AbortSignal.timeout(10000),
             temperature: 0,
           });
 
-          const totalWithTodo = addCostToAcc(
+          const totalWithTask = addCostToAcc(
             this.costAccumulator,
-            todoUsage?.inputTokens ?? 0,
-            todoUsage?.outputTokens ?? 0,
+            taskUsage?.inputTokens ?? 0,
+            taskUsage?.outputTokens ?? 0,
             "text",
             "openrouter"
           );
-          this.events.emit("cost-updated", totalWithTodo);
-          todoSuggestions = todoResult.suggestedTodos
-            .map((raw) => this.normalizeTodoSuggestion(raw, todoBlocks))
-            .filter((candidate): candidate is TodoSuggestionDraft => candidate !== null);
-          this.lastTodoAnalysisBlockCount = analysisTargetBlockCount;
-        } catch (todoError) {
+          this.events.emit("cost-updated", totalWithTask);
+          taskSuggestions = taskResult.suggestedTasks
+            .map((raw) => this.normalizeTaskSuggestion(raw, taskBlocks))
+            .filter((candidate): candidate is TaskSuggestionDraft => candidate !== null);
+          this.lastTaskAnalysisBlockCount = analysisTargetBlockCount;
+        } catch (taskError) {
           if (this.config.debug) {
-            log("WARN", `Todo extraction failed: ${toReadableError(todoError)}`);
+            log("WARN", `Task extraction failed: ${toReadableError(taskError)}`);
           }
         }
       }
 
       if (this.config.debug) {
-        log("INFO", `Analysis response: ${analysisElapsedMs}ms, keyPoints=${analysisKeyPointsCount}, insights=${analysisInsightsCount}, todos=${todoSuggestions.length}`);
+        log("INFO", `Analysis response: ${analysisElapsedMs}ms, keyPoints=${analysisKeyPointsCount}, insights=${analysisInsightsCount}, tasks=${taskSuggestions.length}`);
       }
 
-      // Emit todo suggestions (not auto-added — user must accept)
-      const existingTodoTexts = existingTodos.map((t) => t.text);
-      const emittedTodoTexts: string[] = [];
-      emittedTodoSuggestions = [];
-      for (const candidate of todoSuggestions) {
-        const emittedSuggestion = this.tryEmitTodoSuggestion(
+      // Emit task suggestions (not auto-added — user must accept)
+      const existingTaskTexts = existingTasks.map((t) => t.text);
+      const emittedTaskTexts: string[] = [];
+      emittedTaskSuggestions = [];
+      for (const candidate of taskSuggestions) {
+        const emittedSuggestion = this.tryEmitTaskSuggestion(
           candidate,
-          existingTodoTexts,
-          emittedTodoTexts,
+          existingTaskTexts,
+          emittedTaskTexts,
         );
         if (!emittedSuggestion) {
           continue;
         }
-        emittedTodoTexts.push(candidate.text);
-        emittedTodoSuggestions.push(emittedSuggestion);
-        todoSuggestionsEmitted += 1;
+        emittedTaskTexts.push(candidate.text);
+        emittedTaskSuggestions.push(emittedSuggestion);
+        taskSuggestionsEmitted += 1;
       }
 
-      if (forceTodoAnalysis) {
-        const suffix = todoSuggestionsEmitted === 1 ? "" : "s";
+      if (forceTaskAnalysis) {
+        const suffix = taskSuggestionsEmitted === 1 ? "" : "s";
         this.events.emit(
           "status",
-          todoAnalysisRan
-            ? `Todo scan complete: ${todoSuggestionsEmitted} suggestion${suffix}.`
-            : "Todo scan skipped."
+          taskAnalysisRan
+            ? `Task scan complete: ${taskSuggestionsEmitted} suggestion${suffix}.`
+            : "Task scan skipped."
         );
       }
     } catch (error) {
       if (this.config.debug) {
         log("WARN", `Analysis failed: ${toReadableError(error)}`);
       }
-      if (forceTodoAnalysis) {
-        this.events.emit("status", `Todo scan failed: ${toReadableError(error)}`);
+      if (forceTaskAnalysis) {
+        this.events.emit("status", `Task scan failed: ${toReadableError(error)}`);
       }
     } finally {
       this.analysisInFlight = false;
@@ -2137,47 +2137,47 @@ export class Session {
       }
     }
     return {
-      todoAnalysisRan,
-      todoSuggestionsEmitted,
-      suggestions: emittedTodoSuggestions,
+      taskAnalysisRan,
+      taskSuggestionsEmitted,
+      suggestions: emittedTaskSuggestions,
     };
   }
 
-  private isDuplicateTodoSuggestion(
+  private isDuplicateTaskSuggestion(
     candidate: string,
-    existingTodoTexts: readonly string[],
+    existingTaskTexts: readonly string[],
     emittedInCurrentAnalysis: readonly string[],
   ): boolean {
-    const normalizedCandidate = normalizeTodoText(candidate);
+    const normalizedCandidate = normalizeTaskText(candidate);
     if (!normalizedCandidate) return true;
 
-    const exactMatch = (text: string) => normalizeTodoText(text) === normalizedCandidate;
-    if (existingTodoTexts.some(exactMatch)) return true;
+    const exactMatch = (text: string) => normalizeTaskText(text) === normalizedCandidate;
+    if (existingTaskTexts.some(exactMatch)) return true;
     if (emittedInCurrentAnalysis.some(exactMatch)) return true;
-    if (this.recentSuggestedTodoTexts.some(exactMatch)) return true;
+    if (this.recentSuggestedTaskTexts.some(exactMatch)) return true;
 
-    const fuzzyMatch = (text: string) => isLikelyDuplicateTodoText(candidate, text);
-    if (existingTodoTexts.some(fuzzyMatch)) return true;
+    const fuzzyMatch = (text: string) => isLikelyDuplicateTaskText(candidate, text);
+    if (existingTaskTexts.some(fuzzyMatch)) return true;
     if (emittedInCurrentAnalysis.some(fuzzyMatch)) return true;
-    if (this.recentSuggestedTodoTexts.some(fuzzyMatch)) return true;
+    if (this.recentSuggestedTaskTexts.some(fuzzyMatch)) return true;
 
     return false;
   }
 
-  private tryEmitTodoSuggestion(
-    candidate: TodoSuggestionDraft,
-    existingTodoTexts?: readonly string[],
+  private tryEmitTaskSuggestion(
+    candidate: TaskSuggestionDraft,
+    existingTaskTexts?: readonly string[],
     emittedInCurrentAnalysis: readonly string[] = [],
-  ): TodoSuggestion | null {
+  ): TaskSuggestion | null {
     const normalized = candidate.text.trim();
     if (!normalized) return null;
 
-    const knownTodoTexts = existingTodoTexts ?? (this.db ? this.db.getTodos().map((t) => t.text) : []);
-    if (this.isDuplicateTodoSuggestion(normalized, knownTodoTexts, emittedInCurrentAnalysis)) {
+    const knownTaskTexts = existingTaskTexts ?? (this.db ? this.db.getTasks().map((t) => t.text) : []);
+    if (this.isDuplicateTaskSuggestion(normalized, knownTaskTexts, emittedInCurrentAnalysis)) {
       return null;
     }
 
-    const suggestion: TodoSuggestion = {
+    const suggestion: TaskSuggestion = {
       id: crypto.randomUUID(),
       text: normalized,
       details: candidate.details?.trim() || undefined,
@@ -2185,32 +2185,32 @@ export class Session {
       sessionId: this.sessionId,
       createdAt: Date.now(),
     };
-    this.recentSuggestedTodoTexts.push(normalized);
-    if (this.recentSuggestedTodoTexts.length > 500) {
-      this.recentSuggestedTodoTexts = this.recentSuggestedTodoTexts.slice(-500);
+    this.recentSuggestedTaskTexts.push(normalized);
+    if (this.recentSuggestedTaskTexts.length > 500) {
+      this.recentSuggestedTaskTexts = this.recentSuggestedTaskTexts.slice(-500);
     }
-    this.events.emit("todo-suggested", suggestion);
+    this.events.emit("task-suggested", suggestion);
     return suggestion;
   }
 
-  private normalizeTodoSuggestion(
-    rawSuggestion: TodoExtractSuggestion,
-    todoBlocks: readonly TranscriptBlock[],
-  ): TodoSuggestionDraft | null {
+  private normalizeTaskSuggestion(
+    rawSuggestion: TaskExtractSuggestion,
+    taskBlocks: readonly TranscriptBlock[],
+  ): TaskSuggestionDraft | null {
     if (typeof rawSuggestion === "string") {
       const text = rawSuggestion.trim();
       if (!text) return null;
       return {
         text,
-        ...this.buildTodoSuggestionFallbackContext(text, todoBlocks),
+        ...this.buildTaskSuggestionFallbackContext(text, taskBlocks),
       };
     }
 
-    const text = rawSuggestion.todoTitle.trim();
+    const text = rawSuggestion.taskTitle.trim();
     if (!text) return null;
-    const details = rawSuggestion.todoDetails?.trim();
+    const details = rawSuggestion.taskDetails?.trim();
     const transcriptExcerpt = rawSuggestion.transcriptExcerpt?.trim();
-    const fallback = this.buildTodoSuggestionFallbackContext(text, todoBlocks);
+    const fallback = this.buildTaskSuggestionFallbackContext(text, taskBlocks);
     return {
       text,
       details: details || fallback.details,
@@ -2218,15 +2218,15 @@ export class Session {
     };
   }
 
-  private buildTodoSuggestionFallbackContext(
-    todoText: string,
-    todoBlocks: readonly TranscriptBlock[],
-  ): Pick<TodoSuggestionDraft, "details" | "transcriptExcerpt"> {
-    if (todoBlocks.length === 0) {
+  private buildTaskSuggestionFallbackContext(
+    taskText: string,
+    taskBlocks: readonly TranscriptBlock[],
+  ): Pick<TaskSuggestionDraft, "details" | "transcriptExcerpt"> {
+    if (taskBlocks.length === 0) {
       return {};
     }
 
-    const relevantBlocks = this.selectRelevantTodoBlocks(todoText, todoBlocks);
+    const relevantBlocks = this.selectRelevantTaskBlocks(taskText, taskBlocks);
     const transcriptExcerpt = relevantBlocks
       .map((block) => {
         const source = `[${block.audioSource}] ${block.sourceText}`;
@@ -2246,27 +2246,27 @@ export class Session {
     };
   }
 
-  private selectRelevantTodoBlocks(
-    todoText: string,
-    todoBlocks: readonly TranscriptBlock[],
+  private selectRelevantTaskBlocks(
+    taskText: string,
+    taskBlocks: readonly TranscriptBlock[],
   ): TranscriptBlock[] {
-    if (todoBlocks.length <= 3) {
-      return [...todoBlocks];
+    if (taskBlocks.length <= 3) {
+      return [...taskBlocks];
     }
 
-    const todoTokens = normalizeTodoText(todoText)
+    const taskTokens = normalizeTaskText(taskText)
       .split(" ")
       .filter((token) => token.length >= 3);
-    if (todoTokens.length === 0) {
-      return [...todoBlocks.slice(-3)];
+    if (taskTokens.length === 0) {
+      return [...taskBlocks.slice(-3)];
     }
 
-    const scored = todoBlocks
+    const scored = taskBlocks
       .map((block) => {
-        const searchableText = normalizeTodoText(
+        const searchableText = normalizeTaskText(
           `${block.sourceText} ${block.translation ?? ""}`,
         );
-        const score = todoTokens.reduce((acc, token) => (
+        const score = taskTokens.reduce((acc, token) => (
           searchableText.includes(token) ? acc + 1 : acc
         ), 0);
         return { block, score };
@@ -2283,7 +2283,7 @@ export class Session {
       .map((item) => item.block);
 
     if (scored.length === 0) {
-      return [...todoBlocks.slice(-3)];
+      return [...taskBlocks.slice(-3)];
     }
 
     return scored.sort((left, right) => {

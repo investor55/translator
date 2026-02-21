@@ -117,7 +117,7 @@ export function buildAgentInitialUserPrompt(
   const contextText = taskContext?.trim();
   const contextSection = contextText ? `\n\nContext:\n${contextText}` : "";
   return renderPromptTemplate(getAgentInitialUserPromptTemplate(), {
-    todo: task.trim(),
+    task: task.trim(),
     context_section: contextSection,
   });
 }

@@ -16,7 +16,7 @@ export function registerAgentHandlers({
   ensureSession,
   sessionRef,
 }: AgentDeps) {
-  const approvalTokens = new Map<string, { todoId: string; expiresAt: number }>();
+  const approvalTokens = new Map<string, { taskId: string; expiresAt: number }>();
   const APPROVAL_TOKEN_TTL_MS = 60_000;
 
   function cleanupExpiredApprovalTokens() {
@@ -28,22 +28,22 @@ export function registerAgentHandlers({
     }
   }
 
-  function issueApprovalToken(todoId: string): string {
+  function issueApprovalToken(taskId: string): string {
     cleanupExpiredApprovalTokens();
     const token = crypto.randomUUID();
     approvalTokens.set(token, {
-      todoId,
+      taskId,
       expiresAt: Date.now() + APPROVAL_TOKEN_TTL_MS,
     });
     return token;
   }
 
-  function consumeApprovalToken(todoId: string, token?: string): boolean {
+  function consumeApprovalToken(taskId: string, token?: string): boolean {
     cleanupExpiredApprovalTokens();
     if (!token) return false;
     const grant = approvalTokens.get(token);
     if (!grant) return false;
-    if (grant.todoId !== todoId) return false;
+    if (grant.taskId !== taskId) return false;
     if (grant.expiresAt <= Date.now()) {
       approvalTokens.delete(token);
       return false;
@@ -52,32 +52,32 @@ export function registerAgentHandlers({
     return true;
   }
 
-  function ensureLaunchApproval(todoId: string, approvalToken?: string): { ok: true } | { ok: false; error: string } {
-    const todo = db.getTodo(todoId);
-    if (!todo) return { ok: false, error: "Todo not found" };
-    if (todo.size === "small") return { ok: true };
-    if (!consumeApprovalToken(todoId, approvalToken)) {
-      return { ok: false, error: "Approval required for large todo" };
+  function ensureLaunchApproval(taskId: string, approvalToken?: string): { ok: true } | { ok: false; error: string } {
+    const task = db.getTask(taskId);
+    if (!task) return { ok: false, error: "Task not found" };
+    if (task.size === "small") return { ok: true };
+    if (!consumeApprovalToken(taskId, approvalToken)) {
+      return { ok: false, error: "Approval required for large task" };
     }
     return { ok: true };
   }
 
-  ipcMain.handle("approve-large-todo", (_event, todoId: string) => {
-    const todo = db.getTodo(todoId);
-    if (!todo) return { ok: false, error: "Todo not found" };
-    if (todo.size !== "large") {
-      return { ok: false, error: "Todo does not require approval" };
+  ipcMain.handle("approve-large-task", (_event, taskId: string) => {
+    const task = db.getTask(taskId);
+    if (!task) return { ok: false, error: "Task not found" };
+    if (task.size !== "large") {
+      return { ok: false, error: "Task does not require approval" };
     }
-    return { ok: true, approvalToken: issueApprovalToken(todoId) };
+    return { ok: true, approvalToken: issueApprovalToken(taskId) };
   });
 
   ipcMain.handle(
     "launch-agent",
-    (_event, todoId: string, task: string, taskContext?: string, approvalToken?: string) => {
+    (_event, taskId: string, task: string, taskContext?: string, approvalToken?: string) => {
       if (!sessionRef.current) return { ok: false, error: "No active session" };
-      const approval = ensureLaunchApproval(todoId, approvalToken);
+      const approval = ensureLaunchApproval(taskId, approvalToken);
       if (!approval.ok) return approval;
-      const agent = sessionRef.current.launchAgent("analysis", todoId, task, taskContext);
+      const agent = sessionRef.current.launchAgent("analysis", taskId, task, taskContext);
       if (!agent) return { ok: false, error: "Agent system unavailable (EXA_API_KEY not set)" };
       return { ok: true, agent };
     },
@@ -88,7 +88,7 @@ export function registerAgentHandlers({
     async (
       _event,
       sessionId: string,
-      todoId: string,
+      taskId: string,
       task: string,
       taskContext?: string,
       appConfig?: AppConfigOverrides,
@@ -97,9 +97,9 @@ export function registerAgentHandlers({
       const ensured = await ensureSession(sessionId, appConfig);
       if (!ensured.ok) return ensured;
       if (!sessionRef.current) return { ok: false, error: "Could not load session" };
-      const approval = ensureLaunchApproval(todoId, approvalToken);
+      const approval = ensureLaunchApproval(taskId, approvalToken);
       if (!approval.ok) return approval;
-      const agent = sessionRef.current.launchAgent("analysis", todoId, task, taskContext);
+      const agent = sessionRef.current.launchAgent("analysis", taskId, task, taskContext);
       if (!agent) return { ok: false, error: "Agent system unavailable (EXA_API_KEY not set)" };
       return { ok: true, agent };
     },

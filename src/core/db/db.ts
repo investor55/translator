@@ -1,11 +1,11 @@
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { and, eq, desc, count, inArray } from "drizzle-orm";
-import { sessions, blocks, todos, insights, agents, projects } from "./schema";
+import { sessions, blocks, tasks, insights, agents, projects } from "./schema";
 import { log } from "../logger";
 import type {
-  TodoItem,
-  TodoSize,
+  TaskItem,
+  TaskSize,
   Insight,
   InsightKind,
   SessionMeta,
@@ -71,7 +71,7 @@ export function createDatabase(dbPath: string) {
         tx.delete(blocks).where(eq(blocks.sessionId, id)).run();
         tx.delete(agents).where(eq(agents.sessionId, id)).run();
         tx.delete(insights).where(eq(insights.sessionId, id)).run();
-        tx.delete(todos).where(eq(todos.sessionId, id)).run();
+        tx.delete(tasks).where(eq(tasks.sessionId, id)).run();
         tx.delete(sessions).where(eq(sessions.id, id)).run();
       });
     },
@@ -151,16 +151,16 @@ export function createDatabase(dbPath: string) {
         .from(insights)
         .where(eq(insights.sessionId, id))
         .all();
-      const [todoRow] = orm
+      const [taskRow] = orm
         .select({ n: count() })
-        .from(todos)
-        .where(eq(todos.sessionId, id))
+        .from(tasks)
+        .where(eq(tasks.sessionId, id))
         .all();
 
       return (blockRow?.n ?? 0) === 0
         && (agentRow?.n ?? 0) === 0
         && (insightRow?.n ?? 0) === 0
-        && (todoRow?.n ?? 0) === 0;
+        && (taskRow?.n ?? 0) === 0;
     },
 
     reuseSession(id: string, sourceLang?: LanguageCode, targetLang?: LanguageCode) {
@@ -210,67 +210,67 @@ export function createDatabase(dbPath: string) {
       }));
     },
 
-    insertTodo(todo: TodoItem) {
-      orm.insert(todos).values({
-        id: todo.id,
-        text: todo.text,
-        details: todo.details ?? null,
-        size: todo.size,
-        completed: todo.completed ? 1 : 0,
-        source: todo.source,
-        createdAt: todo.createdAt,
-        sessionId: todo.sessionId ?? null,
+    insertTask(task: TaskItem) {
+      orm.insert(tasks).values({
+        id: task.id,
+        text: task.text,
+        details: task.details ?? null,
+        size: task.size,
+        completed: task.completed ? 1 : 0,
+        source: task.source,
+        createdAt: task.createdAt,
+        sessionId: task.sessionId ?? null,
       }).run();
     },
 
-    updateTodo(id: string, completed: boolean) {
-      orm.update(todos)
+    updateTask(id: string, completed: boolean) {
+      orm.update(tasks)
         .set({ completed: completed ? 1 : 0, completedAt: completed ? Date.now() : null })
-        .where(eq(todos.id, id))
+        .where(eq(tasks.id, id))
         .run();
     },
 
-    deleteTodo(id: string) {
+    deleteTask(id: string) {
       orm.transaction((tx) => {
-        tx.delete(agents).where(eq(agents.todoId, id)).run();
-        tx.delete(todos).where(eq(todos.id, id)).run();
+        tx.delete(agents).where(eq(agents.taskId, id)).run();
+        tx.delete(tasks).where(eq(tasks.id, id)).run();
       });
     },
 
-    updateTodoText(id: string, text: string, size: TodoSize) {
-      orm.update(todos)
+    updateTaskText(id: string, text: string, size: TaskSize) {
+      orm.update(tasks)
         .set({ text, size })
-        .where(eq(todos.id, id))
+        .where(eq(tasks.id, id))
         .run();
     },
 
-    getTodo(id: string): TodoItem | null {
+    getTask(id: string): TaskItem | null {
       const [row] = orm
         .select()
-        .from(todos)
-        .where(eq(todos.id, id))
+        .from(tasks)
+        .where(eq(tasks.id, id))
         .limit(1)
         .all();
-      return row ? mapTodoRow(row) : null;
+      return row ? mapTaskRow(row) : null;
     },
 
-    getTodos(): TodoItem[] {
+    getTasks(): TaskItem[] {
       const rows = orm
         .select()
-        .from(todos)
-        .orderBy(desc(todos.createdAt))
+        .from(tasks)
+        .orderBy(desc(tasks.createdAt))
         .all();
-      return rows.map(mapTodoRow);
+      return rows.map(mapTaskRow);
     },
 
-    getTodosForSession(sessionId: string): TodoItem[] {
+    getTasksForSession(sessionId: string): TaskItem[] {
       const rows = orm
         .select()
-        .from(todos)
-        .where(eq(todos.sessionId, sessionId))
-        .orderBy(desc(todos.createdAt))
+        .from(tasks)
+        .where(eq(tasks.sessionId, sessionId))
+        .orderBy(desc(tasks.createdAt))
         .all();
-      return rows.map(mapTodoRow);
+      return rows.map(mapTaskRow);
     },
 
     insertInsight(insight: Insight) {
@@ -350,7 +350,7 @@ export function createDatabase(dbPath: string) {
       orm.insert(agents).values({
         id: agent.id,
         kind: agent.kind,
-        todoId: agent.todoId ?? "",
+        taskId: agent.taskId ?? "",
         sessionId: agent.sessionId ?? null,
         task: agent.task,
         taskContext: agent.taskContext ?? null,
@@ -388,8 +388,8 @@ export function createDatabase(dbPath: string) {
         .all();
       return rows.map((r) => ({
         id: r.id,
-        kind: coerceAgentKind(r.kind, r.todoId),
-        todoId: r.todoId || undefined,
+        kind: coerceAgentKind(r.kind, r.taskId),
+        taskId: r.taskId || undefined,
         task: r.task,
         taskContext: r.taskContext ?? undefined,
         status: r.status as Agent["status"],
@@ -617,17 +617,17 @@ function batchAgentCounts(orm: BetterSQLite3Database, sessionIds: string[]): Map
   return new Map(rows.map((r) => [r.sessionId!, r.n]));
 }
 
-function coerceAgentKind(kind: string | null | undefined, todoId: string | null | undefined): Agent["kind"] {
+function coerceAgentKind(kind: string | null | undefined, taskId: string | null | undefined): Agent["kind"] {
   if (kind === "analysis" || kind === "custom") return kind;
-  return todoId && todoId.trim() ? "analysis" : "custom";
+  return taskId && taskId.trim() ? "analysis" : "custom";
 }
 
-function mapTodoRow(r: typeof todos.$inferSelect): TodoItem {
+function mapTaskRow(r: typeof tasks.$inferSelect): TaskItem {
   return {
     id: r.id,
     text: r.text,
     details: r.details ?? undefined,
-    size: (r.size as TodoSize) ?? "large",
+    size: (r.size as TaskSize) ?? "large",
     completed: r.completed === 1,
     source: r.source as "ai" | "manual",
     createdAt: r.createdAt,
@@ -638,11 +638,11 @@ function mapTodoRow(r: typeof todos.$inferSelect): TodoItem {
 
 function mapRawAgentRow(r: Record<string, unknown>): Agent {
   const kind = r.kind as string | null;
-  const todoId = r.todo_id as string | null;
+  const taskId = r.task_id as string | null;
   return {
     id: r.id as string,
-    kind: coerceAgentKind(kind, todoId),
-    todoId: (todoId || undefined),
+    kind: coerceAgentKind(kind, taskId),
+    taskId: (taskId || undefined),
     task: r.task as string,
     taskContext: (r.task_context as string | null) ?? undefined,
     status: r.status as Agent["status"],
@@ -689,7 +689,7 @@ function runMigrations(db: Database.Database) {
       created_at INTEGER NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS todos (
+    CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
       text TEXT NOT NULL,
       details TEXT,
@@ -711,7 +711,7 @@ function runMigrations(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,
       kind TEXT NOT NULL DEFAULT 'analysis',
-      todo_id TEXT NOT NULL,
+      task_id TEXT NOT NULL,
       session_id TEXT REFERENCES sessions(id),
       task TEXT NOT NULL,
       task_context TEXT,
@@ -724,7 +724,7 @@ function runMigrations(db: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_blocks_session ON blocks(session_id);
     CREATE INDEX IF NOT EXISTS idx_blocks_created ON blocks(created_at);
-    CREATE INDEX IF NOT EXISTS idx_todos_completed ON todos(completed);
+    CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(completed);
     CREATE INDEX IF NOT EXISTS idx_insights_created ON insights(created_at);
     CREATE INDEX IF NOT EXISTS idx_agents_session ON agents(session_id);
 
@@ -756,24 +756,24 @@ function runMigrations(db: Database.Database) {
     db.exec("ALTER TABLE sessions ADD COLUMN target_lang TEXT");
   }
 
-  const todoCols = db.prepare("PRAGMA table_info(todos)").all() as Array<{ name: string }>;
-  const todoColNames = new Set(todoCols.map((c) => c.name));
-  if (!todoColNames.has("session_id")) {
-    db.exec("ALTER TABLE todos ADD COLUMN session_id TEXT");
+  const taskCols = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
+  const taskColNames = new Set(taskCols.map((c) => c.name));
+  if (!taskColNames.has("session_id")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN session_id TEXT");
   }
-  if (!todoColNames.has("size")) {
-    db.exec("ALTER TABLE todos ADD COLUMN size TEXT NOT NULL DEFAULT 'large'");
+  if (!taskColNames.has("size")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN size TEXT NOT NULL DEFAULT 'large'");
   }
-  if (!todoColNames.has("details")) {
-    db.exec("ALTER TABLE todos ADD COLUMN details TEXT");
+  if (!taskColNames.has("details")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN details TEXT");
   }
 
   const agentCols = db.prepare("PRAGMA table_info(agents)").all() as Array<{ name: string }>;
   const agentColNames = new Set(agentCols.map((c) => c.name));
   if (!agentColNames.has("kind")) {
     db.exec("ALTER TABLE agents ADD COLUMN kind TEXT NOT NULL DEFAULT 'analysis'");
-    // Backfill pre-kind rows: empty todo_id rows are custom agents.
-    db.exec("UPDATE agents SET kind = 'custom' WHERE COALESCE(todo_id, '') = ''");
+    // Backfill pre-kind rows: empty task_id rows are custom agents.
+    db.exec("UPDATE agents SET kind = 'custom' WHERE COALESCE(task_id, '') = ''");
   }
   if (!agentColNames.has("task_context")) {
     db.exec("ALTER TABLE agents ADD COLUMN task_context TEXT");

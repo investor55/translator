@@ -1,11 +1,11 @@
 import { z } from "zod";
-import type { TranscriptBlock, TodoItem, Agent } from "../types";
+import type { TranscriptBlock, TaskItem, Agent } from "../types";
 import {
   getAnalysisRequestPromptTemplate,
   getInsightsSystemPrompt,
   getSummarySystemPrompt,
-  getTodoExtractPromptTemplate,
-  getTodoFromSelectionPromptTemplate,
+  getTaskExtractPromptTemplate,
+  getTaskFromSelectionPromptTemplate,
   renderPromptTemplate,
 } from "../prompt-loader";
 
@@ -25,21 +25,21 @@ export const analysisSchema = z.object({
     .describe("1-3 educational notes that help the listener understand topics mentioned in the conversation. Think of these as helpful footnotes."),
 });
 
-export const todoAnalysisSchema = z.object({
-  suggestedTodos: z
+export const taskAnalysisSchema = z.object({
+  suggestedTasks: z
     .array(
       z.union([
-        z.string().describe("Legacy fallback: short actionable todo title."),
+        z.string().describe("Legacy fallback: short actionable task title."),
         z.object({
-          todoTitle: z
+          taskTitle: z
             .string()
-            .describe("Short actionable todo title (3-10 words)."),
-          todoDetails: z
+            .describe("Short actionable task title (3-10 words)."),
+          taskDetails: z
             .string()
             .describe("Rich context and constraints for autonomous execution."),
           transcriptExcerpt: z
             .string()
-            .describe("Short verbatim transcript excerpt grounding this todo.")
+            .describe("Short verbatim transcript excerpt grounding this task.")
             .optional(),
         }),
       ]),
@@ -47,16 +47,16 @@ export const todoAnalysisSchema = z.object({
     .describe("Clear action items from the conversation. Prefer structured items with title, details, and supporting excerpt."),
 });
 
-export const todoFromSelectionSchema = z.object({
-  shouldCreateTodo: z
+export const taskFromSelectionSchema = z.object({
+  shouldCreateTask: z
     .boolean()
-    .describe("Whether a todo should be created. Always true when user intent is provided. When no intent is given, true only if the selected text itself contains a clear actionable commitment."),
-  todoTitle: z
+    .describe("Whether a task should be created. Always true when user intent is provided. When no intent is given, true only if the selected text itself contains a clear actionable commitment."),
+  taskTitle: z
     .string()
-    .describe("Short actionable todo title (3-10 words). Empty when shouldCreateTodo is false."),
-  todoDetails: z
+    .describe("Short actionable task title (3-10 words). Empty when shouldCreateTask is false."),
+  taskDetails: z
     .string()
-    .describe("Detailed context for the todo preserving specifics, constraints, names, and timeline. Empty when shouldCreateTodo is false."),
+    .describe("Detailed context for the task preserving specifics, constraints, names, and timeline. Empty when shouldCreateTask is false."),
   reason: z
     .string()
     .describe("Brief explanation for decision."),
@@ -174,9 +174,9 @@ ${transcript || "(No transcript available)"}${keyPointsSection}`;
 }
 
 export type AnalysisResult = z.infer<typeof analysisSchema>;
-export type TodoAnalysisResult = z.infer<typeof todoAnalysisSchema>;
-export type TodoExtractSuggestion = TodoAnalysisResult["suggestedTodos"][number];
-export type TodoFromSelectionResult = z.infer<typeof todoFromSelectionSchema>;
+export type TaskAnalysisResult = z.infer<typeof taskAnalysisSchema>;
+export type TaskExtractSuggestion = TaskAnalysisResult["suggestedTasks"][number];
+export type TaskFromSelectionResult = z.infer<typeof taskFromSelectionSchema>;
 
 export function buildAnalysisPrompt(
   recentBlocks: TranscriptBlock[],
@@ -212,9 +212,9 @@ export function buildAnalysisPrompt(
   });
 }
 
-export function buildTodoPrompt(
+export function buildTaskPrompt(
   recentBlocks: TranscriptBlock[],
-  existingTodos: ReadonlyArray<Pick<TodoItem, "text" | "completed">>,
+  existingTasks: ReadonlyArray<Pick<TaskItem, "text" | "completed">>,
   historicalSuggestions: readonly string[] = [],
 ): string {
   const transcript = recentBlocks
@@ -225,9 +225,9 @@ export function buildTodoPrompt(
     })
     .join("\n");
 
-  const todosSection =
-    existingTodos.length > 0
-      ? `\n\nExisting todos:\n${existingTodos.map((t) => `- [${t.completed ? "x" : " "}] ${t.text}`).join("\n")}`
+  const tasksSection =
+    existingTasks.length > 0
+      ? `\n\nExisting tasks:\n${existingTasks.map((t) => `- [${t.completed ? "x" : " "}] ${t.text}`).join("\n")}`
       : "";
 
   const historicalSuggestionsSet = new Set<string>();
@@ -245,31 +245,31 @@ export function buildTodoPrompt(
     ? `\n\nHistorical suggestions already shown in this session:\n${normalizedHistory.map((text) => `- ${text}`).join("\n")}`
     : "";
 
-  return renderPromptTemplate(getTodoExtractPromptTemplate(), {
+  return renderPromptTemplate(getTaskExtractPromptTemplate(), {
     transcript,
-    existing_todos_section: todosSection,
+    existing_tasks_section: tasksSection,
     historical_suggestions_section: historicalSuggestionsSection,
   });
 }
 
-export function buildTodoFromSelectionPrompt(
+export function buildTaskFromSelectionPrompt(
   selectedText: string,
-  existingTodos: ReadonlyArray<Pick<TodoItem, "text" | "completed">>,
+  existingTasks: ReadonlyArray<Pick<TaskItem, "text" | "completed">>,
   userIntentText?: string,
 ): string {
-  const todosSection =
-    existingTodos.length > 0
-      ? `\n\nExisting todos:\n${existingTodos.map((t) => `- [${t.completed ? "x" : " "}] ${t.text}`).join("\n")}`
+  const tasksSection =
+    existingTasks.length > 0
+      ? `\n\nExisting tasks:\n${existingTasks.map((t) => `- [${t.completed ? "x" : " "}] ${t.text}`).join("\n")}`
       : "";
   const intent = userIntentText?.trim() ?? "";
   const userIntentSection = intent
-    ? `\n\nUser intent for todo creation:\n${intent}`
+    ? `\n\nUser intent for task creation:\n${intent}`
     : "";
 
-  return renderPromptTemplate(getTodoFromSelectionPromptTemplate(), {
+  return renderPromptTemplate(getTaskFromSelectionPromptTemplate(), {
     selected_text: selectedText,
     user_intent_section: userIntentSection,
-    existing_todos_section: todosSection,
+    existing_tasks_section: tasksSection,
   });
 }
 

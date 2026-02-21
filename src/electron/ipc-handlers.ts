@@ -9,7 +9,7 @@ import type { AppConfigOverrides } from "../core/types";
 import { registerAgentHandlers } from "./ipc/register-agent-handlers";
 import { registerProjectHandlers } from "./ipc/register-project-handlers";
 import { registerSessionHandlers } from "./ipc/register-session-handlers";
-import { registerTodoInsightHandlers } from "./ipc/register-todo-insight-handlers";
+import { registerTaskInsightHandlers } from "./ipc/register-task-insight-handlers";
 import { registerIntegrationHandlers } from "./ipc/register-integration-handlers";
 import { registerElectronWhisperGpuBridge } from "./ipc/whisper-gpu-bridge";
 import { buildSessionConfig, shutdownCurrentSession, wireSessionEvents } from "./ipc/ipc-utils";
@@ -139,7 +139,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
     getExternalTools: manager.getExternalTools,
     dataDir: app.getPath("userData"),
   });
-  registerTodoInsightHandlers({ db, getWindow, sessionRef, ensureSession });
+  registerTaskInsightHandlers({ db, getWindow, sessionRef, ensureSession });
   registerAgentHandlers({ db, getWindow, sessionRef, ensureSession });
   registerIntegrationHandlers(manager);
 }

@@ -100,11 +100,11 @@ export type AgentsSummary = {
   totalDurationSecs: number;
 };
 
-export type TodoItem = Readonly<{
+export type TaskItem = Readonly<{
   id: string;
   text: string;
   details?: string;
-  size: TodoSize;
+  size: TaskSize;
   completed: boolean;
   source: "ai" | "manual";
   createdAt: number;
@@ -112,9 +112,9 @@ export type TodoItem = Readonly<{
   sessionId?: string;
 }>;
 
-export type TodoSize = "small" | "large";
+export type TaskSize = "small" | "large";
 
-export type TodoSuggestion = Readonly<{
+export type TaskSuggestion = Readonly<{
   id: string;
   text: string;
   details?: string;
@@ -181,8 +181,8 @@ export type SessionConfig = {
   analysisModelId: string;
   analysisProviderOnly?: string;
   analysisReasoning: boolean;
-  todoModelId: string;
-  todoProviders: string[];
+  taskModelId: string;
+  taskProviders: string[];
   utilityModelId: string;
   memoryModelId: string;
   vertexProject?: string;
@@ -214,8 +214,8 @@ export type AppConfig = {
   analysisModelId: string;
   analysisProviderOnly?: string;
   analysisReasoning: boolean;
-  todoModelId: string;
-  todoProviders: string[];
+  taskModelId: string;
+  taskProviders: string[];
   utilityModelId: string;
   memoryModelId: string;
   vertexProject?: string;
@@ -282,7 +282,7 @@ export { ANALYSIS_MODEL_PRESETS, getAnalysisModelPreset } from "./models";
 
 export const DEFAULT_ANALYSIS_MODEL_ID =
   ENV?.ANALYSIS_MODEL_ID ?? "moonshotai/kimi-k2-thinking";
-export const DEFAULT_TODO_MODEL_ID =
+export const DEFAULT_TASK_MODEL_ID =
   ENV?.TODO_MODEL_ID ?? "openai/gpt-oss-120b";
 export const DEFAULT_INTERVAL_MS = 2000;
 export const DEFAULT_THEME_MODE: ThemeMode = "system";
@@ -347,8 +347,8 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   analysisProvider: "openrouter",
   analysisModelId: "moonshotai/kimi-k2-0905:exacto",
   analysisReasoning: false,
-  todoModelId: DEFAULT_TODO_MODEL_ID,
-  todoProviders: ["sambanova", "groq", "cerebras"],
+  taskModelId: DEFAULT_TASK_MODEL_ID,
+  taskProviders: ["sambanova", "groq", "cerebras"],
   utilityModelId: DEFAULT_UTILITY_MODEL_ID,
   memoryModelId: DEFAULT_MEMORY_MODEL_ID,
   vertexProject: ENV?.GOOGLE_VERTEX_PROJECT_ID,
@@ -444,7 +444,7 @@ export function normalizeAppConfig(
     intervalMs,
     transcriptionModelId,
     analysisModelId,
-    todoModelId: merged.todoModelId?.trim() || DEFAULT_APP_CONFIG.todoModelId,
+    taskModelId: merged.taskModelId?.trim() || DEFAULT_APP_CONFIG.taskModelId,
     utilityModelId: merged.utilityModelId?.trim() || DEFAULT_APP_CONFIG.utilityModelId,
     memoryModelId: merged.memoryModelId?.trim() || DEFAULT_APP_CONFIG.memoryModelId,
     contextFile: merged.contextFile?.trim() || DEFAULT_APP_CONFIG.contextFile,
@@ -459,10 +459,10 @@ export function normalizeAppConfig(
     agentAutoApprove: !!merged.agentAutoApprove,
     analysisProviderOnly,
     analysisReasoning,
-    todoProviders:
-      Array.isArray(merged.todoProviders) && merged.todoProviders.length > 0
-        ? merged.todoProviders
-        : DEFAULT_APP_CONFIG.todoProviders,
+    taskProviders:
+      Array.isArray(merged.taskProviders) && merged.taskProviders.length > 0
+        ? merged.taskProviders
+        : DEFAULT_APP_CONFIG.taskProviders,
   };
 }
 
@@ -533,7 +533,7 @@ export type AgentStep = Readonly<{
 export type Agent = {
   id: string;
   kind: AgentKind;
-  todoId?: string;
+  taskId?: string;
   task: string;
   taskContext?: string;
   status: AgentStatus;
@@ -558,9 +558,9 @@ export type SessionEvents = {
   partial: [payload: { source: AudioSource | null; text: string }];
   status: [text: string];
   error: [error: string];
-  "todo-added": [todo: TodoItem];
-  "todo-updated": [todo: TodoItem];
-  "todo-suggested": [suggestion: TodoSuggestion];
+  "task-added": [task: TaskItem];
+  "task-updated": [task: TaskItem];
+  "task-suggested": [suggestion: TaskSuggestion];
   "insight-added": [insight: Insight];
   "insights-updated": [insights: Insight[]];
   "agent-started": [agent: Agent];
