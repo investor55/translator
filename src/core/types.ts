@@ -80,6 +80,7 @@ export type FinalSummary = {
   missedItemTodos: string[]; // concrete todos to address missed/underexplored items
   unansweredQuestionTodos: string[]; // concrete todos to answer unresolved questions
   actionItems: string[]; // cross-cutting action items / todos
+  modelId?: string; // synthesis model used to generate this summary
   generatedAt: number;
 };
 
@@ -93,6 +94,7 @@ export type AgentsSummary = {
   }>;
   coverageGaps: string[];
   nextSteps: string[];
+  modelId?: string; // synthesis model used to generate this debrief
   generatedAt: number;
   totalAgents: number;
   succeededAgents: number;

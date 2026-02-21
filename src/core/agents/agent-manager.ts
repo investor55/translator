@@ -69,7 +69,6 @@ async function generateAgentTitle(
       model: deps.utilitiesModel,
       schema: agentTitleSchema,
       prompt: buildAgentTitlePrompt(agent.task),
-      abortSignal: AbortSignal.timeout(15_000),
     });
     const current = agents.get(agent.id);
     if (!current) return;

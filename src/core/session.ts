@@ -825,6 +825,7 @@ export class Session {
     }
     if (this.contextState.transcriptBlocks.size === 0) {
       this.events.emit("status", "Task scan: no transcript available yet.");
+      setTimeout(() => this.events.emit("status", ""), 3000);
       return {
         ok: false,
         queued: false,
@@ -880,7 +881,7 @@ export class Session {
         model: this.taskModel,
         schema: sessionTitleSchema,
         prompt: buildSessionTitlePrompt(excerpt),
-        abortSignal: AbortSignal.timeout(15_000),
+
       });
       this.events.emit("session-title-generated", this.sessionId, object.title);
     } catch (err) {
@@ -900,6 +901,7 @@ export class Session {
 
     const allBlocks = [...this.contextState.transcriptBlocks.values()];
     const prompt = buildFinalSummaryPrompt(allBlocks, this.contextState.allKeyPoints);
+    this.events.emit("status", `Generating session summary with ${this.config.synthesisModelId}...`);
 
     void (async () => {
       try {
@@ -907,7 +909,7 @@ export class Session {
           model: this.synthesisModel,
           schema: finalSummarySchema,
           prompt,
-          abortSignal: AbortSignal.timeout(45_000),
+
           temperature: 0,
         });
 
@@ -929,6 +931,7 @@ export class Session {
           missedItemTodos: object.missedItemTodos.map((item) => item.trim()).filter(Boolean),
           unansweredQuestionTodos: object.unansweredQuestionTodos.map((item) => item.trim()).filter(Boolean),
           actionItems: object.actionItems.map((item) => item.trim()).filter(Boolean),
+          modelId: this.config.synthesisModelId,
           generatedAt: Date.now(),
         };
 
@@ -937,6 +940,8 @@ export class Session {
       } catch (error) {
         log("ERROR", `Final summary generation failed: ${formatModelErrorForLog(error)}`);
         this.events.emit("final-summary-error", toReadableError(error));
+      } finally {
+        this.events.emit("status", "");
       }
     })();
   }
@@ -957,6 +962,7 @@ export class Session {
     }
     const allBlocks = [...this.contextState.transcriptBlocks.values()];
     const prompt = buildAgentsSummaryPrompt(terminalAgents, allBlocks, this.contextState.allKeyPoints);
+    this.events.emit("status", `Generating agents summary with ${this.config.synthesisModelId}...`);
 
     void (async () => {
       try {
@@ -964,7 +970,7 @@ export class Session {
           model: this.synthesisModel,
           schema: agentsSummarySchema,
           prompt,
-          abortSignal: AbortSignal.timeout(60_000),
+
           temperature: 0,
         });
 
@@ -987,6 +993,7 @@ export class Session {
           agentHighlights: object.agentHighlights,
           coverageGaps: object.coverageGaps,
           nextSteps: object.nextSteps.map((s) => s.trim()).filter(Boolean),
+          modelId: this.config.synthesisModelId,
           generatedAt: Date.now(),
           totalAgents: terminalAgents.length,
           succeededAgents: terminalAgents.filter((a) => a.status === "completed").length,
@@ -999,6 +1006,8 @@ export class Session {
       } catch (error) {
         log("ERROR", `Agents summary generation failed: ${formatModelErrorForLog(error)}`);
         this.events.emit("agents-summary-error", toReadableError(error));
+      } finally {
+        this.events.emit("status", "");
       }
     })();
   }
@@ -1107,7 +1116,6 @@ export class Session {
         model: this.taskModel,
         schema: taskFromSelectionSchema,
         prompt,
-        abortSignal: AbortSignal.timeout(10000),
         temperature: 0,
       });
 
@@ -1428,7 +1436,7 @@ export class Session {
         schema: z.object({ polished: z.string() }),
         prompt,
         temperature: 0,
-        abortSignal: AbortSignal.timeout(5000),
+
       });
 
       const totalCost = addCostToAcc(
@@ -1479,7 +1487,7 @@ export class Session {
               schema: this.paragraphDecisionSchema,
               prompt,
               temperature: 0,
-              abortSignal: AbortSignal.timeout(6000),
+
             });
             shouldCommit = !!(object as { shouldCommit: boolean }).shouldCommit;
             if ((object as { isPartial: boolean }).isPartial) {
@@ -1731,7 +1739,6 @@ export class Session {
           system: this.userContext || undefined,
           temperature: 0,
           maxRetries: 2,
-          abortSignal: AbortSignal.timeout(30000),
           messages: [
             {
               role: "user",
@@ -1912,7 +1919,7 @@ export class Session {
         model: this.taskModel,
         schema: this.textPostProcessSchema,
         prompt,
-        abortSignal: AbortSignal.timeout(8000),
+
         temperature: 0,
       });
 
@@ -2071,7 +2078,6 @@ export class Session {
           model: this.analysisModel,
           schema: analysisSchema,
           prompt: analysisPrompt,
-          abortSignal: AbortSignal.timeout(30000),
           temperature: 0,
           providerOptions,
         });
@@ -2157,7 +2163,6 @@ export class Session {
             model: this.taskModel,
             schema: taskAnalysisSchema,
             prompt: taskPrompt,
-            abortSignal: AbortSignal.timeout(10000),
             temperature: 0,
           });
 
@@ -2210,6 +2215,7 @@ export class Session {
             ? `Task scan complete: ${taskSuggestionsEmitted} suggestion${suffix}.`
             : "Task scan skipped."
         );
+        setTimeout(() => this.events.emit("status", ""), 3000);
       }
     } catch (error) {
       if (this.config.debug) {
@@ -2217,6 +2223,7 @@ export class Session {
       }
       if (forceTaskAnalysis) {
         this.events.emit("status", `Task scan failed: ${toReadableError(error)}`);
+        setTimeout(() => this.events.emit("status", ""), 5000);
       }
     } finally {
       this.analysisInFlight = false;

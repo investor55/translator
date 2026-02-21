@@ -43,6 +43,7 @@ type RightSidebarProps = {
   onAcceptSuggestion?: (suggestion: TaskSuggestion) => void;
   onDismissSuggestion?: (id: string) => void;
   sessionId?: string;
+  synthesisModelId?: string;
   sessionActive?: boolean;
   transcriptRefs?: string[];
   onRemoveTranscriptRef?: (index: number) => void;
@@ -315,6 +316,7 @@ export function RightSidebar({
   onAcceptSuggestion,
   onDismissSuggestion,
   sessionId,
+  synthesisModelId,
   sessionActive = false,
   transcriptRefs = [],
   onRemoveTranscriptRef,
@@ -331,9 +333,15 @@ export function RightSidebar({
   useEffect(() => {
     if (!sessionId) return;
     void window.electronAPI.getAgentsSummary(sessionId).then((res) => {
-      if (res.ok && res.summary) preloadDebrief(res.summary);
+      if (
+        res.ok &&
+        res.summary &&
+        (!synthesisModelId || res.summary.modelId === synthesisModelId)
+      ) {
+        preloadDebrief(res.summary);
+      }
     });
-  }, [sessionId, preloadDebrief]);
+  }, [sessionId, preloadDebrief, synthesisModelId]);
 
   const agentByTaskId = new Map<string, Agent>();
   for (const agent of agents ?? []) {

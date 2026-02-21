@@ -144,7 +144,7 @@ export async function extractAgentLearnings(
       model,
       schema: learningSchema,
       prompt,
-      abortSignal: AbortSignal.timeout(30_000),
+
     });
 
     const newLearnings = object.learnings.filter(

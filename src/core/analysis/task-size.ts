@@ -4,7 +4,7 @@ import type { TaskSize } from "../types";
 import { toReadableError } from "../text/text-utils";
 import { getTaskSizeClassifierPromptTemplate, renderPromptTemplate } from "../prompt-loader";
 
-const TASK_SIZE_TIMEOUT_MS = 12_000;
+
 const DEFAULT_MIN_CONFIDENCE = 0.65;
 
 export const taskSizeClassificationSchema = z.object({
@@ -34,20 +34,6 @@ function buildTaskSizePrompt(text: string): string {
   });
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Task size classification timed out")), timeoutMs);
-    void promise
-      .then((value) => {
-        clearTimeout(timer);
-        resolve(value);
-      })
-      .catch((error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-  });
-}
 
 function isValidSize(value: string): value is TaskSize {
   return value === "small" || value === "large";
@@ -64,14 +50,11 @@ export async function classifyTaskSize(
   }
 
   try {
-    const { object } = await withTimeout(
-      generateObject({
-        model,
-        schema: taskSizeClassificationSchema,
-        prompt: buildTaskSizePrompt(trimmed),
-      }),
-      TASK_SIZE_TIMEOUT_MS,
-    );
+    const { object } = await generateObject({
+      model,
+      schema: taskSizeClassificationSchema,
+      prompt: buildTaskSizePrompt(trimmed),
+    });
 
     if (!isValidSize(object.size)) {
       return defaultClassification("Invalid size from classifier");

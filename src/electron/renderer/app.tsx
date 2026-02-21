@@ -231,11 +231,15 @@ export function App() {
     setFinalSummaryState({ kind: "idle" });
     void refreshSessions();
     void window.electronAPI.getFinalSummary(data.sessionId).then((result) => {
-      if (result.ok && result.summary) {
+      if (
+        result.ok &&
+        result.summary &&
+        result.summary.modelId === appConfig.synthesisModelId
+      ) {
         setFinalSummaryState({ kind: "ready", summary: result.summary });
       }
     });
-  }, [refreshSessions, seedAgents]);
+  }, [appConfig.synthesisModelId, refreshSessions, seedAgents]);
 
   const session = useSession(
     sourceLang,
@@ -1350,13 +1354,17 @@ export function App() {
     setFinalSummaryState({ kind: "loading" });
     if (targetSessionId) {
       const cached = await window.electronAPI.getFinalSummary(targetSessionId);
-      if (cached.ok && cached.summary) {
+      if (
+        cached.ok &&
+        cached.summary &&
+        cached.summary.modelId === appConfig.synthesisModelId
+      ) {
         setFinalSummaryState({ kind: "ready", summary: cached.summary });
         return;
       }
     }
     void window.electronAPI.generateFinalSummary();
-  }, [finalSummaryState.kind, selectedSessionId, session.sessionId]);
+  }, [appConfig.synthesisModelId, finalSummaryState.kind, selectedSessionId, session.sessionId]);
 
   const handleRegenerateSummary = useCallback(() => {
     if (finalSummaryState.kind === "loading") return;
@@ -1552,6 +1560,7 @@ export function App() {
                 onAcceptSuggestion={handleAcceptSuggestion}
                 onDismissSuggestion={handleDismissSuggestion}
                 sessionId={selectedSessionId ?? session.sessionId ?? undefined}
+                synthesisModelId={appConfig.synthesisModelId}
                 sessionActive={sessionActive}
                 transcriptRefs={transcriptRefs}
                 onRemoveTranscriptRef={handleRemoveTranscriptRef}
