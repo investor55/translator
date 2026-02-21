@@ -42,6 +42,11 @@ export const MODEL_PRESETS: ModelPreset[] = [
     providers: ["sambanova", "groq", "cerebras"],
   },
   {
+    label: "Minimax M2.5",
+    modelId: "minimax/minimax-m2.5",
+    reasoning: true,
+  },
+  {
     label: "Qwen 3.5 397B A17B",
     modelId: "qwen/qwen3.5-397b-a17b",
     reasoning: true,
