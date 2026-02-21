@@ -6,13 +6,13 @@ import type { SessionConfig } from "./types";
 
 export function createTranscriptionModel(config: SessionConfig): LanguageModel {
   switch (config.transcriptionProvider) {
-    case "google": {
-      const google = createGoogleGenerativeAI({
-        apiKey:
-          process.env.GOOGLE_GENERATIVE_AI_API_KEY ??
-          process.env.GEMINI_API_KEY,
+    case "openrouter": {
+      const openrouter = createOpenRouter({
+        apiKey: process.env.OPENROUTER_API_KEY,
       });
-      return google(config.transcriptionModelId);
+      return openrouter(config.transcriptionModelId, {
+        provider: { sort: "throughput" as const },
+      });
     }
     case "vertex": {
       const vertex = createVertex({

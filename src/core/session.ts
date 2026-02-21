@@ -46,6 +46,7 @@ import {
   getLanguageLabel,
   hasTranslatableContent,
   buildAudioPromptForStructured,
+  buildAudioTranscriptionOnlyPrompt,
   detectSourceLanguage,
 } from "./language";
 import {
@@ -221,7 +222,7 @@ export class Session {
     ["microphone", []],
   ]);
   private inFlight = new Map<AudioSource, number>([["system", 0], ["microphone", 0]]);
-  private readonly maxConcurrency = 1;
+  private readonly maxConcurrency = 10;
   private readonly maxQueueSize = 20;
 
   // Per-pipeline state
@@ -287,7 +288,7 @@ export class Session {
     this.sessionId = sessionId ?? crypto.randomUUID();
     this.getExternalTools = externalDeps?.getExternalTools;
     this.dataDir = externalDeps?.dataDir;
-    this._translationEnabled = config.translationEnabled && config.transcriptionProvider === "vertex";
+    this._translationEnabled = config.translationEnabled && (config.transcriptionProvider === "vertex" || config.transcriptionProvider === "openrouter");
     this.userContext = loadUserContext(config.contextFile, config.useContext);
 
     this.transcriptionModel =
@@ -438,7 +439,7 @@ export class Session {
   }
 
   get canTranslate(): boolean {
-    return this.config.transcriptionProvider === "vertex";
+    return this.config.transcriptionProvider === "vertex" || this.config.transcriptionProvider === "openrouter";
   }
 
   get translationEnabled(): boolean {
@@ -1626,13 +1627,20 @@ export class Session {
           log("INFO", `Audio buffer: ${(wavBuffer.byteLength / 1024).toFixed(0)}KB`);
         }
 
-        const prompt = buildAudioPromptForStructured(
-          this.config.direction,
-          this.config.sourceLang,
-          this.config.targetLang,
-          getContextWindow(this.contextState),
-          this.contextState.allKeyPoints.slice(-8)
-        );
+        const prompt = useTranslation
+          ? buildAudioPromptForStructured(
+              this.config.direction,
+              this.config.sourceLang,
+              this.config.targetLang,
+              getContextWindow(this.contextState),
+              this.contextState.allKeyPoints.slice(-8)
+            )
+          : buildAudioTranscriptionOnlyPrompt(
+              this.config.sourceLang,
+              this.config.targetLang,
+              getContextWindow(this.contextState),
+              this.contextState.allKeyPoints.slice(-8)
+            );
         if (!this.transcriptionModel) {
           throw new Error("Transcription model is not initialized.");
         }
@@ -1749,7 +1757,7 @@ export class Session {
         this.stopRecording();
         return;
       }
-      if (queue.length && this.inFlight.get(source)! < this.maxConcurrency) {
+      while (queue.length > 0 && this.inFlight.get(source)! < this.maxConcurrency) {
         void this.processQueue(source);
       }
     }

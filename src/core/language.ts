@@ -3,6 +3,7 @@ import { SUPPORTED_LANGUAGES } from "./types";
 import {
   getAudioAutoPromptTemplate,
   getAudioSourceTargetPromptTemplate,
+  getAudioTranscriptionOnlyPromptTemplate,
   renderPromptTemplate,
 } from "./prompt-loader";
 
@@ -150,5 +151,37 @@ export function buildAudioPromptForStructured(
     source_lang_name: sourceLangName,
     target_lang_name: targetLangName,
     english_note: englishNote,
+  });
+}
+
+export function buildAudioTranscriptionOnlyPrompt(
+  sourceLang: LanguageCode,
+  targetLang: LanguageCode,
+  context: string[] = [],
+  summaryPoints: string[] = []
+): string {
+  const summaryBlock = summaryPoints.length
+    ? `Conversation summary so far:\n${summaryPoints.map((p) => `• ${p}`).join("\n")}\n\n`
+    : "";
+  const contextBlock = context.length
+    ? `Context (previous sentences for reference):\n${context.join("\n")}\n\n`
+    : "";
+
+  const sourceLangName = LANG_NAMES[sourceLang];
+  const targetLangName = LANG_NAMES[targetLang];
+
+  const englishIsConfigured = sourceLang === "en" || targetLang === "en";
+  const langList = englishIsConfigured
+    ? `${sourceLangName} or ${targetLangName}`
+    : `${sourceLangName}, ${targetLangName}, or English`;
+  const codeList = englishIsConfigured
+    ? `"${sourceLang}" or "${targetLang}"`
+    : `"${sourceLang}", "${targetLang}", or "en"`;
+
+  return renderPromptTemplate(getAudioTranscriptionOnlyPromptTemplate(), {
+    summary_block: summaryBlock,
+    context_block: contextBlock,
+    lang_list: langList,
+    code_list: codeList,
   });
 }

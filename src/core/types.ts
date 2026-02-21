@@ -46,7 +46,7 @@ export type LightVariant = "warm" | "linen" | "ivory" | "petal" | "aqua";
 export type DarkVariant = "charcoal" | "steel" | "pitch-black" | "abyss";
 
 export type TranscriptionProvider =
-  | "google"
+  | "openrouter"
   | "vertex"
   | "elevenlabs"
   | "whisper";
@@ -405,7 +405,7 @@ export function normalizeAppConfig(
       ? merged.direction
       : DEFAULT_APP_CONFIG.direction;
   const transcriptionProvider: TranscriptionProvider =
-    merged.transcriptionProvider === "google" ||
+    merged.transcriptionProvider === "openrouter" ||
     merged.transcriptionProvider === "vertex" ||
     merged.transcriptionProvider === "elevenlabs" ||
     merged.transcriptionProvider === "whisper"

@@ -152,7 +152,7 @@ const TRANSCRIPTION_PROVIDERS: Array<{
 }> = [
   { value: "elevenlabs", label: "ElevenLabs (Realtime)" },
   { value: "whisper", label: "Whisper (Local / Offline)" },
-  { value: "google", label: "Google" },
+  { value: "openrouter", label: "OpenRouter" },
   { value: "vertex", label: "Vertex AI" },
 ];
 
@@ -162,7 +162,7 @@ function getDefaultModelId(provider: TranscriptionProvider): string {
       return DEFAULT_WHISPER_MODEL_ID;
     case "elevenlabs":
       return DEFAULT_TRANSCRIPTION_MODEL_ID;
-    case "google":
+    case "openrouter":
       return DEFAULT_VERTEX_MODEL_ID;
     case "vertex":
       return DEFAULT_VERTEX_MODEL_ID;
@@ -446,16 +446,6 @@ export function SettingsPage({
             <Separator className="my-3" />
             <div className="space-y-1">
               <SettingRow
-                label="Translation"
-                description="Start new sessions with translation enabled by default."
-                control={
-                  <Switch
-                    checked={config.translationEnabled}
-                    onCheckedChange={(v) => set("translationEnabled", v)}
-                  />
-                }
-              />
-              <SettingRow
                 label="Use Context"
                 description="Inject context from the context file into every prompt."
                 control={
@@ -488,10 +478,10 @@ export function SettingsPage({
             </div>
           </section>
 
-          {/* ── Row 2: Audio & Transcription (full width) ── */}
+          {/* ── Row 2: Transcription (full width) ── */}
           <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Audio & Transcription
+              Transcription
             </h2>
             <Separator className="my-3" />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -508,7 +498,7 @@ export function SettingsPage({
                       transcriptionProvider: provider,
                       transcriptionModelId: getDefaultModelId(provider),
                       translationEnabled:
-                        provider === "vertex"
+                        provider === "vertex" || provider === "openrouter"
                           ? config.translationEnabled
                           : false,
                     });
@@ -538,9 +528,7 @@ export function SettingsPage({
               </div>
               <div className="space-y-1">
                 <label className="text-2xs text-muted-foreground">
-                  {config.transcriptionProvider === "vertex"
-                    ? "Source Language"
-                    : "Language"}
+                  Language
                 </label>
                 <Select
                   value={sourceLang}
@@ -567,69 +555,93 @@ export function SettingsPage({
                   </SelectContent>
                 </Select>
               </div>
-              {config.transcriptionProvider === "vertex" ? (
-                <div className="space-y-1">
-                  <label className="text-2xs text-muted-foreground">
-                    Target Language
-                  </label>
-                  <Select
-                    value={targetLang}
-                    onValueChange={(value) => {
-                      const next = value as LanguageCode;
-                      onTargetLangChange(next);
-                      if (next === sourceLang) {
-                        onSourceLangChange(next === "en" ? "ko" : "en");
-                      }
-                    }}
-                    disabled={languagesLoading}
-                  >
-                    <SelectTrigger size="sm" className="w-full">
-                      <SelectValue>
-                        {renderLanguageLabel(languages, targetLang)}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {languages.map((lang) => (
-                        <SelectItem key={lang.code} value={lang.code}>
-                          {lang.name} ({lang.native})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  <label className="text-2xs text-muted-foreground">
-                    Chunk Interval (ms)
-                  </label>
-                  <Input
-                    type="number"
-                    min={500}
-                    max={60000}
-                    step={100}
-                    value={config.intervalMs}
-                    onChange={(e) =>
-                      set(
-                        "intervalMs",
-                        Number.parseInt(e.target.value || "0", 10)
-                      )
-                    }
-                    className="w-full"
-                  />
-                </div>
-              )}
+              <div className="space-y-1">
+                <label className="text-2xs text-muted-foreground">
+                  Chunk Interval (ms)
+                </label>
+                <Input
+                  type="number"
+                  min={500}
+                  max={60000}
+                  step={100}
+                  value={config.intervalMs}
+                  onChange={(e) =>
+                    set(
+                      "intervalMs",
+                      Number.parseInt(e.target.value || "0", 10)
+                    )
+                  }
+                  className="w-full"
+                />
+              </div>
             </div>
-            {config.transcriptionProvider === "vertex" && (
-              <div className="mt-3">
-                <SettingRow
-                  label="Direction"
-                  description="Auto-detect speaker language or always translate source → target."
-                  control={
+            {config.transcriptionProvider === "whisper" && (
+              <p className="mt-3 text-2xs text-muted-foreground leading-relaxed">
+                Whisper runs locally with no API key. Start with{" "}
+                <code className="font-mono">Xenova/whisper-small</code> for
+                better quality; it uses more memory than base/tiny.
+              </p>
+            )}
+          </section>
+
+          {/* ── Row 3: Translation (full width, only for translatable providers) ── */}
+          {(config.transcriptionProvider === "vertex" ||
+            config.transcriptionProvider === "openrouter") && (
+            <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Translation
+              </h2>
+              <Separator className="my-3" />
+              <SettingRow
+                label="Translation"
+                description="Enable real-time translation alongside transcription."
+                control={
+                  <Switch
+                    checked={config.translationEnabled}
+                    onCheckedChange={(v) => set("translationEnabled", v)}
+                  />
+                }
+              />
+              {config.translationEnabled && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                  <div className="space-y-1">
+                    <label className="text-2xs text-muted-foreground">
+                      Target Language
+                    </label>
+                    <Select
+                      value={targetLang}
+                      onValueChange={(value) => {
+                        const next = value as LanguageCode;
+                        onTargetLangChange(next);
+                        if (next === sourceLang) {
+                          onSourceLangChange(next === "en" ? "ko" : "en");
+                        }
+                      }}
+                      disabled={languagesLoading}
+                    >
+                      <SelectTrigger size="sm" className="w-full">
+                        <SelectValue>
+                          {renderLanguageLabel(languages, targetLang)}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {languages.map((lang) => (
+                          <SelectItem key={lang.code} value={lang.code}>
+                            {lang.name} ({lang.native})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-2xs text-muted-foreground">
+                      Direction
+                    </label>
                     <Select
                       value={config.direction}
                       onValueChange={(v) => set("direction", v as Direction)}
                     >
-                      <SelectTrigger size="sm" className="w-40">
+                      <SelectTrigger size="sm" className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -640,43 +652,19 @@ export function SettingsPage({
                         ))}
                       </SelectContent>
                     </Select>
-                  }
-                />
-                <SettingRow
-                  label="Chunk Interval (ms)"
-                  description="How often audio chunks are sent for processing."
-                  control={
-                    <Input
-                      type="number"
-                      min={500}
-                      max={60000}
-                      step={100}
-                      value={config.intervalMs}
-                      onChange={(e) =>
-                        set(
-                          "intervalMs",
-                          Number.parseInt(e.target.value || "0", 10)
-                        )
-                      }
-                      className="w-32"
-                    />
-                  }
-                />
-              </div>
-            )}
-            {config.transcriptionProvider === "whisper" && (
-              <p className="mt-3 text-2xs text-muted-foreground leading-relaxed">
-                Whisper runs locally with no API key. Start with{" "}
-                <code className="font-mono">Xenova/whisper-small</code> for
-                better quality; it uses more memory than base/tiny.
-              </p>
-            )}
-          </section>
+                    <p className="text-2xs text-muted-foreground">
+                      Auto-detect speaker language or always translate source to target.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
 
-          {/* ── Row 3: AI Models (full width) ── */}
+          {/* ── Row 4: Agent Models (full width) ── */}
           <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              AI Models
+              Agent Models
             </h2>
             <Separator className="my-3" />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -823,7 +811,7 @@ export function SettingsPage({
             </div>
           </section>
 
-          {/* ── Row 4: Advanced (full width) ── */}
+          {/* ── Row 5: Advanced (full width) ── */}
           <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Advanced
@@ -887,7 +875,7 @@ export function SettingsPage({
             </div>
           </section>
 
-          {/* ── Row 5: Integrations (full width) ── */}
+          {/* ── Row 6: Integrations (full width) ── */}
           <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Integrations

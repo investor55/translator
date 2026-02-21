@@ -205,9 +205,13 @@ export function useSession(
   const onResumedRef = useRef(options.onResumed);
   const appConfigRef = useRef(appConfig);
   const projectIdRef = useRef(options.projectId);
+  const sourceLangRef = useRef(sourceLang);
+  const targetLangRef = useRef(targetLang);
   onResumedRef.current = options.onResumed;
   appConfigRef.current = appConfig;
   projectIdRef.current = options.projectId;
+  sourceLangRef.current = sourceLang;
+  targetLangRef.current = targetLang;
 
   useEffect(() => {
     if (!active) return;
@@ -242,7 +246,7 @@ export function useSession(
         }
       });
     } else {
-      api.startSession(sourceLang, targetLang, appConfigRef.current, projectIdRef.current ?? undefined).then(async (result) => {
+      api.startSession(sourceLangRef.current, targetLangRef.current, appConfigRef.current, projectIdRef.current ?? undefined).then(async (result) => {
         if (result.ok && result.sessionId) {
           dispatch({ kind: "session-started", sessionId: result.sessionId });
           const recResult = await api.startRecording();
@@ -260,7 +264,7 @@ export function useSession(
       api.shutdownSession();
       dispatch({ kind: "session-ended" });
     };
-  }, [sourceLang, targetLang, active, resumeSessionId, restartKey]);
+  }, [active, resumeSessionId, restartKey]);
 
   const toggleRecording = useCallback(async () => {
     const result = await window.electronAPI.toggleRecording();

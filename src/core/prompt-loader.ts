@@ -12,6 +12,7 @@ const AGENT_INITIAL_USER_PROMPT_PATH = path.join("prompts", "agent", "initial-us
 const AUDIO_AUTO_PROMPT_PATH = path.join("prompts", "transcription", "audio-auto.md");
 const AUDIO_SOURCE_TARGET_PROMPT_PATH = path.join("prompts", "transcription", "audio-source-target.md");
 const TRANSCRIPT_POST_PROCESS_PROMPT_PATH = path.join("prompts", "transcription", "post-process.md");
+const AUDIO_TRANSCRIPTION_ONLY_PROMPT_PATH = path.join("prompts", "transcription", "audio-transcription-only.md");
 const PARAGRAPH_DECISION_PROMPT_PATH = path.join("prompts", "transcription", "paragraph-decision.md");
 
 const DEFAULT_SUMMARY_SYSTEM_PROMPT = `You produce concise conversation key points for a live transcript.
@@ -186,6 +187,19 @@ Return:
 3) isPartial
 4) isNewTopic`;
 
+const DEFAULT_AUDIO_TRANSCRIPTION_ONLY_PROMPT = `{{summary_block}}{{context_block}}Listen to the audio clip. The speaker may be speaking {{lang_list}}.
+
+1. Detect the primary spoken language ({{code_list}})
+2. Transcribe the audio exactly as spoken in its original language
+
+You are a strict transcriber. Output ONLY the exact words spoken - never add, infer, or complete words or sentences beyond what is audible.
+
+If the audio is cut off mid-sentence, transcribe only what was actually spoken. Set isPartial to true.
+
+If there is no speech, silence, or unintelligible audio, return an empty transcript.
+
+Return sourceLanguage ({{code_list}}), transcript, and isPartial.`;
+
 const DEFAULT_PARAGRAPH_DECISION_PROMPT = `You decide whether a live transcript should be committed as a paragraph now.
 Commit when:
 - A complete thought has ended (natural sentence boundary or clear pause).
@@ -263,6 +277,10 @@ export function getAudioSourceTargetPromptTemplate(): string {
 
 export function getTranscriptPostProcessPromptTemplate(): string {
   return loadPrompt(TRANSCRIPT_POST_PROCESS_PROMPT_PATH, DEFAULT_TRANSCRIPT_POST_PROCESS_PROMPT);
+}
+
+export function getAudioTranscriptionOnlyPromptTemplate(): string {
+  return loadPrompt(AUDIO_TRANSCRIPTION_ONLY_PROMPT_PATH, DEFAULT_AUDIO_TRANSCRIPTION_ONLY_PROMPT);
 }
 
 export function getParagraphDecisionPromptTemplate(): string {
