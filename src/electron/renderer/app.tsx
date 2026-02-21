@@ -251,21 +251,18 @@ export function App() {
     sessionRestartKey,
   );
 
-  // When the session hook signals session-ended (e.g. computer audio toggled off
-  // with mic off), sync the app-level sessionActive state.
-  // Track previous value so we only react to true→false transitions, not initial false.
-  const prevSessionHookActiveRef = useRef(session.sessionActive);
+  // Auto-start mic when a new session starts
   useEffect(() => {
-    const wasActive = prevSessionHookActiveRef.current;
-    prevSessionHookActiveRef.current = session.sessionActive;
-    if (sessionActive && wasActive && session.sessionActive === false) {
-      micCapture.stop();
-      setSessionActive(false);
-      setResumeSessionId(null);
-      setRouteNotice("");
-      void refreshSessions();
-    }
-  }, [session.sessionActive, sessionActive, micCapture, refreshSessions]);
+    if (!session.micAutoStartPending) return;
+    session.clearMicAutoStart();
+
+    void (async () => {
+      const result = await window.electronAPI.toggleMic();
+      if (result.ok && result.captureInRenderer) {
+        await micCapture.start();
+      }
+    })();
+  }, [session.micAutoStartPending, session.clearMicAutoStart, micCapture]);
 
   const applyRoutePath = useCallback((routeInput: string, availableSessions: SessionMeta[]) => {
     const parsed = parseSessionRoute(routeInput);
@@ -1424,6 +1421,7 @@ export function App() {
         onToggleTranslation={handleToggleTranslation}
         onToggleMic={handleToggleMic}
         onGenerateSummary={sessionActive ? handleGenerateSummary : undefined}
+        onEndSession={sessionActive ? handleStop : undefined}
         settingsOpen={settingsOpen}
         onToggleSettings={() => setSettingsOpen((prev) => !prev)}
       />

@@ -124,11 +124,6 @@ export function registerSessionHandlers({ db, getWindow, sessionRef, getExternal
     if (!sessionRef.current) return { ok: false, error: "No active session" };
     if (sessionRef.current.recording) {
       sessionRef.current.stopRecording();
-      // If mic is also off, nothing is being captured — end the session.
-      if (!sessionRef.current.micEnabled) {
-        await shutdownCurrentSession(sessionRef, db);
-        return { ok: true, recording: false, sessionEnded: true };
-      }
     } else {
       await sessionRef.current.startRecording(true);
     }

@@ -13,6 +13,7 @@ export type SessionState = {
   statusText: string;
   errorText: string;
   sessionActive: boolean;
+  micAutoStartPending: boolean;
 };
 
 type ResumeData = {
@@ -36,6 +37,7 @@ type SessionAction =
   | { kind: "session-started"; sessionId: string }
   | { kind: "session-resumed"; data: ResumeData }
   | { kind: "session-ended" }
+  | { kind: "mic-auto-started" }
   | { kind: "session-viewed"; sessionId: string; blocks: TranscriptBlock[]; keyPoints: string[] };
 
 const MAX_ROLLING_KEY_POINTS = 160;
@@ -119,6 +121,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         micPartial: "",
         statusText: "",
         errorText: "",
+        micAutoStartPending: true,
       };
     case "session-resumed": {
       const keyPoints = [...action.data.insights]
@@ -140,7 +143,9 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
       };
     }
     case "session-ended":
-      return { ...state, sessionActive: false, uiState: null, systemPartial: "", micPartial: "", statusText: "", errorText: "" };
+      return { ...state, sessionActive: false, uiState: null, systemPartial: "", micPartial: "", statusText: "", errorText: "", micAutoStartPending: false };
+    case "mic-auto-started":
+      return { ...state, micAutoStartPending: false };
     case "session-viewed":
       return {
         ...state,
@@ -171,6 +176,7 @@ const initialState: SessionState = {
   statusText: "",
   errorText: "",
   sessionActive: false,
+  micAutoStartPending: false,
 };
 
 export type InternalSessionAction = SessionAction | { kind: "session-cleared" };
@@ -270,8 +276,6 @@ export function useSession(
     const result = await window.electronAPI.toggleRecording();
     if (!result.ok) {
       dispatch({ kind: "error", text: result.error ?? "Failed to toggle recording" });
-    } else if (result.sessionEnded) {
-      dispatch({ kind: "session-ended" });
     }
   }, []);
 
@@ -292,5 +296,9 @@ export function useSession(
     dispatch({ kind: "session-cleared" });
   }, []);
 
-  return { ...state, toggleRecording, viewSession, clearSession };
+  const clearMicAutoStart = useCallback(() => {
+    dispatch({ kind: "mic-auto-started" });
+  }, []);
+
+  return { ...state, toggleRecording, viewSession, clearSession, clearMicAutoStart };
 }

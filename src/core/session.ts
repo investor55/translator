@@ -434,6 +434,10 @@ export class Session {
     return this.isRecording;
   }
 
+  private get isCapturing(): boolean {
+    return this.isRecording || this._micEnabled;
+  }
+
   get allKeyPoints(): readonly string[] {
     return this.contextState.allKeyPoints;
   }
@@ -618,7 +622,10 @@ export class Session {
     if (!this.isRecording) return;
     this.isRecording = false;
 
-    this.stopAnalysisTimer();
+    // Only stop analysis timer if mic is also off
+    if (!this._micEnabled) {
+      this.stopAnalysisTimer();
+    }
 
     // Close ElevenLabs WS before killing audio capture
     if (this.config.transcriptionProvider === "elevenlabs") {
@@ -640,25 +647,22 @@ export class Session {
       void this.evaluateParagraphs(true);
     }
 
-    if (this._micEnabled) this.stopMic(commitPendingParagraphs);
-
     if (clearQueue) {
       this.chunkQueues.set("system", []);
-      this.chunkQueues.set("microphone", []);
       this.inFlight.set("system", 0);
-      this.inFlight.set("microphone", 0);
     } else {
-      for (const src of (["system", "microphone"] as AudioSource[])) {
-        if (this.chunkQueues.get(src)!.length && this.inFlight.get(src)! < this.maxConcurrency) {
-          void this.processQueue(src);
-        }
+      if (this.chunkQueues.get("system")!.length && this.inFlight.get("system")! < this.maxConcurrency) {
+        void this.processQueue("system");
       }
     }
     this.systemPipeline.overlap = Buffer.alloc(0);
     resetVadState(this.systemPipeline.vadState);
 
-    this.events.emit("state-change", this.getUIState("paused"));
-    this.events.emit("status", "Paused. SPACE to resume, Q to quit.");
+    const nextStatus = this._micEnabled ? "recording" : "paused";
+    this.events.emit("state-change", this.getUIState(nextStatus));
+    this.events.emit("status", this._micEnabled
+      ? "Computer audio paused. Mic still active."
+      : "Paused. SPACE to resume, Q to quit.");
   }
 
   startMic(deviceIdentifier?: string): void {
@@ -757,6 +761,11 @@ export class Session {
       void this.openElevenLabsConnection("microphone");
     }
 
+    // Start analysis timer if system audio isn't already driving it
+    if (!this.isRecording) {
+      this.startAnalysisTimer();
+    }
+
     log("INFO", "Mic started via renderer capture (Web Audio API)");
     this.events.emit("status", "Mic active — listening...");
     this.events.emit("state-change", this.getUIState(this.isRecording ? "recording" : "paused"));
@@ -792,6 +801,11 @@ export class Session {
     this._micEnabled = false;
     resetVadState(this.micPipeline.vadState);
     this.micPipeline.overlap = Buffer.alloc(0);
+
+    // Stop analysis timer if system audio is also off
+    if (!this.isRecording) {
+      this.stopAnalysisTimer();
+    }
 
     log("INFO", "Mic stopped");
     this.events.emit("state-change", this.getUIState(this.isRecording ? "recording" : "paused"));
@@ -1922,14 +1936,14 @@ export class Session {
       this.analysisHeartbeatTimer = null;
     }
     this.analysisHeartbeatTimer = setInterval(() => {
-      if (!this.isRecording) return;
+      if (!this.isCapturing) return;
       this.scheduleAnalysis(0);
     }, this.analysisHeartbeatMs);
     this.analysisRequested = false;
   }
 
   private scheduleAnalysis(delayMs = this.analysisDebounceMs) {
-    if (!this.isRecording) return;
+    if (!this.isCapturing) return;
     if (this.analysisInFlight) {
       this.analysisRequested = true;
       return;
