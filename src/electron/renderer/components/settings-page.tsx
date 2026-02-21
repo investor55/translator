@@ -136,8 +136,9 @@ const FONT_SIZE_OPTIONS: Array<{ value: FontSize; label: string }> = [
 ];
 
 const FONT_FAMILY_OPTIONS: Array<{ value: FontFamily; label: string }> = [
-  { value: "sans", label: "Sans-serif" },
-  { value: "mono", label: "Monospace" },
+  { value: "sans", label: "Sans" },
+  { value: "serif", label: "Serif" },
+  { value: "mono", label: "Mono" },
 ];
 
 const DIRECTION_OPTIONS: Array<{ value: Direction; label: string }> = [
@@ -434,7 +435,7 @@ export function SettingsPage({
             />
             <SettingRow
               label="UI Font"
-              description="Sans-serif for a clean look; monospace for a terminal aesthetic."
+              description="Sans for a clean look; serif for an editorial feel; mono for a terminal aesthetic."
               control={
                 <div className="inline-flex items-center border border-border rounded-sm overflow-hidden">
                   {FONT_FAMILY_OPTIONS.map((option) => (

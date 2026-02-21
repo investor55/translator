@@ -4,7 +4,7 @@
 
 @source "../node_modules/streamdown/dist/*.js";
 @import "@fontsource-variable/inter";
-@import "@fontsource-variable/playfair-display";
+@import "@fontsource-variable/lora";
 @import "@fontsource-variable/jetbrains-mono";
 
 @custom-variant dark (&:is(.dark *));
@@ -124,31 +124,32 @@
 
 .light-petal {
   color-scheme: light;
-  --background: oklch(0.962 0.006 250);
-  --foreground: oklch(0.23 0.01 250);
-  --card: oklch(0.978 0.004 250);
-  --card-foreground: oklch(0.23 0.01 250);
-  --popover: oklch(0.981 0.004 250);
-  --popover-foreground: oklch(0.23 0.01 250);
-  --primary: oklch(0.44 0.03 248);
-  --primary-foreground: oklch(0.985 0.003 250);
-  --secondary: oklch(0.938 0.006 250);
-  --secondary-foreground: oklch(0.29 0.01 250);
-  --muted: oklch(0.938 0.006 250);
-  --muted-foreground: oklch(0.51 0.01 250);
-  --accent: oklch(0.93 0.009 244);
-  --accent-foreground: oklch(0.29 0.01 250);
-  --border: oklch(0.868 0.008 250);
-  --input: oklch(0.868 0.008 250);
-  --ring: oklch(0.575 0.035 248);
-  --sidebar: oklch(0.95 0.006 250);
-  --sidebar-foreground: oklch(0.23 0.01 250);
-  --sidebar-primary: oklch(0.44 0.03 248);
-  --sidebar-primary-foreground: oklch(0.985 0.003 250);
-  --sidebar-accent: oklch(0.93 0.009 244);
-  --sidebar-accent-foreground: oklch(0.29 0.01 250);
-  --sidebar-border: oklch(0.858 0.008 250);
-  --sidebar-ring: oklch(0.575 0.035 248);
+  /* anchors: dark-green #01353C, light-green #D5E1E1, purple #CDCCFF */
+  --background: oklch(0.938 0.008 192);
+  --foreground: oklch(0.248 0.033 204);
+  --card: oklch(0.962 0.006 192);
+  --card-foreground: oklch(0.248 0.033 204);
+  --popover: oklch(0.966 0.005 192);
+  --popover-foreground: oklch(0.248 0.033 204);
+  --primary: oklch(0.248 0.033 204);
+  --primary-foreground: oklch(0.962 0.006 192);
+  --secondary: oklch(0.898 0.009 192);
+  --secondary-foreground: oklch(0.29 0.03 204);
+  --muted: oklch(0.898 0.009 192);
+  --muted-foreground: oklch(0.46 0.02 204);
+  --accent: oklch(0.848 0.084 290);
+  --accent-foreground: oklch(0.248 0.033 204);
+  --border: oklch(0.862 0.012 194);
+  --input: oklch(0.862 0.012 194);
+  --ring: oklch(0.72 0.11 290);
+  --sidebar: oklch(0.918 0.009 194);
+  --sidebar-foreground: oklch(0.248 0.033 204);
+  --sidebar-primary: oklch(0.248 0.033 204);
+  --sidebar-primary-foreground: oklch(0.962 0.006 192);
+  --sidebar-accent: oklch(0.848 0.084 290);
+  --sidebar-accent-foreground: oklch(0.248 0.033 204);
+  --sidebar-border: oklch(0.852 0.012 194);
+  --sidebar-ring: oklch(0.72 0.11 290);
 }
 
 .light-aqua {
@@ -327,10 +328,13 @@
   --sidebar-ring: oklch(0.78 0.03 292);
 }
 
-@theme inline {
+@theme {
   --font-sans: "Inter Variable", "Inter", system-ui, sans-serif;
-  --font-serif: "Playfair Display Variable", "Playfair Display", Georgia, serif;
+  --font-serif: "Lora Variable", "Lora", Georgia, serif;
   --font-mono: "JetBrains Mono Variable", "SF Mono", "Menlo", monospace;
+}
+
+@theme inline {
   /* Type scale: 2xs fills the gap between nothing and xs (12px) */
   --text-2xs: 0.6875rem; /* 11px */
   --leading-2xs: 1rem;
@@ -396,11 +400,6 @@
     @apply font-sans bg-background text-foreground antialiased;
     overflow: hidden;
   }
-}
-
-/* Font family override: mono mode swaps --font-sans to the mono stack */
-.font-ui-mono {
-  --font-sans: "JetBrains Mono Variable", "JetBrains Mono", monospace;
 }
 
 /* Scrollbar — light theme */

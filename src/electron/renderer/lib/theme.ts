@@ -1,9 +1,21 @@
 import type { DarkVariant, FontFamily, FontSize, LightVariant, ThemeMode } from "../../../core/types";
 
-const FONT_SIZE_PX: Record<FontSize, string> = {
-  sm: "14px",
-  md: "16px",
-  lg: "18px",
+const FONT_SIZE_BASE: Record<FontSize, number> = {
+  sm: 14,
+  md: 16,
+  lg: 18,
+};
+
+const FONT_SIZE_BOOST: Record<FontFamily, number> = {
+  sans: 0,
+  serif: 1,
+  mono: 0,
+};
+
+const FONT_FAMILY_STACK: Record<FontFamily, string> = {
+  sans: '"Inter Variable", "Inter", system-ui, sans-serif',
+  serif: '"Lora Variable", "Lora", Georgia, serif',
+  mono: '"JetBrains Mono Variable", "JetBrains Mono", monospace',
 };
 
 const APP_CONFIG_STORAGE_KEY = "ambient-app-config";
@@ -11,7 +23,7 @@ const LIGHT_BACKGROUND_BY_VARIANT: Record<LightVariant, string> = {
   warm: "oklch(0.985 0.002 90)",
   linen: "oklch(0.939 0 0)",
   ivory: "oklch(0.968 0.004 90)",
-  petal: "oklch(0.962 0.006 250)",
+  petal: "oklch(0.938 0.008 192)",
   aqua: "oklch(0.949 0.018 247)",
 };
 
@@ -85,8 +97,8 @@ export function applyThemeClass(shouldUseDark: boolean, lightVariant: LightVaria
   root.style.backgroundColor = shouldUseDark
     ? DARK_BACKGROUND_BY_VARIANT[darkVariant]
     : LIGHT_BACKGROUND_BY_VARIANT[lightVariant];
-  root.style.fontSize = FONT_SIZE_PX[fontSize];
-  root.classList.toggle("font-ui-mono", fontFamily === "mono");
+  root.style.fontSize = `${FONT_SIZE_BASE[fontSize] + FONT_SIZE_BOOST[fontFamily]}px`;
+  root.style.setProperty("--font-sans", FONT_FAMILY_STACK[fontFamily]);
 
   const body = globalThis.document.body;
   if (body) {

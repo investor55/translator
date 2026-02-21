@@ -200,7 +200,7 @@ export type SessionConfig = {
 };
 
 export type FontSize = "sm" | "md" | "lg";
-export type FontFamily = "sans" | "mono";
+export type FontFamily = "sans" | "serif" | "mono";
 
 export type AppConfig = {
   themeMode: ThemeMode;
@@ -399,7 +399,7 @@ export function normalizeAppConfig(
       ? merged.fontSize
       : DEFAULT_APP_CONFIG.fontSize;
   const fontFamily: FontFamily =
-    merged.fontFamily === "sans" || merged.fontFamily === "mono"
+    merged.fontFamily === "sans" || merged.fontFamily === "serif" || merged.fontFamily === "mono"
       ? merged.fontFamily
       : DEFAULT_APP_CONFIG.fontFamily;
   const direction: Direction =
