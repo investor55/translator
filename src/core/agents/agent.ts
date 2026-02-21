@@ -411,10 +411,19 @@ async function buildTools(
           toolCallId,
           abortSignal,
         });
+        const enrichedAnswers = answers.map((answer) => {
+          const question = input.questions.find((q) => q.id === answer.questionId);
+          const selectedLabels = question
+            ? answer.selectedOptionIds
+                .map((optId) => question.options.find((opt) => opt.id === optId)?.label)
+                .filter(Boolean)
+            : [];
+          return { ...answer, selectedLabels };
+        });
         return {
           title: input.title,
           questions: input.questions,
-          answers,
+          answers: enrichedAnswers,
         };
       },
     }),
@@ -996,6 +1005,12 @@ async function runAgentWithMessages(
 
           if (latestCallStatus === "denied") {
             return { toolChoice: "none" as const };
+          }
+
+          // After clarification has been answered, let the model decide
+          // freely — don't force more tool calls or it creates a loop.
+          if (hasAskQuestionToolResult) {
+            return {};
           }
 
           if (stepNumber >= 1) {

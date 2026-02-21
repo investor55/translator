@@ -492,6 +492,22 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         ...item,
         steps: [...item.steps],
       };
+
+      // Agents still marked "running" after hydration are stale — the actual
+      // process is gone (session was closed while they were active). Transition
+      // them to "failed" so the user can relaunch or follow up.
+      if (agent.status === "running") {
+        agent.status = "failed";
+        agent.result = "Agent interrupted — session was closed while running.";
+        agent.completedAt = Date.now();
+        deps.db?.updateAgent(agent.id, {
+          status: "failed",
+          result: agent.result,
+          completedAt: agent.completedAt,
+        });
+        log("INFO", `Hydrated stale running agent ${agent.id} as failed`);
+      }
+
       agents.set(agent.id, agent);
       const history = buildHistoryFromSteps(agent);
       if (history.length > 0) {

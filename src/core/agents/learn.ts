@@ -90,8 +90,7 @@ export async function extractAgentLearnings(
   if (!agent.result) return;
 
   const hasUserCorrections = agent.steps.some((s) => s.kind === "user");
-  const hasSubstantialResult = agent.result.length > 50;
-  if (!hasUserCorrections && !hasSubstantialResult) return;
+  if (!hasUserCorrections) return;
 
   log("INFO", `Learning extraction for agent ${agent.id} (project: ${projectId ?? "none"})`);
 
@@ -111,22 +110,24 @@ export async function extractAgentLearnings(
     .join("\n");
 
   const prompt = [
-    "Extract durable learnings from this agent conversation that would be useful for ANY future agent working on this project.",
-    "Learnings must be general behavioral rules, not specific details from one conversation.",
+    "Analyze this agent conversation for moments where the USER CORRECTED the agent or OVERRODE its behavior.",
+    "Only extract learnings from explicit user pushback — where the agent did something wrong and the user told it to do something different.",
     "",
-    "GOOD: 'Always verify information is current by searching before presenting — do not rely on training data for fast-moving topics.'",
-    "BAD: 'GPT-5.3 is the latest model.' (too specific, will go stale)",
-    "GOOD: 'User prefers concise comparisons in table format.'",
-    "BAD: 'User has a slow laptop.' (irrelevant to future agent behavior)",
+    "EXTRACT when:",
+    "- The user said 'no, do X instead' or 'stop doing Y'",
+    "- The user rejected the agent's approach and provided a different one",
+    "- The user expressed frustration with the agent's behavior and corrected it",
+    "- The user provided a domain-specific term or glossary correction",
     "",
-    "Only extract learnings that change how an agent should behave. Skip:",
-    "- Specific facts/data points (names, versions, dates) — these go stale",
+    "DO NOT extract:",
+    "- Generic AI assistant best practices (e.g., 'present data in tables', 'acknowledge user frustrations')",
+    "- Anything the agent did correctly that the user accepted without comment",
+    "- Learnings that any competent LLM already knows how to do",
     "- One-off task instructions or transient details",
-    "- Anything an agent can look up or already knows",
+    "- Specific facts/data points (names, versions, dates) that go stale",
     "- Secrets, tokens, credentials",
     "",
-    "Pay special attention to user corrections — turn them into general rules, not specific memories.",
-    "Return an empty array if nothing qualifies.",
+    "The bar is HIGH. Most conversations produce zero learnings. Return an empty array unless there is a clear user correction.",
     "",
     "Existing learnings (do NOT duplicate these):",
     existingMd || "(none)",

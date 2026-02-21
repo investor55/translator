@@ -270,6 +270,8 @@ export function useSession(
     const result = await window.electronAPI.toggleRecording();
     if (!result.ok) {
       dispatch({ kind: "error", text: result.error ?? "Failed to toggle recording" });
+    } else if (result.sessionEnded) {
+      dispatch({ kind: "session-ended" });
     }
   }, []);
 

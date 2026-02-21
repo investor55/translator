@@ -1473,7 +1473,7 @@ export class Session {
 
           try {
             const { object } = await generateObject({
-              model: this.taskModel,
+              model: this.utilitiesModel,
               schema: this.paragraphDecisionSchema,
               prompt,
               temperature: 0,
@@ -1506,12 +1506,28 @@ export class Session {
           continue;
         }
 
-        this.pendingParagraphs.delete(pending.audioSource);
-        this.updateParagraphPreview();
         let finalTranscript = transcriptForDecision;
         if (this.config.transcriptionProvider !== "whisper") {
           finalTranscript = await this.polishTranscript(transcriptForDecision);
         }
+
+        // Check if new text arrived while we were polishing. Keep the excess
+        // so it isn't lost; only remove the portion we just committed.
+        const latestPending = this.pendingParagraphs.get(pending.audioSource);
+        if (latestPending) {
+          const currentText = latestPending.transcript.trim();
+          const excess = currentText.length > transcriptForDecision.length
+            ? currentText.slice(transcriptForDecision.length).trim()
+            : "";
+          if (excess) {
+            latestPending.transcript = excess;
+            latestPending.lastUpdatedAt = Date.now();
+          } else {
+            this.pendingParagraphs.delete(pending.audioSource);
+          }
+        }
+        this.updateParagraphPreview();
+
         await this.handleElevenLabsCommit(
           finalTranscript,
           pending.detectedLangHint,
@@ -1585,7 +1601,7 @@ export class Session {
 
   private enqueueChunk(pipeline: AudioPipeline, chunk: Buffer) {
     if (!chunk.length) return;
-    const overlapBytes = Math.floor(16000 * 2 * 0.5);
+    const overlapBytes = Math.floor(16000 * 2 * 1.0);
     const overlap = pipeline.overlap.subarray(0, overlapBytes);
     const combined = overlap.length ? Buffer.concat([overlap, chunk]) : chunk;
 
@@ -1755,6 +1771,9 @@ export class Session {
 
       // Transcription-only mode for Vertex/OpenRouter: buffer into paragraph preview
       if (!this._translationEnabled && this.usesParagraphBuffering) {
+        if (transcript && hasTranslatableContent(transcript)) {
+          recordContext(this.contextState, transcript);
+        }
         this.queueParagraphChunk(transcript, detectedLang, audioSource, capturedAt);
         return;
       }

@@ -249,6 +249,18 @@ export function App() {
     sessionRestartKey,
   );
 
+  // When the session hook signals session-ended (e.g. computer audio toggled off
+  // with mic off), sync the app-level sessionActive state.
+  useEffect(() => {
+    if (sessionActive && session.sessionActive === false) {
+      micCapture.stop();
+      setSessionActive(false);
+      setResumeSessionId(null);
+      setRouteNotice("");
+      void refreshSessions();
+    }
+  }, [session.sessionActive, sessionActive, micCapture, refreshSessions]);
+
   const applyRoutePath = useCallback((routeInput: string, availableSessions: SessionMeta[]) => {
     const parsed = parseSessionRoute(routeInput);
     if (window.location.hash !== `#${parsed.normalizedPath}`) {

@@ -1146,9 +1146,8 @@ export function AgentDetailPanel({
         <div className="shrink-0 border-t border-border p-2">
           <PromptInput onSubmit={handleFollowUpSubmit}>
             <PromptInputTextarea
-              placeholder="Ask a follow-up..."
+              placeholder={isRunning ? "Type ahead — stop the agent to send" : "Ask a follow-up..."}
               className="min-h-8 max-h-24 text-xs"
-              disabled={isRunning}
             />
             <PromptInputFooter>
               <div />

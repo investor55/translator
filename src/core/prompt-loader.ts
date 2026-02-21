@@ -213,18 +213,25 @@ Do not commit when:
 Transcript:
 """{{transcript}}"""`;
 
-const DEFAULT_TRANSCRIPT_POLISH_PROMPT = `{{context_block}}You are cleaning up a live speech transcript assembled from multiple overlapping audio chunks.
+const DEFAULT_TRANSCRIPT_POLISH_PROMPT = `{{context_block}}You are rewriting a raw live speech transcript into a clean, readable paragraph.
 
-Transcript to polish:
+The input was assembled from multiple overlapping audio chunks and likely contains:
+- Repeated words or phrases from chunk overlap
+- Run-on sentences without punctuation
+- Cut-off words at chunk boundaries
+- Filler words and false starts
+
+Raw transcript:
 """{{transcript}}"""
 
-Rules:
-- Merge repeated or overlapping fragments into a single natural reading.
-- Fix cut-off words at chunk boundaries when context makes the intended word obvious.
-- Preserve the original meaning exactly. Do not add, remove, or reinterpret content.
-- Keep the original language. Do not translate.
-- If the text is already clean, return it as-is.
-- Return only the polished transcript text.`;
+Your task:
+1. Remove all duplicate/repeated fragments caused by audio overlap.
+2. Fix cut-off words when context makes the intended word obvious.
+3. Add proper punctuation and sentence boundaries.
+4. Remove filler words (um, uh, like, you know) and false starts where the speaker restarts a thought.
+5. Preserve the original meaning and all substantive content exactly. Do not add new information or reinterpret.
+6. Keep the original language. Do not translate.
+7. Return a clean, well-punctuated paragraph that reads naturally.`;
 
 function loadPrompt(relativePath: string, fallback: string): string {
   const fullPath = path.join(process.cwd(), relativePath);
