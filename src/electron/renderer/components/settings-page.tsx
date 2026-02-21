@@ -146,31 +146,25 @@ const DIRECTION_OPTIONS: Array<{ value: Direction; label: string }> = [
   { value: "source-target", label: "Source to Target" },
 ];
 
-const TRANSCRIPTION_PROVIDERS: Array<{
-  value: TranscriptionProvider;
+type TranscriptionPreset = {
+  key: string;
+  provider: TranscriptionProvider;
+  modelId: string;
   label: string;
-}> = [
-  { value: "elevenlabs", label: "ElevenLabs (Realtime)" },
-  { value: "whisper", label: "Whisper (Local / Offline)" },
-  { value: "openrouter", label: "OpenRouter" },
-  { value: "vertex", label: "Vertex AI" },
+  description: string;
+};
+
+const TRANSCRIPTION_PRESETS: TranscriptionPreset[] = [
+  { key: "vertex:gemini-3-flash-preview", provider: "vertex", modelId: "gemini-3-flash-preview", label: "Gemini 3 Flash — Vertex AI", description: "Best accuracy, supports translation" },
+  { key: "openrouter:google/gemini-3-flash-preview", provider: "openrouter", modelId: "google/gemini-3-flash-preview", label: "Gemini 3 Flash — OpenRouter", description: "Best accuracy, supports translation" },
+  { key: "elevenlabs:scribe_v2_realtime", provider: "elevenlabs", modelId: "scribe_v2_realtime", label: "ElevenLabs Scribe v2 Realtime", description: "Fastest transcription" },
+  { key: "elevenlabs:scribe_v2", provider: "elevenlabs", modelId: "scribe_v2", label: "ElevenLabs Scribe v2", description: "Fast transcription" },
+  { key: "whisper:Xenova/whisper-small", provider: "whisper", modelId: "Xenova/whisper-small", label: "Whisper Small (Local)", description: "Slow, lower accuracy, offline" },
+  { key: "whisper:Xenova/whisper-tiny", provider: "whisper", modelId: "Xenova/whisper-tiny", label: "Whisper Tiny (Local)", description: "Slow, lowest accuracy, offline" },
 ];
 
-function getDefaultModelId(provider: TranscriptionProvider): string {
-  switch (provider) {
-    case "whisper":
-      return DEFAULT_WHISPER_MODEL_ID;
-    case "elevenlabs":
-      return DEFAULT_TRANSCRIPTION_MODEL_ID;
-    case "openrouter":
-      return `google/${DEFAULT_VERTEX_MODEL_ID}`;
-    case "vertex":
-      return DEFAULT_VERTEX_MODEL_ID;
-  }
-}
-
-function getModelIdPlaceholder(provider: TranscriptionProvider): string {
-  return getDefaultModelId(provider);
+function getPresetKey(provider: TranscriptionProvider, modelId: string): string {
+  return `${provider}:${modelId}`;
 }
 
 const ANALYSIS_PROVIDERS: Array<{ value: AppConfig["analysisProvider"]; label: string }> = [
@@ -502,21 +496,22 @@ export function SettingsPage({
               Transcription
             </h2>
             <Separator className="my-3" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <div className="space-y-1">
                 <label className="text-2xs text-muted-foreground">
-                  Provider
+                  Engine
                 </label>
                 <Select
-                  value={config.transcriptionProvider}
-                  onValueChange={(v) => {
-                    const provider = v as TranscriptionProvider;
+                  value={getPresetKey(config.transcriptionProvider, config.transcriptionModelId)}
+                  onValueChange={(key) => {
+                    const preset = TRANSCRIPTION_PRESETS.find((p) => p.key === key);
+                    if (!preset) return;
                     onConfigChange({
                       ...config,
-                      transcriptionProvider: provider,
-                      transcriptionModelId: getDefaultModelId(provider),
+                      transcriptionProvider: preset.provider,
+                      transcriptionModelId: preset.modelId,
                       translationEnabled:
-                        provider === "vertex" || provider === "openrouter"
+                        preset.provider === "vertex" || preset.provider === "openrouter"
                           ? config.translationEnabled
                           : false,
                     });
@@ -526,23 +521,16 @@ export function SettingsPage({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {TRANSCRIPTION_PROVIDERS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
+                    {TRANSCRIPTION_PRESETS.map((preset) => (
+                      <SelectItem key={preset.key} value={preset.key}>
+                        <span>{preset.label}</span>
+                        <span className="ml-1.5 text-2xs text-muted-foreground">
+                          — {preset.description}
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-2xs text-muted-foreground">Model</label>
-                <Input
-                  value={config.transcriptionModelId}
-                  onChange={(e) => set("transcriptionModelId", e.target.value)}
-                  placeholder={getModelIdPlaceholder(
-                    config.transcriptionProvider
-                  )}
-                />
               </div>
               <div className="space-y-1">
                 <label className="text-2xs text-muted-foreground">

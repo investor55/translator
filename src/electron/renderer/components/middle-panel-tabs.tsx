@@ -11,7 +11,6 @@ type MiddlePanelTabsProps = {
   agentContent: ReactNode;
   summaryState: SummaryModalState;
   hasAgent: boolean;
-  onCloseSummary: () => void;
   onCloseAgent: () => void;
   onGenerateSummary?: () => void;
   selectedAgent?: Agent | null;
@@ -83,7 +82,6 @@ export function MiddlePanelTabs({
   agentContent,
   summaryState,
   hasAgent,
-  onCloseSummary,
   onCloseAgent,
   onGenerateSummary,
   selectedAgent,
@@ -93,12 +91,10 @@ export function MiddlePanelTabs({
   const prevSummaryKindRef = useRef(summaryState.kind);
   const prevAgentIdRef = useRef(selectedAgent?.id);
 
-  const showSummary = summaryState.kind !== "idle";
   const showAgent = hasAgent;
 
   // Derive valid tab — fall back to transcript if current tab disappeared
   const validTab =
-    (activeTab === "summary" && !showSummary) ||
     (activeTab === "agent" && !showAgent)
       ? "transcript"
       : activeTab;
@@ -120,11 +116,6 @@ export function MiddlePanelTabs({
     prevAgentIdRef.current = agentId;
   }, [selectedAgent?.id]);
 
-  const handleCloseSummary = () => {
-    onCloseSummary();
-    setActiveTab("transcript");
-  };
-
   const handleCloseAgent = () => {
     onCloseAgent();
     setActiveTab("transcript");
@@ -138,54 +129,45 @@ export function MiddlePanelTabs({
     return count > 1 ? `${name} (${count})` : name;
   })();
 
-  const hasTabs = showSummary || showAgent;
-
   return (
     <main className="flex-1 flex flex-col min-h-0 min-w-0 relative">
       {/* Tab bar */}
-      {hasTabs && (
-        <div
-          role="tablist"
-          className="shrink-0 flex items-center h-9 border-b border-border bg-background px-1 gap-0.5 overflow-x-auto"
-        >
+      <div
+        role="tablist"
+        className="shrink-0 flex items-center h-9 border-b border-border bg-background px-1 gap-0.5 overflow-x-auto"
+      >
+        <TabButton
+          active={validTab === "transcript"}
+          label="Transcript"
+          onClick={() => setActiveTab("transcript")}
+        />
+        <TabButton
+          active={validTab === "summary"}
+          label="Summary"
+          onClick={() => {
+            if (summaryState.kind === "idle" && onGenerateSummary) {
+              onGenerateSummary();
+            }
+            setActiveTab("summary");
+          }}
+        />
+        {showAgent && (
           <TabButton
-            active={validTab === "transcript"}
-            label="Transcript"
-            onClick={() => setActiveTab("transcript")}
+            active={validTab === "agent"}
+            label={agentTabLabel}
+            onClick={() => setActiveTab("agent")}
+            onClose={handleCloseAgent}
           />
-          {showSummary && (
-            <TabButton
-              active={validTab === "summary"}
-              label="Summary"
-              onClick={() => setActiveTab("summary")}
-              onClose={handleCloseSummary}
-            />
-          )}
-          {!showSummary && onGenerateSummary && (
-            <TabButton
-              active={false}
-              label="+ Summary"
-              onClick={() => onGenerateSummary()}
-            />
-          )}
-          {showAgent && (
-            <TabButton
-              active={validTab === "agent"}
-              label={agentTabLabel}
-              onClick={() => setActiveTab("agent")}
-              onClose={handleCloseAgent}
-            />
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Transcript — always mounted, hidden via CSS to preserve scroll */}
       <div className={`flex-1 flex flex-col min-h-0 ${validTab === "transcript" ? "" : "hidden"}`}>
         {transcriptContent}
       </div>
 
-      {/* Summary — conditionally rendered */}
-      {showSummary && validTab === "summary" && (
+      {/* Summary */}
+      {validTab === "summary" && (
         <div className="flex-1 flex flex-col min-h-0">
           {summaryContent}
         </div>

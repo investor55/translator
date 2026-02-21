@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, FileTextIcon, LanguagesIcon, MicIcon, MicOffIcon, MonitorSpeakerIcon, PlusIcon, Settings2Icon, SquareIcon } from "lucide-react";
+import { ArrowLeftIcon, LanguagesIcon, MicIcon, MicOffIcon, MonitorSpeakerIcon, PlusIcon, Settings2Icon, SquareIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -25,7 +25,6 @@ type ToolbarHeaderProps = {
   langError: string;
   onToggleTranslation?: () => void;
   onToggleMic?: () => void;
-  onGenerateSummary?: () => void;
   onEndSession?: () => void;
   settingsOpen?: boolean;
   onToggleSettings?: () => void;
@@ -70,7 +69,6 @@ export function ToolbarHeader({
   langError,
   onToggleTranslation,
   onToggleMic,
-  onGenerateSummary,
   onEndSession,
   settingsOpen,
   onToggleSettings,
@@ -193,10 +191,6 @@ export function ToolbarHeader({
               <Button variant="outline" size="sm" onClick={onNewSession}>
                 <PlusIcon className="size-3.5" data-icon="inline-start" />
                 New
-              </Button>
-              <Button variant="outline" size="sm" onClick={onGenerateSummary}>
-                <FileTextIcon className="size-3.5" data-icon="inline-start" />
-                Summary
               </Button>
               <Button variant="outline" size="sm" onClick={onEndSession} className="text-destructive hover:bg-destructive/10">
                 <SquareIcon className="size-3 fill-current" data-icon="inline-start" />

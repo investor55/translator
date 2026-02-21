@@ -1420,7 +1420,6 @@ export function App() {
         langError={langError}
         onToggleTranslation={handleToggleTranslation}
         onToggleMic={handleToggleMic}
-        onGenerateSummary={sessionActive ? handleGenerateSummary : undefined}
         onEndSession={sessionActive ? handleStop : undefined}
         settingsOpen={settingsOpen}
         onToggleSettings={() => setSettingsOpen((prev) => !prev)}
@@ -1484,7 +1483,6 @@ export function App() {
               hasAgent={!!selectedAgent || newAgentMode}
               selectedAgent={selectedAgent}
               agents={agents}
-              onCloseSummary={() => setFinalSummaryState({ kind: "idle" })}
               onCloseAgent={() => {
                 selectAgent(null);
                 setNewAgentMode(false);
