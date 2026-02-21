@@ -66,7 +66,6 @@ import {
   createContextState,
   resetContextState,
   recordContext,
-  getContextWindow,
   createBlock,
   loadAgentsMd,
   loadProjectAgentsMd,
@@ -269,8 +268,6 @@ export class Session {
   private lastTaskAnalysisAt = 0;
   private lastTaskAnalysisBlockCount = 0;
   /** Timestamp of last mic speech detection, for system-audio ducking */
-  private micSpeechLastDetectedAt = 0;
-  private readonly MIC_PRIORITY_GRACE_MS = 300;
   private lastSummary: Summary | null = null;
   private lastAnalysisBlockCount = 0;
   private titleGenerated = false;
@@ -360,7 +357,7 @@ export class Session {
         .describe(sourceLanguageDescription),
       transcript: z
         .string()
-        .describe("The transcription of the audio in the original language"),
+        .describe("The transcription of the audio in the original language. Empty string if no speech detected."),
       translation: z
         .string()
         .optional()
@@ -379,7 +376,7 @@ export class Session {
         .describe(sourceLanguageDescription),
       transcript: z
         .string()
-        .describe("The transcription of the audio in the original language"),
+        .describe("The transcription of the audio in the original language. Empty string if no speech detected."),
       isPartial: z
         .boolean()
         .describe("True if the audio was cut off mid-sentence. False if speech ends at a natural boundary."),
@@ -1201,21 +1198,12 @@ export class Session {
   private micDebugWindowCount = 0;
 
   private handleAudioData(pipeline: AudioPipeline, data: Buffer) {
-    // Suppress system audio while mic is speaking (mic priority)
-    if (
-      pipeline.source === "system" &&
-      this._micEnabled &&
-      Date.now() - this.micSpeechLastDetectedAt < this.MIC_PRIORITY_GRACE_MS
-    ) {
-      return; // mic is speaking, skip system audio
-    }
-
     if (this.config.transcriptionProvider === "elevenlabs") {
       // Update mic-priority timestamp from audio energy (VAD path is skipped for ElevenLabs)
       if (pipeline.source === "microphone") {
         const rms = computeRms(data);
         if (rms > pipeline.vadState.silenceThreshold) {
-          this.micSpeechLastDetectedAt = Date.now();
+  
         }
       }
       // Realtime path: stream raw PCM directly, no local VAD or queue
@@ -1250,7 +1238,7 @@ export class Session {
         pipeline.vadState.peakRms = 0;
       }
       if (pipeline.vadState.speechStarted) {
-        this.micSpeechLastDetectedAt = Date.now();
+
       }
     }
 
@@ -1259,7 +1247,7 @@ export class Session {
 
       if (pipeline.source === "microphone") {
         log("INFO", `Mic VAD: speech chunk ${durationMs.toFixed(0)}ms rms=${computeRms(chunk).toFixed(0)}, queue=${this.chunkQueues.get("microphone")!.length}`);
-        this.micSpeechLastDetectedAt = Date.now();
+
       }
 
       this.enqueueChunk(pipeline, chunk);
@@ -1420,13 +1408,7 @@ export class Session {
     const trimmed = transcript.trim();
     if (trimmed.length < 20) return trimmed;
 
-    const contextWindow = getContextWindow(this.contextState);
-    const contextBlock = contextWindow.length
-      ? `Recent transcript context:\n${contextWindow.join("\n")}\n\n`
-      : "";
-
     const prompt = renderPromptTemplate(getTranscriptPolishPromptTemplate(), {
-      context_block: contextBlock,
       transcript: trimmed,
     });
 
@@ -1458,13 +1440,12 @@ export class Session {
     }
   }
 
-  private async evaluateParagraphs(forceCommit: boolean, sources?: AudioSource[]): Promise<void> {
+  private async evaluateParagraphs(forceCommit: boolean, _sources?: AudioSource[]): Promise<void> {
     if (!this.usesParagraphBuffering) return;
     if (this.paragraphDecisionInFlight) return;
-    const sourceSet = sources ? new Set(sources) : null;
-    const candidates = [...this.pendingParagraphs.values()].filter((entry) =>
-      sourceSet ? sourceSet.has(entry.audioSource) : true
-    );
+    // Evaluate ALL pending paragraphs (both system and mic) together to prevent
+    // one source from starving the other when decisions are in-flight.
+    const candidates = [...this.pendingParagraphs.values()];
     if (candidates.length === 0) return;
 
     this.paragraphDecisionInFlight = true;
@@ -1720,14 +1701,10 @@ export class Session {
               this.config.direction,
               this.config.sourceLang,
               this.config.targetLang,
-              getContextWindow(this.contextState),
-              this.contextState.allKeyPoints.slice(-8)
             )
           : buildAudioTranscriptionOnlyPrompt(
               this.config.sourceLang,
               this.config.targetLang,
-              getContextWindow(this.contextState),
-              this.contextState.allKeyPoints.slice(-8)
             );
         if (!this.transcriptionModel) {
           throw new Error("Transcription model is not initialized.");
@@ -1774,9 +1751,9 @@ export class Session {
       }
 
       if (!translation && !transcript) {
-        log("WARN", "Transcription returned empty transcript and translation");
         return;
       }
+
 
       // Transcription-only mode for Vertex/OpenRouter: buffer into paragraph preview
       if (!this._translationEnabled && this.usesParagraphBuffering) {
@@ -1883,15 +1860,6 @@ export class Session {
     };
     if (!transcript.trim()) return fallback;
 
-    const contextWindow = getContextWindow(this.contextState);
-    const summaryPoints = this.contextState.allKeyPoints.slice(-8);
-    const summaryBlock = summaryPoints.length
-      ? `Conversation summary:\n${summaryPoints.map((p) => `- ${p}`).join("\n")}\n\n`
-      : "";
-    const contextBlock = contextWindow.length
-      ? `Recent transcript context:\n${contextWindow.join("\n")}\n\n`
-      : "";
-
     const translationRule = !useTranslation
       ? "Translation must be an empty string."
       : this.config.direction === "source-target"
@@ -1906,8 +1874,6 @@ export class Session {
 - Translation must never be in the same language as transcript.`;
 
     const prompt = renderPromptTemplate(getTranscriptPostProcessPromptTemplate(), {
-      summary_block: summaryBlock,
-      context_block: contextBlock,
       transcript,
       detected_lang_hint: detectedLangHint,
       translation_rule: translationRule,

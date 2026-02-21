@@ -7,7 +7,7 @@ import {
 
 describe("buildAudioPromptForStructured", () => {
   it("builds auto-detect prompt for structured output", () => {
-    const result = buildAudioPromptForStructured("auto", "ko", "en", [], []);
+    const result = buildAudioPromptForStructured("auto", "ko", "en");
     expect(result).toContain("Detect");
     expect(result).toContain("Korean or English");
     expect(result).toContain("Never translate or paraphrase the transcript into English");
@@ -15,28 +15,22 @@ describe("buildAudioPromptForStructured", () => {
   });
 
   it("builds source-target prompt for structured output", () => {
-    const result = buildAudioPromptForStructured("source-target", "ko", "en", [], []);
+    const result = buildAudioPromptForStructured("source-target", "ko", "en");
     expect(result).toContain("Korean");
     expect(result).toContain("English");
     expect(result).toContain("Transcript must stay in Korean");
   });
 
   it("builds reversed language prompt", () => {
-    const result = buildAudioPromptForStructured("source-target", "en", "ko", [], []);
+    const result = buildAudioPromptForStructured("source-target", "en", "ko");
     expect(result).toContain("English");
     expect(result).toContain("Korean");
   });
 
-  it("includes context when provided", () => {
-    const context = ["Context sentence."];
-    const result = buildAudioPromptForStructured("auto", "ko", "en", context, []);
-    expect(result).toContain("Context");
-    expect(result).toContain("Context sentence.");
-  });
-
-  it("includes summary points when provided", () => {
-    const result = buildAudioPromptForStructured("auto", "ko", "en", [], ["Point one"]);
-    expect(result).toContain("Point one");
+  it("does not include context or summary in prompt", () => {
+    const result = buildAudioPromptForStructured("auto", "ko", "en");
+    expect(result).not.toContain("Context (previous sentences");
+    expect(result).not.toContain("Conversation summary");
   });
 });
 

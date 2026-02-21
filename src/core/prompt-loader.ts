@@ -171,7 +171,7 @@ const DEFAULT_AGENT_INITIAL_USER_PROMPT = `Task:
 {{task}}
 {{context_section}}`;
 
-const DEFAULT_AUDIO_AUTO_PROMPT = `{{summary_block}}{{context_block}}Listen to the audio clip. The speaker may be speaking {{lang_list}}. The speaker may occasionally use English words or phrases even when primarily speaking another language - treat code-switching as part of the primary language, not as a language change.
+const DEFAULT_AUDIO_AUTO_PROMPT = `Listen to the audio clip. The speaker may be speaking {{lang_list}}. The speaker may occasionally use English words or phrases even when primarily speaking another language - treat code-switching as part of the primary language, not as a language change.
 1. Detect the primary spoken language ({{code_list}})
 2. Transcribe the audio in its original language
 3. {{translate_rule}}
@@ -179,26 +179,32 @@ const DEFAULT_AUDIO_AUTO_PROMPT = `{{summary_block}}{{context_block}}Listen to t
 IMPORTANT: The transcript field must be in the detected source language. The translation field must ALWAYS be in a DIFFERENT language than the transcript. If you hear {{source_lang_name}}, the translation must be {{target_lang_name}}, not {{source_lang_name}}.
 IMPORTANT: Never translate or paraphrase the transcript into English. Keep transcript in the spoken language exactly as heard.
 
-You are a strict transcriber. Output ONLY the exact words spoken - never add, infer, or complete words or sentences beyond what is audible.
+You are a strict verbatim transcriber. Your #1 priority is accuracy — it is ALWAYS better to return an empty transcript than to guess.
 
-If the audio is cut off mid-sentence, transcribe only what was actually spoken. Set isPartial to true.
+Rules:
+- Output ONLY exact words that are clearly and confidently audible. Never infer, complete, or fabricate words.
+- If you are less than 90% confident that specific words were spoken, return an empty transcript and translation.
+- If the audio is cut off mid-sentence, transcribe only what was actually spoken and set isPartial to true.
 
-If there is no speech, silence, or unintelligible audio, return an empty transcript and empty translation.
+If the audio contains ONLY background noise, music, typing, clicks, static, hum, TV/video playing faintly, or ambient sounds with no clear human speech, return an empty transcript.
 
 Return sourceLanguage ({{code_list}}), transcript, isPartial, and translation.`;
 
-const DEFAULT_AUDIO_SOURCE_TARGET_PROMPT = `{{summary_block}}{{context_block}}Listen to the audio clip spoken in {{source_lang_name}}. Transcribe it in {{source_lang_name}} and translate it into {{target_lang_name}}.{{english_note}}
+const DEFAULT_AUDIO_SOURCE_TARGET_PROMPT = `Listen to the audio clip spoken in {{source_lang_name}}. Transcribe it in {{source_lang_name}} and translate it into {{target_lang_name}}.{{english_note}}
 
 IMPORTANT: The translation MUST be in {{target_lang_name}}. Never return a translation in the same language as the transcript.
 IMPORTANT: Transcript must stay in {{source_lang_name}}. Do not translate transcript into English.
 
-You are a strict transcriber. Output ONLY the exact words spoken - never add, infer, or complete words or sentences beyond what is audible.
+You are a strict verbatim transcriber. Your #1 priority is accuracy — it is ALWAYS better to return an empty transcript than to guess.
 
-If the audio is cut off mid-sentence, transcribe only what was actually spoken. Set isPartial to true.
+Rules:
+- Output ONLY exact words that are clearly and confidently audible. Never infer, complete, or fabricate words.
+- If you are less than 90% confident that specific words were spoken, return an empty transcript and translation.
+- If the audio is cut off mid-sentence, transcribe only what was actually spoken and set isPartial to true.
 
-If there is no speech, silence, or unintelligible audio, return an empty transcript and empty translation.`;
+If the audio contains ONLY background noise, music, typing, clicks, static, hum, TV/video playing faintly, or ambient sounds with no clear human speech, return an empty transcript.`;
 
-const DEFAULT_TRANSCRIPT_POST_PROCESS_PROMPT = `{{summary_block}}{{context_block}}You are post-processing a speech transcript from a dedicated STT model.
+const DEFAULT_TRANSCRIPT_POST_PROCESS_PROMPT = `You are post-processing a speech transcript from a dedicated STT model.
 Do not rewrite the transcript text.
 
 Transcript:
@@ -213,18 +219,22 @@ Return:
 3) isPartial
 4) isNewTopic`;
 
-const DEFAULT_AUDIO_TRANSCRIPTION_ONLY_PROMPT = `{{summary_block}}{{context_block}}Listen to the audio clip. The speaker may be speaking {{lang_list}}.
+const DEFAULT_AUDIO_TRANSCRIPTION_ONLY_PROMPT = `Listen to the audio clip. The speaker is expected to be speaking {{source_lang_name}}.
 
-1. Detect the primary spoken language ({{code_list}})
-2. Transcribe the audio exactly as spoken in its original language
+1. Transcribe the audio in {{source_lang_name}}
+2. Set sourceLanguage to "{{source_lang_code}}"
 
-You are a strict transcriber. Output ONLY the exact words spoken - never add, infer, or complete words or sentences beyond what is audible.
+You are a strict verbatim transcriber. Your #1 priority is accuracy — it is ALWAYS better to return an empty transcript than to guess.
 
-If the audio is cut off mid-sentence, transcribe only what was actually spoken. Set isPartial to true.
+Rules:
+- Output ONLY exact words that are clearly and confidently audible. Never infer, complete, or fabricate words.
+- If you are less than 90% confident that specific words were spoken, return an empty transcript.
+- Do NOT translate or output in a different language than what is spoken.
+- If the audio is cut off mid-sentence, transcribe only what was actually spoken and set isPartial to true.
 
-If there is no speech, silence, or unintelligible audio, return an empty transcript.
+If the audio contains ONLY background noise, music, typing, clicks, static, hum, TV/video playing faintly, or ambient sounds with no clear human speech, return an empty transcript.
 
-Return sourceLanguage ({{code_list}}), transcript, and isPartial.`;
+Return sourceLanguage, transcript, and isPartial.`;
 
 const DEFAULT_PARAGRAPH_DECISION_PROMPT = `You decide whether a live transcript should be committed as a paragraph now.
 Commit when:
@@ -238,7 +248,7 @@ Do not commit when:
 Transcript:
 """{{transcript}}"""`;
 
-const DEFAULT_TRANSCRIPT_POLISH_PROMPT = `{{context_block}}You are rewriting a raw live speech transcript into a clean, readable paragraph.
+const DEFAULT_TRANSCRIPT_POLISH_PROMPT = `You are rewriting a raw live speech transcript into a clean, readable paragraph.
 
 The input was assembled from multiple overlapping audio chunks and likely contains:
 - Repeated words or phrases from chunk overlap

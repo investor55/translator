@@ -1,4 +1,4 @@
-{{summary_block}}{{context_block}}You are post-processing a speech transcript from a dedicated STT model.
+You are post-processing a speech transcript from a dedicated STT model.
 Do not rewrite the transcript text.
 
 Transcript:
