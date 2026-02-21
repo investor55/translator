@@ -127,7 +127,7 @@ export const agentsSummarySchema = z.object({
     "Aspects of the objectives that remain unaddressed. Empty array if coverage is complete."
   ),
   nextSteps: z.array(z.string()).describe(
-    "Specific actionable follow-up tasks suggested by collective findings. Short imperative phrases (3-10 words). Empty array if none."
+    "Atomic follow-up todos. Each under 12 words, imperative, starting with a strong verb (e.g. 'Retest with paid API plan', 'Benchmark speed against Claude Opus'). No compound actions. Empty array if none."
   ),
 });
 
@@ -327,5 +327,10 @@ export function buildAgentsSummaryPrompt(
     agentDocs,
     "",
     "Synthesize what was collectively learned, identify coverage gaps, and suggest next steps.",
+    "",
+    "Rules for nextSteps:",
+    "- Every next step must be a single atomic action a single agent can complete in one focused pass.",
+    "- Keep each next step under 12 words and start with a strong verb.",
+    "- Do not chain actions with 'and', commas, or slash-separated tasks.",
   ].join("\n");
 }

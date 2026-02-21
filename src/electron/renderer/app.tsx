@@ -1468,23 +1468,15 @@ export function App() {
               }}
               onGenerateSummary={handleGenerateSummary}
               transcriptContent={
-                <>
-                  <TranscriptArea
-                    ref={transcriptRef}
-                    blocks={session.blocks}
-                    systemPartial={session.systemPartial}
-                    micPartial={session.micPartial}
-                    canTranslate={session.uiState?.canTranslate ?? false}
-                    translationEnabled={session.uiState?.translationEnabled ?? false}
-                    onAddTranscriptRef={handleAddTranscriptRef}
-                  />
-                  <SessionSummaryPanel
-                    state={finalSummaryState}
-                    onClose={() => setFinalSummaryState({ kind: "idle" })}
-                    onAcceptItems={handleAcceptSummaryItems}
-                    onRegenerate={handleRegenerateSummary}
-                  />
-                </>
+                <TranscriptArea
+                  ref={transcriptRef}
+                  blocks={session.blocks}
+                  systemPartial={session.systemPartial}
+                  micPartial={session.micPartial}
+                  canTranslate={session.uiState?.canTranslate ?? false}
+                  translationEnabled={session.uiState?.translationEnabled ?? false}
+                  onAddTranscriptRef={handleAddTranscriptRef}
+                />
               }
               summaryContent={
                 <SessionSummaryPanel
