@@ -2,10 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { generateObject, type LanguageModel } from "ai";
 import { z } from "zod";
-import type { AppDatabase } from "../db/db";
 import { loadProjectAgentsMd, writeProjectAgentsMd } from "../context";
 import { log } from "../logger";
-import type { Agent } from "../types";
+import type { Agent, TranscriptBlock } from "../types";
 
 const AGENTS_MD_PATH = path.resolve(process.cwd(), "agents.md");
 
@@ -69,7 +68,7 @@ function formatAgentConversation(agent: Agent): string {
 }
 
 function renderAgentsMd(sections: Map<LearningCategory, string[]>): string {
-  const lines = ["# Agent Memory", "", "Durable learnings extracted from agent sessions. Updated automatically at session end.", ""];
+  const lines = ["# Agent Memory", "", "Durable learnings extracted from agent sessions. Updated automatically.", ""];
   for (const cat of LEARNING_CATEGORIES) {
     lines.push(`## ${cat}`, "");
     const items = sections.get(cat) ?? [];
@@ -81,22 +80,20 @@ function renderAgentsMd(sections: Map<LearningCategory, string[]>): string {
   return lines.join("\n");
 }
 
-export async function extractSessionLearnings(
+export async function extractAgentLearnings(
   model: LanguageModel,
-  db: AppDatabase,
-  sessionId: string,
+  agent: Agent,
+  recentBlocks: TranscriptBlock[],
   projectId?: string,
   dataDir?: string,
 ): Promise<void> {
-  log("INFO", `Learning extraction started for session ${sessionId} (project: ${projectId ?? "none"})`);
-  const blocks = db.getBlocksForSession(sessionId);
-  const agents = db.getAgentsForSession(sessionId);
-  const completedAgents = agents.filter((a) => a.status === "completed" && a.result);
+  if (!agent.result) return;
 
-  if (blocks.length < 5 && completedAgents.length === 0) {
-    log("INFO", `Learning extraction skipped: ${blocks.length} blocks, ${completedAgents.length} completed agents`);
-    return;
-  }
+  const hasUserCorrections = agent.steps.some((s) => s.kind === "user");
+  const hasSubstantialResult = agent.result.length > 50;
+  if (!hasUserCorrections && !hasSubstantialResult) return;
+
+  log("INFO", `Learning extraction for agent ${agent.id} (project: ${projectId ?? "none"})`);
 
   const existingMd = (projectId && dataDir)
     ? loadProjectAgentsMd(dataDir, projectId)
@@ -106,17 +103,15 @@ export async function extractSessionLearnings(
     [...existingSections.values()].flat().map((s) => s.toLowerCase().trim()),
   );
 
-  const agentConversations = completedAgents
-    .map((a) => formatAgentConversation(a))
-    .join("\n---\n");
+  const conversation = formatAgentConversation(agent);
 
-  const recentBlocks = blocks
-    .slice(-30)
+  const blockContext = recentBlocks
+    .slice(-20)
     .map((b) => `[${b.sourceLabel}] ${b.sourceText}${b.translation ? ` → ${b.translation}` : ""}`)
     .join("\n");
 
   const prompt = [
-    "Extract durable learnings from this session that would be useful for ANY future agent working on this project.",
+    "Extract durable learnings from this agent conversation that would be useful for ANY future agent working on this project.",
     "Learnings must be general behavioral rules, not specific details from one conversation.",
     "",
     "GOOD: 'Always verify information is current by searching before presenting — do not rely on training data for fast-moving topics.'",
@@ -126,19 +121,21 @@ export async function extractSessionLearnings(
     "",
     "Only extract learnings that change how an agent should behave. Skip:",
     "- Specific facts/data points (names, versions, dates) — these go stale",
-    "- One-time context about a single conversation",
+    "- One-off task instructions or transient details",
     "- Anything an agent can look up or already knows",
+    "- Secrets, tokens, credentials",
     "",
     "Pay special attention to user corrections — turn them into general rules, not specific memories.",
+    "Return an empty array if nothing qualifies.",
     "",
     "Existing learnings (do NOT duplicate these):",
     existingMd || "(none)",
     "",
-    "Session transcript (last 30 blocks):",
-    recentBlocks || "(no transcript blocks)",
+    "Recent transcript context:",
+    blockContext || "(no transcript)",
     "",
-    "Agent conversations (including user corrections):",
-    agentConversations || "(no completed agents)",
+    "Agent conversation:",
+    conversation,
   ].join("\n");
 
   try {

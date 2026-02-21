@@ -1,4 +1,5 @@
 // All shared types for the translator app.
+import { getAnalysisModelPreset, DEFAULT_UTILITY_MODEL_ID, DEFAULT_MEMORY_MODEL_ID } from "./models";
 
 export type LanguageCode =
   | "en"
@@ -50,12 +51,7 @@ export type TranscriptionProvider =
   | "elevenlabs"
   | "whisper";
 export type AnalysisProvider = "openrouter" | "google" | "vertex";
-export type AnalysisModelPreset = {
-  label: string;
-  modelId: string;
-  reasoning: boolean;
-  providerOnly?: string;
-};
+export type { AnalysisModelPreset } from "./models";
 
 export type TranscriptBlock = {
   id: number;
@@ -187,6 +183,8 @@ export type SessionConfig = {
   analysisReasoning: boolean;
   todoModelId: string;
   todoProviders: string[];
+  utilityModelId: string;
+  memoryModelId: string;
   vertexProject?: string;
   vertexLocation: string;
   contextFile: string;
@@ -218,6 +216,8 @@ export type AppConfig = {
   analysisReasoning: boolean;
   todoModelId: string;
   todoProviders: string[];
+  utilityModelId: string;
+  memoryModelId: string;
   vertexProject?: string;
   vertexLocation: string;
   contextFile: string;
@@ -278,34 +278,7 @@ export const DEFAULT_VERTEX_LOCATION =
 export const DEFAULT_TRANSCRIPTION_MODEL_ID =
   ENV?.TRANSCRIPTION_MODEL_ID ?? "scribe_v2_realtime";
 export const DEFAULT_WHISPER_MODEL_ID = "Xenova/whisper-small";
-export const ANALYSIS_MODEL_PRESETS: AnalysisModelPreset[] = [
-  {
-    label: "Kimi K2 0905 Exacto",
-    modelId: "moonshotai/kimi-k2-0905:exacto",
-    reasoning: false,
-  },
-  {
-    label: "Kimi K2.5 Thinking",
-    modelId: "moonshotai/kimi-k2.5",
-    reasoning: true,
-  },
-  {
-    label: "GLM 4.7 Thinking",
-    modelId: "z-ai/glm-4.7",
-    reasoning: true,
-  },
-  {
-    label: "GLM 5 Thinking",
-    modelId: "z-ai/glm-5",
-    reasoning: true,
-  },
-];
-
-export function getAnalysisModelPreset(
-  modelId: string
-): AnalysisModelPreset | undefined {
-  return ANALYSIS_MODEL_PRESETS.find((preset) => preset.modelId === modelId);
-}
+export { ANALYSIS_MODEL_PRESETS, getAnalysisModelPreset } from "./models";
 
 export const DEFAULT_ANALYSIS_MODEL_ID =
   ENV?.ANALYSIS_MODEL_ID ?? "moonshotai/kimi-k2-thinking";
@@ -376,6 +349,8 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   analysisReasoning: false,
   todoModelId: DEFAULT_TODO_MODEL_ID,
   todoProviders: ["sambanova", "groq", "cerebras"],
+  utilityModelId: DEFAULT_UTILITY_MODEL_ID,
+  memoryModelId: DEFAULT_MEMORY_MODEL_ID,
   vertexProject: ENV?.GOOGLE_VERTEX_PROJECT_ID,
   vertexLocation: DEFAULT_VERTEX_LOCATION,
   contextFile: "context.md",
@@ -452,17 +427,9 @@ export function normalizeAppConfig(
   const analysisModelId =
     merged.analysisModelId?.trim() || DEFAULT_APP_CONFIG.analysisModelId;
   const analysisModelPreset = getAnalysisModelPreset(analysisModelId);
-  const rawAnalysisProviderOnly = merged.analysisProviderOnly?.trim();
-  // Backward compatibility: older defaults used "Groq" (capitalized), which can
-  // break provider filtering. Treat that legacy value as "no provider pin".
-  const legacyAnalysisProviderOnly =
-    rawAnalysisProviderOnly && rawAnalysisProviderOnly !== "Groq"
-      ? rawAnalysisProviderOnly.toLowerCase()
-      : undefined;
   const analysisProviderOnly =
-    analysisModelPreset?.providerOnly ?? legacyAnalysisProviderOnly;
-  const analysisReasoning =
-    analysisModelPreset?.reasoning ?? !!merged.analysisReasoning;
+    analysisModelPreset?.providerOnly ?? (merged.analysisProviderOnly?.trim() || undefined);
+  const analysisReasoning = analysisModelPreset?.reasoning ?? !!merged.analysisReasoning;
 
   return {
     ...merged,
@@ -478,6 +445,8 @@ export function normalizeAppConfig(
     transcriptionModelId,
     analysisModelId,
     todoModelId: merged.todoModelId?.trim() || DEFAULT_APP_CONFIG.todoModelId,
+    utilityModelId: merged.utilityModelId?.trim() || DEFAULT_APP_CONFIG.utilityModelId,
+    memoryModelId: merged.memoryModelId?.trim() || DEFAULT_APP_CONFIG.memoryModelId,
     contextFile: merged.contextFile?.trim() || DEFAULT_APP_CONFIG.contextFile,
     vertexLocation:
       merged.vertexLocation?.trim() || DEFAULT_APP_CONFIG.vertexLocation,

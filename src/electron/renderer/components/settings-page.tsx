@@ -16,11 +16,11 @@ import type {
   TranscriptionProvider,
 } from "../../../core/types";
 import {
-  ANALYSIS_MODEL_PRESETS,
   DEFAULT_TRANSCRIPTION_MODEL_ID,
   DEFAULT_WHISPER_MODEL_ID,
   DEFAULT_VERTEX_MODEL_ID,
 } from "../../../core/types";
+import { ANALYSIS_MODEL_PRESETS, TODO_MODEL_PRESETS, UTILITY_MODEL_PRESETS } from "../../../core/models";
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import {
+  BrainIcon,
   Laptop2Icon,
   MoonIcon,
   RotateCcwIcon,
@@ -178,14 +179,6 @@ const ANALYSIS_PROVIDERS: Array<{ value: AnalysisProvider; label: string }> = [
   { value: "vertex", label: "Vertex AI" },
 ];
 
-type TodoModelPreset = { label: string; modelId: string; providers: string[] };
-const TODO_MODEL_PRESETS: TodoModelPreset[] = [
-  {
-    label: "GPT-OSS 120B",
-    modelId: "openai/gpt-oss-120b",
-    providers: ["sambanova", "groq", "cerebras"],
-  },
-];
 
 function SettingRow({
   label,
@@ -735,7 +728,10 @@ export function SettingsPage({
                     <SelectContent>
                       {ANALYSIS_MODEL_PRESETS.map((preset) => (
                         <SelectItem key={preset.modelId} value={preset.modelId}>
-                          {preset.label}
+                          <span className="inline-flex items-center gap-1.5">
+                            {preset.label}
+                            {preset.reasoning && <BrainIcon className="size-3 text-muted-foreground" />}
+                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -781,6 +777,48 @@ export function SettingsPage({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-2xs text-muted-foreground">
+                  Utility Model
+                </label>
+                <Select
+                  value={config.utilityModelId}
+                  onValueChange={(modelId) => set("utilityModelId", modelId)}
+                >
+                  <SelectTrigger size="sm" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {UTILITY_MODEL_PRESETS.map((preset) => (
+                      <SelectItem key={preset.modelId} value={preset.modelId}>
+                        {preset.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-2xs text-muted-foreground">Titles, summaries, post-processing</p>
+              </div>
+              <div className="space-y-1">
+                <label className="text-2xs text-muted-foreground">
+                  Memory Model
+                </label>
+                <Select
+                  value={config.memoryModelId}
+                  onValueChange={(modelId) => set("memoryModelId", modelId)}
+                >
+                  <SelectTrigger size="sm" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {UTILITY_MODEL_PRESETS.map((preset) => (
+                      <SelectItem key={preset.modelId} value={preset.modelId}>
+                        {preset.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-2xs text-muted-foreground">Agent learning extraction</p>
               </div>
             </div>
           </section>

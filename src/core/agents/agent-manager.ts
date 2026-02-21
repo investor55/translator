@@ -16,7 +16,7 @@ import type {
   AgentToolApprovalResponse,
 } from "../types";
 import type { AgentExternalToolSet } from "./external-tools";
-import { extractSessionLearnings } from "./learn";
+import { extractAgentLearnings } from "./learn";
 
 type TypedEmitter = EventEmitter & {
   emit<K extends keyof SessionEvents>(event: K, ...args: SessionEvents[K]): boolean;
@@ -25,9 +25,11 @@ type TypedEmitter = EventEmitter & {
 type AgentManagerDeps = {
   model: Parameters<typeof runAgent>[1]["model"];
   utilitiesModel: Parameters<typeof runAgent>[1]["model"];
+  memoryModel: Parameters<typeof runAgent>[1]["model"];
   exaApiKey: string;
   events: TypedEmitter;
   getTranscriptContext: () => string;
+  getRecentBlocks?: () => import("../types").TranscriptBlock[];
   getProjectInstructions?: () => string | undefined;
   getProjectId?: () => string | undefined;
   dataDir?: string;
@@ -328,11 +330,10 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
             const message = error instanceof Error ? error.message : String(error);
             log("WARN", `Agent FTS indexing failed for ${agent.id}: ${message}`);
           }
-          if (agent.sessionId) {
-            const projectId = deps.getProjectId?.();
-            void extractSessionLearnings(deps.model, deps.db, agent.sessionId, projectId, deps.dataDir)
-              .catch((err) => log("WARN", `Learning extraction error: ${err}`));
-          }
+          const projectId = deps.getProjectId?.();
+          const recentBlocks = deps.getRecentBlocks?.() ?? [];
+          void extractAgentLearnings(deps.memoryModel, agent, recentBlocks, projectId, deps.dataDir)
+            .catch((err) => log("WARN", `Learning extraction error: ${err}`));
         }
       },
       onFail: (error: string) => {

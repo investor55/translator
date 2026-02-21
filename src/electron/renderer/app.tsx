@@ -1248,8 +1248,21 @@ export function App() {
   }, []);
 
   const handleAppConfigChange = useCallback((next: AppConfig) => {
-    setStoredAppConfig(normalizeAppConfig(next));
-  }, [setStoredAppConfig]);
+    const prev = storedAppConfig;
+    const normalized = normalizeAppConfig(next);
+    setStoredAppConfig(normalized);
+    const modelChanged =
+      prev.analysisModelId !== normalized.analysisModelId ||
+      prev.analysisProvider !== normalized.analysisProvider ||
+      prev.todoModelId !== normalized.todoModelId ||
+      prev.utilityModelId !== normalized.utilityModelId ||
+      prev.memoryModelId !== normalized.memoryModelId ||
+      prev.transcriptionProvider !== normalized.transcriptionProvider ||
+      prev.transcriptionModelId !== normalized.transcriptionModelId;
+    if (modelChanged && sessionActive) {
+      setSessionRestartKey((k) => k + 1);
+    }
+  }, [setStoredAppConfig, storedAppConfig, sessionActive]);
 
   const handleAcceptSummaryItems = useCallback((
     items: Array<{

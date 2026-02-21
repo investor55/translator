@@ -49,6 +49,8 @@ export function buildSessionConfig(
     analysisReasoning: config.analysisReasoning,
     todoModelId: config.todoModelId,
     todoProviders: config.todoProviders,
+    utilityModelId: config.utilityModelId,
+    memoryModelId: config.memoryModelId,
     vertexProject: config.vertexProject ?? process.env.GOOGLE_VERTEX_PROJECT_ID,
     vertexLocation: config.vertexLocation,
     contextFile: config.contextFile,

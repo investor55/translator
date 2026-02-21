@@ -71,14 +71,18 @@ export function createAnalysisModel(config: SessionConfig): LanguageModel {
   );
 }
 
-const UTILITIES_MODEL_ID = "openai/gpt-oss-20b";
-
-/** Fixed lightweight model for internal utility tasks (title generation, etc.). Not user-configurable. */
-export function createUtilitiesModel(): LanguageModel {
+export function createUtilitiesModel(config: SessionConfig): LanguageModel {
   const openrouter = createOpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY,
   });
-  return openrouter(UTILITIES_MODEL_ID, { provider: { sort: "throughput" as const } });
+  return openrouter(config.utilityModelId, { provider: { sort: "throughput" as const } });
+}
+
+export function createMemoryModel(config: SessionConfig): LanguageModel {
+  const openrouter = createOpenRouter({
+    apiKey: process.env.OPENROUTER_API_KEY,
+  });
+  return openrouter(config.memoryModelId, { provider: { sort: "throughput" as const } });
 }
 
 export function createTodoModel(config: SessionConfig): LanguageModel {

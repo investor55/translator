@@ -20,7 +20,7 @@ import type {
   TodoSuggestion,
   Insight,
 } from "./types";
-import { createTranscriptionModel, createAnalysisModel, createTodoModel, createUtilitiesModel } from "./providers";
+import { createTranscriptionModel, createAnalysisModel, createTodoModel, createUtilitiesModel, createMemoryModel } from "./providers";
 import { log } from "./logger";
 import { pcmToWavBuffer, computeRms } from "./audio/audio-utils";
 import { isLikelyDuplicateTodoText, normalizeTodoText, toReadableError } from "./text/text-utils";
@@ -297,16 +297,19 @@ export class Session {
         : createTranscriptionModel(config);
     this.analysisModel = createAnalysisModel(config);
     this.todoModel = createTodoModel(config);
-    this.utilitiesModel = createUtilitiesModel();
+    this.utilitiesModel = createUtilitiesModel(config);
+    const memoryModel = createMemoryModel(config);
 
     const exaApiKey = process.env.EXA_API_KEY;
     if (exaApiKey) {
       this.agentManager = createAgentManager({
         model: this.analysisModel,
         utilitiesModel: this.utilitiesModel,
+        memoryModel,
         exaApiKey,
         events: this.events,
         getTranscriptContext: () => this.getTranscriptContextForAgent(),
+        getRecentBlocks: () => this.db ? this.db.getBlocksForSession(this.sessionId).slice(-20) : [],
         getProjectInstructions: () => {
           const projectId = this.getCurrentProjectId();
           if (!projectId) return undefined;
