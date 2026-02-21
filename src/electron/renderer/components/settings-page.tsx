@@ -1,5 +1,4 @@
 import type {
-  AnalysisProvider,
   AppConfig,
   CustomMcpStatus,
   DarkVariant,
@@ -20,8 +19,8 @@ import {
   DEFAULT_WHISPER_MODEL_ID,
   DEFAULT_VERTEX_MODEL_ID,
 } from "../../../core/types";
-import { ANALYSIS_MODEL_PRESETS, TASK_MODEL_PRESETS, UTILITY_MODEL_PRESETS } from "../../../core/models";
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { MODEL_PRESETS } from "../../../core/models";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -173,10 +172,8 @@ function getModelIdPlaceholder(provider: TranscriptionProvider): string {
   return getDefaultModelId(provider);
 }
 
-const ANALYSIS_PROVIDERS: Array<{ value: AnalysisProvider; label: string }> = [
+const ANALYSIS_PROVIDERS: Array<{ value: AppConfig["analysisProvider"]; label: string }> = [
   { value: "openrouter", label: "OpenRouter" },
-  { value: "google", label: "Google" },
-  { value: "vertex", label: "Vertex AI" },
 ];
 
 
@@ -264,6 +261,11 @@ export function SettingsPage({
   onDisconnectCustomServer,
   mcpToolsByProvider,
 }: SettingsPageProps) {
+  const [systemPrefersDark, setSystemPrefersDark] = useState(() =>
+    typeof globalThis.matchMedia === "function"
+      ? globalThis.matchMedia("(prefers-color-scheme: dark)").matches
+      : false
+  );
   const [linearTokenInput, setLinearTokenInput] = useState("");
   const [linearTokenError, setLinearTokenError] = useState("");
   const [customServerName, setCustomServerName] = useState("");
@@ -283,6 +285,21 @@ export function SettingsPage({
     () => mcpIntegrations.find((item) => item.provider === "linear"),
     [mcpIntegrations]
   );
+  const showDarkStyle =
+    config.themeMode === "dark" ||
+    (config.themeMode === "system" && systemPrefersDark);
+  const showLightStyle = !showDarkStyle;
+
+  useEffect(() => {
+    if (typeof globalThis.matchMedia !== "function") return;
+    const media = globalThis.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = (event: MediaQueryListEvent) => {
+      setSystemPrefersDark(event.matches);
+    };
+    setSystemPrefersDark(media.matches);
+    media.addEventListener("change", handleChange);
+    return () => media.removeEventListener("change", handleChange);
+  }, []);
 
   const languagesLoading = languages.length === 0;
   const set = <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
@@ -341,7 +358,7 @@ export function SettingsPage({
                 </div>
               }
             />
-            {config.themeMode !== "dark" && (
+            {showLightStyle && (
               <SettingRow
                 label="Light Style"
                 description="Color palette used in light mode."
@@ -367,7 +384,7 @@ export function SettingsPage({
                 }
               />
             )}
-            {config.themeMode !== "light" && (
+            {showDarkStyle && (
               <SettingRow
                 label="Dark Style"
                 description="Color palette used in dark mode."
@@ -664,19 +681,18 @@ export function SettingsPage({
           {/* ── Row 4: Agent Models (full width) ── */}
           <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Agent Models
+              Model Roles
             </h2>
             <Separator className="my-3" />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <div className="space-y-1">
                 <label className="text-2xs text-muted-foreground">
-                  Analysis Provider
+                  Provider
                 </label>
                 <Select
                   value={config.analysisProvider}
-                  onValueChange={(v) =>
-                    set("analysisProvider", v as AnalysisProvider)
-                  }
+                  onValueChange={(v) => set("analysisProvider", v as AppConfig["analysisProvider"])}
+                  disabled
                 >
                   <SelectTrigger size="sm" className="w-full">
                     <SelectValue />
@@ -689,6 +705,7 @@ export function SettingsPage({
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="text-2xs text-muted-foreground">OpenRouter (currently fixed)</p>
               </div>
               {config.analysisProvider === "openrouter" ? (
                 <div className="space-y-1">
@@ -698,7 +715,7 @@ export function SettingsPage({
                   <Select
                     value={config.analysisModelId}
                     onValueChange={(modelId) => {
-                      const preset = ANALYSIS_MODEL_PRESETS.find(
+                      const preset = MODEL_PRESETS.find(
                         (p) => p.modelId === modelId
                       );
                       onConfigChange({
@@ -714,16 +731,19 @@ export function SettingsPage({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {ANALYSIS_MODEL_PRESETS.map((preset) => (
+                      {MODEL_PRESETS.map((preset) => (
                         <SelectItem key={preset.modelId} value={preset.modelId}>
                           <span className="inline-flex items-center gap-1.5">
                             {preset.label}
-                            {preset.reasoning && <BrainIcon className="size-3 text-muted-foreground" />}
+                            {!!preset.reasoning && <BrainIcon className="size-3 text-muted-foreground" />}
                           </span>
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-2xs text-muted-foreground">
+                    Live key points, insights, and agent reasoning
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-1">
@@ -744,7 +764,7 @@ export function SettingsPage({
                 <Select
                   value={config.taskModelId}
                   onValueChange={(modelId) => {
-                    const preset = TASK_MODEL_PRESETS.find(
+                    const preset = MODEL_PRESETS.find(
                       (p) => p.modelId === modelId
                     );
                     onConfigChange({
@@ -758,13 +778,16 @@ export function SettingsPage({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {TASK_MODEL_PRESETS.map((preset) => (
+                    {MODEL_PRESETS.map((preset) => (
                       <SelectItem key={preset.modelId} value={preset.modelId}>
                         {preset.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="text-2xs text-muted-foreground">
+                  Task extraction and task-size classification
+                </p>
               </div>
               <div className="space-y-1">
                 <label className="text-2xs text-muted-foreground">
@@ -778,35 +801,39 @@ export function SettingsPage({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {UTILITY_MODEL_PRESETS.map((preset) => (
+                    {MODEL_PRESETS.map((preset) => (
                       <SelectItem key={preset.modelId} value={preset.modelId}>
                         {preset.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-2xs text-muted-foreground">Titles, summaries, post-processing</p>
+                <p className="text-2xs text-muted-foreground">
+                  Titles and transcript post-processing
+                </p>
               </div>
               <div className="space-y-1">
                 <label className="text-2xs text-muted-foreground">
-                  Memory Model
+                  Synthesis Model
                 </label>
                 <Select
-                  value={config.memoryModelId}
-                  onValueChange={(modelId) => set("memoryModelId", modelId)}
+                  value={config.synthesisModelId}
+                  onValueChange={(modelId) => set("synthesisModelId", modelId)}
                 >
                   <SelectTrigger size="sm" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {UTILITY_MODEL_PRESETS.map((preset) => (
+                    {MODEL_PRESETS.map((preset) => (
                       <SelectItem key={preset.modelId} value={preset.modelId}>
                         {preset.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-2xs text-muted-foreground">Agent learning extraction</p>
+                <p className="text-2xs text-muted-foreground">
+                  Session summary, agents summary, and agent learnings
+                </p>
               </div>
             </div>
           </section>

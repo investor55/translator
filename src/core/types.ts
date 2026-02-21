@@ -1,5 +1,5 @@
 // All shared types for the translator app.
-import { getAnalysisModelPreset, DEFAULT_UTILITY_MODEL_ID, DEFAULT_MEMORY_MODEL_ID } from "./models";
+import { getAnalysisModelPreset, DEFAULT_UTILITY_MODEL_ID, DEFAULT_SYNTHESIS_MODEL_ID } from "./models";
 
 export type LanguageCode =
   | "en"
@@ -184,7 +184,7 @@ export type SessionConfig = {
   taskModelId: string;
   taskProviders: string[];
   utilityModelId: string;
-  memoryModelId: string;
+  synthesisModelId: string;
   vertexProject?: string;
   vertexLocation: string;
   contextFile: string;
@@ -217,7 +217,7 @@ export type AppConfig = {
   taskModelId: string;
   taskProviders: string[];
   utilityModelId: string;
-  memoryModelId: string;
+  synthesisModelId: string;
   vertexProject?: string;
   vertexLocation: string;
   contextFile: string;
@@ -350,7 +350,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   taskModelId: DEFAULT_TASK_MODEL_ID,
   taskProviders: ["sambanova", "groq", "cerebras"],
   utilityModelId: DEFAULT_UTILITY_MODEL_ID,
-  memoryModelId: DEFAULT_MEMORY_MODEL_ID,
+  synthesisModelId: DEFAULT_SYNTHESIS_MODEL_ID,
   vertexProject: ENV?.GOOGLE_VERTEX_PROJECT_ID,
   vertexLocation: DEFAULT_VERTEX_LOCATION,
   contextFile: "context.md",
@@ -411,12 +411,8 @@ export function normalizeAppConfig(
     merged.transcriptionProvider === "whisper"
       ? merged.transcriptionProvider
       : DEFAULT_APP_CONFIG.transcriptionProvider;
-  const analysisProvider: AnalysisProvider =
-    merged.analysisProvider === "openrouter" ||
-    merged.analysisProvider === "google" ||
-    merged.analysisProvider === "vertex"
-      ? merged.analysisProvider
-      : DEFAULT_APP_CONFIG.analysisProvider;
+  // Temporary product constraint: agent model provider is OpenRouter-only.
+  const analysisProvider: AnalysisProvider = "openrouter";
   const intervalMs =
     Number.isFinite(merged.intervalMs) && merged.intervalMs > 0
       ? Math.round(merged.intervalMs)
@@ -430,6 +426,14 @@ export function normalizeAppConfig(
   const analysisProviderOnly =
     analysisModelPreset?.providerOnly ?? (merged.analysisProviderOnly?.trim() || undefined);
   const analysisReasoning = analysisModelPreset?.reasoning ?? !!merged.analysisReasoning;
+  const legacyMemoryModelId = (() => {
+    const raw = (input as { memoryModelId?: unknown } | null | undefined)?.memoryModelId;
+    return typeof raw === "string" ? raw.trim() : "";
+  })();
+  const synthesisModelId =
+    merged.synthesisModelId?.trim() ||
+    legacyMemoryModelId ||
+    DEFAULT_APP_CONFIG.synthesisModelId;
 
   return {
     ...merged,
@@ -446,7 +450,7 @@ export function normalizeAppConfig(
     analysisModelId,
     taskModelId: merged.taskModelId?.trim() || DEFAULT_APP_CONFIG.taskModelId,
     utilityModelId: merged.utilityModelId?.trim() || DEFAULT_APP_CONFIG.utilityModelId,
-    memoryModelId: merged.memoryModelId?.trim() || DEFAULT_APP_CONFIG.memoryModelId,
+    synthesisModelId,
     contextFile: merged.contextFile?.trim() || DEFAULT_APP_CONFIG.contextFile,
     vertexLocation:
       merged.vertexLocation?.trim() || DEFAULT_APP_CONFIG.vertexLocation,

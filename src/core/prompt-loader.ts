@@ -6,6 +6,7 @@ const INSIGHTS_PROMPT_PATH = path.join("prompts", "insights", "system.md");
 const ANALYSIS_REQUEST_PROMPT_PATH = path.join("prompts", "analysis", "request.md");
 const TASK_EXTRACT_PROMPT_PATH = path.join("prompts", "task", "extract.md");
 const TASK_FROM_SELECTION_PROMPT_PATH = path.join("prompts", "task", "from-selection.md");
+const TASK_SHARED_PROMPT_PATH = path.join("prompts", "task", "shared.md");
 const TASK_SIZE_CLASSIFIER_PROMPT_PATH = path.join("prompts", "task", "size-classifier.md");
 const AGENT_SYSTEM_PROMPT_PATH = path.join("prompts", "agent", "system.md");
 const AGENT_INITIAL_USER_PROMPT_PATH = path.join("prompts", "agent", "initial-user.md");
@@ -63,6 +64,26 @@ Grounding requirements:
 - Avoid duplicating previous key points unless the new transcript adds materially new detail.
 - If transcript details are sparse, return fewer items rather than inventing details.`;
 
+const DEFAULT_TASK_CREATION_SHARED_PROMPT = `Shared task creation standard (applies to every task):
+- Every task must be atomic: exactly one primary action.
+- Keep taskTitle imperative, specific, and under 12 words.
+- Do not combine multiple actions with "and", commas, or slash-separated steps.
+- taskDetails must use this exact structure:
+  Rough thinking:
+  - 1-3 bullets on why this task matters and key assumptions.
+  Rough plan:
+  - 2-4 high-level steps or options (not rigid implementation steps).
+  - Prefer uncertainty-aware wording when information is incomplete.
+  Questions for user:
+  - 1-3 clarification questions that unblock execution.
+  - If none, write: "- None right now."
+  Done when:
+  - 1-3 measurable completion criteria.
+  Constraints:
+  - Names, dates, scope boundaries, and non-goals from context.
+- Preserve concrete facts from transcript and user intent.
+- If critical details are missing, state assumptions explicitly.`;
+
 const DEFAULT_TASK_EXTRACT_PROMPT = `You extract tasks from live conversation transcripts.
 
 Recent transcript:
@@ -78,9 +99,11 @@ Task:
 - Ignore bracketed non-speech tags like [silence], [music], [noise], [laughs].
 - Preserve details exactly: names, places, dates, times, constraints.
 - Merge fragments across neighboring lines into one complete task.
+- Follow this shared task creation standard:
+{{task_creation_shared_rules}}
 - For each task, return:
-  - taskTitle: short high-impact action phrase or focused exploratory question.
-  - taskDetails: rich context and constraints needed by an autonomous agent, including background, assumptions, boundaries, and success criteria.
+  - taskTitle: short high-impact action phrase.
+  - taskDetails: output exactly in the shared structure above.
   - transcriptExcerpt: short verbatim excerpt from the transcript that grounds the task.
 - Do NOT duplicate existing tasks or historical suggestions that are semantically similar.
 - Return an empty list when no clear actionable task was discussed.`;
@@ -94,9 +117,11 @@ Task:
 - Treat the highlighted transcript as grounding context.
 - If user intent is provided, prioritize it and convert it into one short imperative task that is consistent with context.
 - If no user intent is provided, decide whether the highlighted text contains a clear actionable commitment, follow-up, or planning intent.
+- Follow this shared task creation standard:
+{{task_creation_shared_rules}}
 - Return both:
   - taskTitle: concise action title.
-  - taskDetails: rich context and constraints needed by an autonomous agent, including relevant background, assumptions, scope boundaries, and success criteria.
+  - taskDetails: output exactly in the shared structure above.
 - Preserve critical details (names, places, dates, constraints).
 - Do not create a task when the text is unclear, conversational filler, or non-actionable.
 - Do not duplicate an existing task.
@@ -270,6 +295,10 @@ export function getAnalysisRequestPromptTemplate(): string {
 
 export function getTaskExtractPromptTemplate(): string {
   return loadPrompt(TASK_EXTRACT_PROMPT_PATH, DEFAULT_TASK_EXTRACT_PROMPT);
+}
+
+export function getTaskCreationSharedPromptTemplate(): string {
+  return loadPrompt(TASK_SHARED_PROMPT_PATH, DEFAULT_TASK_CREATION_SHARED_PROMPT);
 }
 
 export function getTaskFromSelectionPromptTemplate(): string {

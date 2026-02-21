@@ -50,7 +50,7 @@ export function buildSessionConfig(
     taskModelId: config.taskModelId,
     taskProviders: config.taskProviders,
     utilityModelId: config.utilityModelId,
-    memoryModelId: config.memoryModelId,
+    synthesisModelId: config.synthesisModelId,
     vertexProject: config.vertexProject ?? process.env.GOOGLE_VERTEX_PROJECT_ID,
     vertexLocation: config.vertexLocation,
     contextFile: config.contextFile,

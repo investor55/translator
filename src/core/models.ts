@@ -20,16 +20,40 @@ export type UtilityModelPreset = {
   modelId: string;
 };
 
-// Agent reasoning models (heavy)
-export const ANALYSIS_MODEL_PRESETS: AnalysisModelPreset[] = [
+export type ModelPreset = {
+  label: string;
+  modelId: string;
+  reasoning?: boolean;
+  providerOnly?: string;
+  providers?: string[];
+};
+
+// Unified model presets used across analysis/task/utility/synthesis selectors.
+export const MODEL_PRESETS: ModelPreset[] = [
+  {
+    label: "GPT-OSS 20B",
+    modelId: "openai/gpt-oss-20b",
+    reasoning: true,
+  },
+  {
+    label: "GPT-OSS 120B",
+    modelId: "openai/gpt-oss-120b",
+    reasoning: true,
+    providers: ["sambanova", "groq", "cerebras"],
+  },
+  {
+    label: "Qwen 3.5 397B A17B",
+    modelId: "qwen/qwen3.5-397b-a17b",
+    reasoning: true,
+  },
   {
     label: "Claude Sonnet 4.6",
     modelId: "anthropic/claude-sonnet-4.6",
     reasoning: false,
   },
   {
-    label: "Kimi K2 0905 Exacto",
-    modelId: "moonshotai/kimi-k2-0905:exacto",
+    label: "Kimi K2 0905",
+    modelId: "moonshotai/kimi-k2-0905",
     reasoning: false,
   },
   {
@@ -49,29 +73,35 @@ export const ANALYSIS_MODEL_PRESETS: AnalysisModelPreset[] = [
   },
 ];
 
-// Task extraction models
-export const TASK_MODEL_PRESETS: TaskModelPreset[] = [
-  {
-    label: "GPT-OSS 120B",
-    modelId: "openai/gpt-oss-120b",
-    providers: ["sambanova", "groq", "cerebras"],
-  },
-];
+export const ANALYSIS_MODEL_PRESETS: AnalysisModelPreset[] = MODEL_PRESETS.map(
+  (preset) => ({
+    label: preset.label,
+    modelId: preset.modelId,
+    reasoning: !!preset.reasoning,
+    providerOnly: preset.providerOnly,
+  })
+);
 
-// Utility models (titles, summaries, post-processing) and memory (learning extraction)
-// These should support structured output (generateObject).
-export const UTILITY_MODEL_PRESETS: UtilityModelPreset[] = [
-  { label: "GPT-OSS 20B", modelId: "openai/gpt-oss-20b" },
-  { label: "GPT-OSS 120B", modelId: "openai/gpt-oss-120b" },
-  { label: "Claude Sonnet 4.6", modelId: "anthropic/claude-sonnet-4.6" },
-  { label: "GLM 4.7", modelId: "z-ai/glm-4.7" },
-];
+export const TASK_MODEL_PRESETS: TaskModelPreset[] = MODEL_PRESETS.map(
+  (preset) => ({
+    label: preset.label,
+    modelId: preset.modelId,
+    providers: preset.providers ?? [],
+  })
+);
+
+export const UTILITY_MODEL_PRESETS: UtilityModelPreset[] = MODEL_PRESETS.map(
+  (preset) => ({
+    label: preset.label,
+    modelId: preset.modelId,
+  })
+);
 
 export const DEFAULT_UTILITY_MODEL_ID = "openai/gpt-oss-20b";
-export const DEFAULT_MEMORY_MODEL_ID = "openai/gpt-oss-20b";
+export const DEFAULT_SYNTHESIS_MODEL_ID = "openai/gpt-oss-20b";
 
 export function getAnalysisModelPreset(
-  modelId: string,
+  modelId: string
 ): AnalysisModelPreset | undefined {
   return ANALYSIS_MODEL_PRESETS.find((preset) => preset.modelId === modelId);
 }

@@ -49,6 +49,20 @@ type RightSidebarProps = {
   onSubmitTaskInput?: (text: string, refs: string[]) => void;
 };
 
+function summarizeTaskDetails(details: string, maxLength = 180): { text: string; truncated: boolean } {
+  const normalized = details
+    .trim()
+    .replace(/\n+/g, " ")
+    .replace(/\s+/g, " ");
+  if (normalized.length <= maxLength) {
+    return { text: normalized, truncated: false };
+  }
+  const clipped = normalized.slice(0, maxLength);
+  const boundary = clipped.lastIndexOf(" ");
+  const summary = (boundary > 80 ? clipped.slice(0, boundary) : clipped).trim();
+  return { text: summary, truncated: true };
+}
+
 function SuggestionItem({
   suggestion,
   onAccept,
@@ -137,11 +151,19 @@ function EditableTaskItem({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.text);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const taskDetails = task.details?.trim() ?? "";
+  const hasDetails = taskDetails.length > 0;
+  const detailSummary = summarizeTaskDetails(taskDetails);
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
   }, [editing]);
+
+  useEffect(() => {
+    setDetailsOpen(false);
+  }, [task.id]);
 
   function handleDoubleClick() {
     if (isProcessing || !onUpdate) return;
@@ -182,12 +204,31 @@ function EditableTaskItem({
           className="flex-1 text-xs bg-transparent border-b border-primary outline-none"
         />
       ) : (
-        <span
-          onDoubleClick={handleDoubleClick}
-          className={`text-xs flex-1 break-words leading-normal ${isProcessing ? "text-muted-foreground italic" : "text-foreground"} ${onUpdate && !isProcessing ? "cursor-text" : ""}`}
-        >
-          {task.text}
-        </span>
+        <div className="flex-1 min-w-0">
+          <span
+            onDoubleClick={handleDoubleClick}
+            className={`text-xs block break-words leading-normal ${isProcessing ? "text-muted-foreground italic" : "text-foreground"} ${onUpdate && !isProcessing ? "cursor-text" : ""}`}
+          >
+            {task.text}
+          </span>
+          {hasDetails && (
+            <div className="mt-0.5">
+              <p className={`text-2xs text-muted-foreground ${detailsOpen ? "whitespace-pre-wrap" : "truncate"}`}>
+                {detailsOpen ? taskDetails : detailSummary.text}
+                {!detailsOpen && detailSummary.truncated ? "..." : ""}
+              </p>
+              {(detailSummary.truncated || taskDetails.includes("\n")) && (
+                <button
+                  type="button"
+                  onClick={() => setDetailsOpen((prev) => !prev)}
+                  className="mt-0.5 text-2xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {detailsOpen ? "Hide details" : "Show details"}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
       {agent && onSelectAgent ? (
         <button

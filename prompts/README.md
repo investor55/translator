@@ -12,9 +12,10 @@ Rules:
 - `summary/system.md`
 - `insights/system.md`
 - `analysis/request.md`
-- `todo/extract.md`
-- `todo/from-selection.md`
-- `todo/size-classifier.md`
+- `task/extract.md`
+- `task/from-selection.md`
+- `task/shared.md`
+- `task/size-classifier.md`
 - `agent/system.md`
 - `agent/initial-user.md`
 - `transcription/audio-auto.md`
@@ -29,20 +30,25 @@ Rules:
   - `{{insights_system_prompt}}`
   - `{{transcript}}`
   - `{{previous_key_points_section}}`
-- `todo/extract.md`
+- `task/extract.md`
   - `{{transcript}}`
-  - `{{existing_todos_section}}`
-- `todo/from-selection.md`
+  - `{{existing_tasks_section}}`
+  - `{{historical_suggestions_section}}`
+  - `{{task_creation_shared_rules}}`
+- `task/from-selection.md`
   - `{{selected_text}}`
   - `{{user_intent_section}}`
-  - `{{existing_todos_section}}`
-- `todo/size-classifier.md`
-  - `{{todo_text}}`
+  - `{{existing_tasks_section}}`
+  - `{{task_creation_shared_rules}}`
+- `task/shared.md`
+  - (no placeholders)
+- `task/size-classifier.md`
+  - `{{task_text}}`
 - `agent/system.md`
   - `{{today}}`
   - `{{transcript_context}}`
 - `agent/initial-user.md`
-  - `{{todo}}`
+  - `{{task}}`
   - `{{context_section}}`
 - `transcription/audio-auto.md`
   - `{{summary_block}}`

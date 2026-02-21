@@ -127,8 +127,16 @@ function DebriefContent({
 
   const handleAddSelected = useCallback(() => {
     if (!onAddTask || selected.size === 0) return;
+    const sharedDetails = [
+      summary.overallNarrative.trim()
+        ? `Agents debrief narrative:\n${summary.overallNarrative.trim()}`
+        : "",
+      summary.coverageGaps.length > 0
+        ? `Known coverage gaps:\n${summary.coverageGaps.map((gap) => `- ${gap}`).join("\n")}`
+        : "",
+    ].filter(Boolean).join("\n\n");
     for (const i of selected) {
-      onAddTask(summary.nextSteps[i]);
+      onAddTask(summary.nextSteps[i], sharedDetails || undefined);
     }
     setAccepted((prev) => new Set([...prev, ...selected]));
     setSelected(new Set());

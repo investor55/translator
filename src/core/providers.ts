@@ -78,11 +78,11 @@ export function createUtilitiesModel(config: SessionConfig): LanguageModel {
   return openrouter(config.utilityModelId, { provider: { sort: "throughput" as const } });
 }
 
-export function createMemoryModel(config: SessionConfig): LanguageModel {
+export function createSynthesisModel(config: SessionConfig): LanguageModel {
   const openrouter = createOpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY,
   });
-  return openrouter(config.memoryModelId, { provider: { sort: "throughput" as const } });
+  return openrouter(config.synthesisModelId, { provider: { sort: "throughput" as const } });
 }
 
 export function createTaskModel(config: SessionConfig): LanguageModel {

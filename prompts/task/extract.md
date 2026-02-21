@@ -13,9 +13,11 @@ Task:
 - Ignore bracketed non-speech tags like [silence], [music], [noise], [laughs].
 - Preserve details exactly: names, places, dates, times, constraints.
 - Merge fragments across neighboring lines into one complete task.
+- Follow this shared task creation standard:
+{{task_creation_shared_rules}}
 - For each task, return:
-  - taskTitle: short high-impact action phrase or focused exploratory question.
-  - taskDetails: rich context and constraints needed by an autonomous agent, including background, assumptions, boundaries, and success criteria.
+  - taskTitle: short high-impact action phrase.
+  - taskDetails: output exactly in the shared structure above.
   - transcriptExcerpt: short verbatim excerpt from the transcript that grounds the task.
 - Do NOT duplicate existing tasks or historical suggestions that are semantically similar.
 - Return an empty list when no clear actionable task was discussed.

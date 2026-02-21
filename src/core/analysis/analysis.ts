@@ -4,6 +4,7 @@ import {
   getAnalysisRequestPromptTemplate,
   getInsightsSystemPrompt,
   getSummarySystemPrompt,
+  getTaskCreationSharedPromptTemplate,
   getTaskExtractPromptTemplate,
   getTaskFromSelectionPromptTemplate,
   renderPromptTemplate,
@@ -249,6 +250,7 @@ export function buildTaskPrompt(
     transcript,
     existing_tasks_section: tasksSection,
     historical_suggestions_section: historicalSuggestionsSection,
+    task_creation_shared_rules: getTaskCreationSharedPromptTemplate(),
   });
 }
 
@@ -270,6 +272,7 @@ export function buildTaskFromSelectionPrompt(
     selected_text: selectedText,
     user_intent_section: userIntentSection,
     existing_tasks_section: tasksSection,
+    task_creation_shared_rules: getTaskCreationSharedPromptTemplate(),
   });
 }
 

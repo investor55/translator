@@ -25,7 +25,7 @@ type TypedEmitter = EventEmitter & {
 type AgentManagerDeps = {
   model: Parameters<typeof runAgent>[1]["model"];
   utilitiesModel: Parameters<typeof runAgent>[1]["model"];
-  memoryModel: Parameters<typeof runAgent>[1]["model"];
+  synthesisModel: Parameters<typeof runAgent>[1]["model"];
   exaApiKey: string;
   events: TypedEmitter;
   getTranscriptContext: () => string;
@@ -333,7 +333,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
           }
           const projectId = deps.getProjectId?.();
           const recentBlocks = deps.getRecentBlocks?.() ?? [];
-          void extractAgentLearnings(deps.memoryModel, agent, recentBlocks, projectId, deps.dataDir)
+          void extractAgentLearnings(deps.synthesisModel, agent, recentBlocks, projectId, deps.dataDir)
             .catch((err) => log("WARN", `Learning extraction error: ${err}`));
         }
       },

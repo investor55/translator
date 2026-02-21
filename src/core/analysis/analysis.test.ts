@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAnalysisPrompt, buildTaskPrompt } from "./analysis";
+import { buildAnalysisPrompt, buildTaskFromSelectionPrompt, buildTaskPrompt } from "./analysis";
 import type { TranscriptBlock } from "../types";
 
 const SAMPLE_BLOCKS: TranscriptBlock[] = [
@@ -39,6 +39,9 @@ describe("buildTaskPrompt", () => {
     expect(prompt).toContain("taskTitle");
     expect(prompt).toContain("taskDetails");
     expect(prompt).toContain("transcriptExcerpt");
+    expect(prompt).toContain("Rough thinking:");
+    expect(prompt).toContain("Rough plan:");
+    expect(prompt).toContain("Questions for user:");
   });
 
   it("includes historical suggestions context", () => {
@@ -50,5 +53,23 @@ describe("buildTaskPrompt", () => {
     expect(prompt).toContain("Historical suggestions already shown in this session:");
     expect(prompt).toContain("- Research neighborhoods in Austin");
     expect(prompt).toContain("- Dive into whether to rent a car?");
+  });
+});
+
+describe("buildTaskFromSelectionPrompt", () => {
+  it("includes shared task structure and user intent", () => {
+    const prompt = buildTaskFromSelectionPrompt(
+      "We should benchmark Gemini against Claude this week.",
+      [{ text: "Book flights", completed: false }],
+      "Focus on practical coding speed differences.",
+    );
+
+    expect(prompt).toContain("User intent for task creation:");
+    expect(prompt).toContain("Focus on practical coding speed differences.");
+    expect(prompt).toContain("Rough thinking:");
+    expect(prompt).toContain("Rough plan:");
+    expect(prompt).toContain("Questions for user:");
+    expect(prompt).toContain("Done when:");
+    expect(prompt).toContain("Constraints:");
   });
 });

@@ -129,7 +129,9 @@ function buildSummaryTaskIntent(
   const sections = [
     trimmedIntent ? `User requested outcome:\n${trimmedIntent}` : "",
     source ? `Summary section:\n${summarySourceTitle(source)}` : "",
-    "Create one narrow, agent-executable task focused on the highest-impact next step. Avoid combining multiple actions.",
+    "Create one narrow, agent-executable task focused on the highest-impact next step.",
+    "Ensure taskDetails include rough thinking, a rough plan, clarifying questions for the user, done-when criteria, and constraints.",
+    "Avoid combining multiple actions.",
   ].filter(Boolean);
   return sections.join("\n\n");
 }
@@ -975,6 +977,19 @@ export function App() {
     setTranscriptRefs([]);
   }, [handleCreateTaskFromSelection]);
 
+  const handleAddTaskFromDebrief = useCallback(async (text: string, details?: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const selectionText = [
+      `Agent next step:\n${trimmed}`,
+      details?.trim() ? `Agent debrief context:\n${details.trim()}` : "",
+    ].filter(Boolean).join("\n\n");
+    await handleCreateTaskFromSelection(
+      selectionText,
+      "Convert this into one atomic executable task with rough thinking, a rough plan, and clarifying questions for the user.",
+    );
+  }, [handleCreateTaskFromSelection]);
+
   const handleToggleTask = useCallback((id: string) => {
     if (processingTaskIds.includes(id)) {
       return;
@@ -1165,6 +1180,8 @@ export function App() {
     setSettingsOpen(false);
     setRouteNotice("");
     pushSessionPath(sessionId);
+    // Force session hook re-init on the first click even if values are unchanged.
+    setSessionRestartKey((k) => k + 1);
     setSelectedSessionId(sessionId);
     setResumeSessionId(sessionId);
     setSuggestions([]);
@@ -1245,7 +1262,7 @@ export function App() {
       prev.analysisProvider !== normalized.analysisProvider ||
       prev.taskModelId !== normalized.taskModelId ||
       prev.utilityModelId !== normalized.utilityModelId ||
-      prev.memoryModelId !== normalized.memoryModelId ||
+      prev.synthesisModelId !== normalized.synthesisModelId ||
       prev.transcriptionProvider !== normalized.transcriptionProvider ||
       prev.transcriptionModelId !== normalized.transcriptionModelId;
     if (modelChanged && sessionActive) {
@@ -1527,7 +1544,7 @@ export function App() {
                 onSelectAgent={selectAgent}
                 onLaunchAgent={handleLaunchAgent}
                 onNewAgent={handleNewAgent}
-                onAddTask={handleAddTask}
+                onAddTask={handleAddTaskFromDebrief}
                 onToggleTask={handleToggleTask}
                 onDeleteTask={handleDeleteTask}
                 onUpdateTask={handleUpdateTask}

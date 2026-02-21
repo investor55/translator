@@ -20,7 +20,7 @@ import type {
   TaskSuggestion,
   Insight,
 } from "./types";
-import { createTranscriptionModel, createAnalysisModel, createTaskModel, createUtilitiesModel, createMemoryModel } from "./providers";
+import { createTranscriptionModel, createAnalysisModel, createTaskModel, createUtilitiesModel, createSynthesisModel } from "./providers";
 import { log } from "./logger";
 import { pcmToWavBuffer, computeRms } from "./audio/audio-utils";
 import { isLikelyDuplicateTaskText, normalizeTaskText, toReadableError } from "./text/text-utils";
@@ -203,6 +203,7 @@ export class Session {
   private analysisModel: LanguageModel;
   private taskModel: LanguageModel;
   private utilitiesModel: LanguageModel;
+  private synthesisModel: LanguageModel;
   private audioTranscriptionSchema: z.ZodObject<z.ZodRawShape>;
   private transcriptionOnlySchema: z.ZodObject<z.ZodRawShape>;
   private textPostProcessSchema: z.ZodObject<z.ZodRawShape>;
@@ -300,14 +301,14 @@ export class Session {
     this.analysisModel = createAnalysisModel(config);
     this.taskModel = createTaskModel(config);
     this.utilitiesModel = createUtilitiesModel(config);
-    const memoryModel = createMemoryModel(config);
+    this.synthesisModel = createSynthesisModel(config);
 
     const exaApiKey = process.env.EXA_API_KEY;
     if (exaApiKey) {
       this.agentManager = createAgentManager({
         model: this.analysisModel,
         utilitiesModel: this.utilitiesModel,
-        memoryModel,
+        synthesisModel: this.synthesisModel,
         exaApiKey,
         events: this.events,
         getTranscriptContext: () => this.getTranscriptContextForAgent(),
@@ -903,7 +904,7 @@ export class Session {
     void (async () => {
       try {
         const { object, usage } = await generateObject({
-          model: this.analysisModel,
+          model: this.synthesisModel,
           schema: finalSummarySchema,
           prompt,
           abortSignal: AbortSignal.timeout(45_000),
@@ -915,7 +916,7 @@ export class Session {
           usage?.inputTokens ?? 0,
           usage?.outputTokens ?? 0,
           "text",
-          this.config.analysisProvider,
+          "openrouter",
         );
         this.events.emit("cost-updated", totalCost);
 
@@ -960,7 +961,7 @@ export class Session {
     void (async () => {
       try {
         const { object, usage } = await generateObject({
-          model: this.analysisModel,
+          model: this.synthesisModel,
           schema: agentsSummarySchema,
           prompt,
           abortSignal: AbortSignal.timeout(60_000),
@@ -972,7 +973,7 @@ export class Session {
           usage?.inputTokens ?? 0,
           usage?.outputTokens ?? 0,
           "text",
-          this.config.analysisProvider,
+          "openrouter",
         );
         this.events.emit("cost-updated", totalCost);
 
@@ -2337,7 +2338,27 @@ export class Session {
     }
 
     return {
-      details: "Derived from live transcript scan. Preserve names, dates, places, and constraints from the excerpt.",
+      details: [
+        "Rough thinking:",
+        "- Derived from a live transcript task scan.",
+        "- Prioritize explicit commitments and planning intent from the excerpt.",
+        "",
+        "Rough plan:",
+        "- Confirm scope from the transcript excerpt.",
+        "- Execute one focused action for this task.",
+        "- Report outcome and unresolved blockers.",
+        "",
+        "Questions for user:",
+        "- What output format should the final result use?",
+        "- Any hard deadline or priority constraints to respect?",
+        "",
+        "Done when:",
+        "- The core action is completed or a decision is documented.",
+        "- Output includes evidence from transcript context.",
+        "",
+        "Constraints:",
+        "- Preserve names, dates, places, and boundaries from the excerpt.",
+      ].join("\n"),
       transcriptExcerpt,
     };
   }
