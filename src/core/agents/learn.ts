@@ -68,7 +68,7 @@ function formatAgentConversation(agent: Agent): string {
 }
 
 function renderAgentsMd(sections: Map<LearningCategory, string[]>): string {
-  const lines = ["# Agent Memory", "", "Durable learnings extracted from agent sessions. Updated automatically.", ""];
+  const lines = ["# Agent Memory", "", "Durable learnings from user corrections. Only records decisions where the agent was wrong and the user overrode it.", ""];
   for (const cat of LEARNING_CATEGORIES) {
     lines.push(`## ${cat}`, "");
     const items = sections.get(cat) ?? [];
