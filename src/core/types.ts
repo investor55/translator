@@ -1,5 +1,5 @@
 // All shared types for the translator app.
-import { getAnalysisModelPreset, DEFAULT_UTILITY_MODEL_ID, DEFAULT_SYNTHESIS_MODEL_ID } from "./models";
+import { getAnalysisModelPreset, DEFAULT_UTILITY_MODEL_ID, DEFAULT_SYNTHESIS_MODEL_ID, MODEL_CONFIG } from "./models";
 
 export type LanguageCode =
   | "en"
@@ -50,7 +50,7 @@ export type TranscriptionProvider =
   | "vertex"
   | "elevenlabs"
   | "whisper";
-export type AnalysisProvider = "openrouter" | "google" | "vertex";
+export type AnalysisProvider = "openrouter" | "google" | "vertex" | "bedrock";
 export type { AnalysisModelPreset } from "./models";
 
 export type TranscriptBlock = {
@@ -192,6 +192,7 @@ export type SessionConfig = {
   synthesisModelId: string;
   vertexProject?: string;
   vertexLocation: string;
+  bedrockRegion: string;
   contextFile: string;
   useContext: boolean;
   compact: boolean;
@@ -225,6 +226,7 @@ export type AppConfig = {
   synthesisModelId: string;
   vertexProject?: string;
   vertexLocation: string;
+  bedrockRegion: string;
   contextFile: string;
   useContext: boolean;
   compact: boolean;
@@ -281,6 +283,8 @@ export const DEFAULT_VERTEX_MODEL_ID =
   ENV?.VERTEX_MODEL_ID ?? "gemini-3-flash-preview";
 export const DEFAULT_VERTEX_LOCATION =
   ENV?.GOOGLE_VERTEX_PROJECT_LOCATION ?? "global";
+export const DEFAULT_BEDROCK_REGION =
+  ENV?.AWS_REGION ?? "us-east-1";
 export const DEFAULT_TRANSCRIPTION_MODEL_ID =
   ENV?.TRANSCRIPTION_MODEL_ID ?? "scribe_v2_realtime";
 export const DEFAULT_WHISPER_MODEL_ID = "Xenova/whisper-small";
@@ -350,15 +354,16 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   intervalMs: DEFAULT_INTERVAL_MS,
   transcriptionProvider: "elevenlabs",
   transcriptionModelId: DEFAULT_TRANSCRIPTION_MODEL_ID,
-  analysisProvider: "openrouter",
-  analysisModelId: "moonshotai/kimi-k2-0905:exacto",
+  analysisProvider: "bedrock",
+  analysisModelId: MODEL_CONFIG.bedrock.defaults.analysisModelId,
   analysisReasoning: false,
-  taskModelId: DEFAULT_TASK_MODEL_ID,
-  taskProviders: ["sambanova", "groq", "cerebras"],
-  utilityModelId: DEFAULT_UTILITY_MODEL_ID,
-  synthesisModelId: DEFAULT_SYNTHESIS_MODEL_ID,
+  taskModelId: MODEL_CONFIG.bedrock.defaults.taskModelId,
+  taskProviders: MODEL_CONFIG.bedrock.defaults.taskProviders,
+  utilityModelId: MODEL_CONFIG.bedrock.defaults.utilityModelId,
+  synthesisModelId: MODEL_CONFIG.bedrock.defaults.synthesisModelId,
   vertexProject: ENV?.GOOGLE_VERTEX_PROJECT_ID,
   vertexLocation: DEFAULT_VERTEX_LOCATION,
+  bedrockRegion: DEFAULT_BEDROCK_REGION,
   contextFile: "context.md",
   useContext: false,
   compact: false,
@@ -418,8 +423,13 @@ export function normalizeAppConfig(
     merged.transcriptionProvider === "whisper"
       ? merged.transcriptionProvider
       : DEFAULT_APP_CONFIG.transcriptionProvider;
-  // Temporary product constraint: agent model provider is OpenRouter-only.
-  const analysisProvider: AnalysisProvider = "openrouter";
+  const analysisProvider: AnalysisProvider =
+    merged.analysisProvider === "openrouter" ||
+    merged.analysisProvider === "google" ||
+    merged.analysisProvider === "vertex" ||
+    merged.analysisProvider === "bedrock"
+      ? merged.analysisProvider
+      : DEFAULT_APP_CONFIG.analysisProvider;
   const intervalMs =
     Number.isFinite(merged.intervalMs) && merged.intervalMs > 0
       ? Math.round(merged.intervalMs)
@@ -462,6 +472,8 @@ export function normalizeAppConfig(
     vertexLocation:
       merged.vertexLocation?.trim() || DEFAULT_APP_CONFIG.vertexLocation,
     vertexProject: merged.vertexProject?.trim() || undefined,
+    bedrockRegion:
+      merged.bedrockRegion?.trim() || DEFAULT_APP_CONFIG.bedrockRegion,
     useContext: !!merged.useContext,
     compact: !!merged.compact,
     debug: !!merged.debug,

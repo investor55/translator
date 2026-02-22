@@ -2,6 +2,7 @@ import type { LanguageModel } from "ai";
 import { createVertex } from "@ai-sdk/google-vertex";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import type { SessionConfig } from "./types";
 
 export function createTranscriptionModel(config: SessionConfig): LanguageModel {
@@ -65,27 +66,44 @@ export function createAnalysisModel(config: SessionConfig): LanguageModel {
       });
       return vertex(config.analysisModelId);
     }
+    case "bedrock": {
+      const bedrock = createAmazonBedrock({
+        region: config.bedrockRegion,
+      });
+      return bedrock(config.analysisModelId);
+    }
   }
   throw new Error(
     `Unsupported analysis provider: ${String(config.analysisProvider)}`
   );
 }
 
+function createModelForProvider(config: SessionConfig, modelId: string): LanguageModel {
+  switch (config.analysisProvider) {
+    case "bedrock": {
+      const bedrock = createAmazonBedrock({ region: config.bedrockRegion });
+      return bedrock(modelId);
+    }
+    default: {
+      const openrouter = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
+      return openrouter(modelId, { provider: { sort: "throughput" as const } });
+    }
+  }
+}
+
 export function createUtilitiesModel(config: SessionConfig): LanguageModel {
-  const openrouter = createOpenRouter({
-    apiKey: process.env.OPENROUTER_API_KEY,
-  });
-  return openrouter(config.utilityModelId, { provider: { sort: "throughput" as const } });
+  return createModelForProvider(config, config.utilityModelId);
 }
 
 export function createSynthesisModel(config: SessionConfig): LanguageModel {
-  const openrouter = createOpenRouter({
-    apiKey: process.env.OPENROUTER_API_KEY,
-  });
-  return openrouter(config.synthesisModelId, { provider: { sort: "throughput" as const } });
+  return createModelForProvider(config, config.synthesisModelId);
 }
 
 export function createTaskModel(config: SessionConfig): LanguageModel {
+  if (config.analysisProvider === "bedrock") {
+    const bedrock = createAmazonBedrock({ region: config.bedrockRegion });
+    return bedrock(config.taskModelId);
+  }
   const openrouter = createOpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY,
   });

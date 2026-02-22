@@ -19,7 +19,7 @@ import {
   DEFAULT_WHISPER_MODEL_ID,
   DEFAULT_VERTEX_MODEL_ID,
 } from "../../../core/types";
-import { MODEL_PRESETS } from "../../../core/models";
+import { MODEL_CONFIG } from "../../../core/models";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -168,6 +168,7 @@ function getPresetKey(provider: TranscriptionProvider, modelId: string): string 
 
 const ANALYSIS_PROVIDERS: Array<{ value: AppConfig["analysisProvider"]; label: string }> = [
   { value: "openrouter", label: "OpenRouter" },
+  { value: "bedrock", label: "AWS Bedrock" },
 ];
 
 
@@ -683,165 +684,175 @@ export function SettingsPage({
             </h2>
             <Separator className="my-3" />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              <div className="space-y-1">
-                <label className="text-2xs text-muted-foreground">
-                  Provider
-                </label>
-                <Select
-                  value={config.analysisProvider}
-                  onValueChange={(v) => set("analysisProvider", v as AppConfig["analysisProvider"])}
-                  disabled
-                >
-                  <SelectTrigger size="sm" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ANALYSIS_PROVIDERS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-2xs text-muted-foreground">OpenRouter (currently fixed)</p>
-              </div>
-              {config.analysisProvider === "openrouter" ? (
-                <div className="space-y-1">
-                  <label className="text-2xs text-muted-foreground">
-                    Analysis Model
-                  </label>
-                  <Select
-                    value={config.analysisModelId}
-                    onValueChange={(modelId) => {
-                      const preset = MODEL_PRESETS.find(
-                        (p) => p.modelId === modelId
-                      );
-                      onConfigChange({
-                        ...config,
-                        analysisModelId: modelId,
-                        analysisReasoning:
-                          preset?.reasoning ?? config.analysisReasoning,
-                        analysisProviderOnly: preset?.providerOnly,
-                      });
-                    }}
-                  >
-                    <SelectTrigger size="sm" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {MODEL_PRESETS.map((preset) => (
-                        <SelectItem key={preset.modelId} value={preset.modelId}>
-                          <span className="inline-flex items-center gap-1.5">
-                            {preset.label}
-                            {!!preset.reasoning && <kbd className="px-1 py-px rounded-sm bg-secondary font-mono text-2xs text-secondary-foreground">thinking</kbd>}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-2xs text-muted-foreground">
-                    Live key points, insights, and agent reasoning
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  <label className="text-2xs text-muted-foreground">
-                    Analysis Model ID
-                  </label>
-                  <Input
-                    value={config.analysisModelId}
-                    onChange={(e) => set("analysisModelId", e.target.value)}
-                    placeholder="gemini-2.0-flash"
-                  />
-                </div>
-              )}
-              <div className="space-y-1">
-                <label className="text-2xs text-muted-foreground">
-                  Task Model
-                </label>
-                <Select
-                  value={config.taskModelId}
-                  onValueChange={(modelId) => {
-                    const preset = MODEL_PRESETS.find(
-                      (p) => p.modelId === modelId
-                    );
-                    onConfigChange({
-                      ...config,
-                      taskModelId: modelId,
-                      taskProviders: preset?.providers ?? [],
-                    });
-                  }}
-                >
-                  <SelectTrigger size="sm" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MODEL_PRESETS.map((preset) => (
-                      <SelectItem key={preset.modelId} value={preset.modelId}>
-                        <span className="inline-flex items-center gap-1.5">
-                          {preset.label}
-                          {!!preset.reasoning && <kbd className="px-1 py-px rounded-sm bg-secondary font-mono text-2xs text-secondary-foreground">thinking</kbd>}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-2xs text-muted-foreground">
-                  Task extraction and task-size classification
-                </p>
-              </div>
-              <div className="space-y-1">
-                <label className="text-2xs text-muted-foreground">
-                  Utility Model
-                </label>
-                <Select
-                  value={config.utilityModelId}
-                  onValueChange={(modelId) => set("utilityModelId", modelId)}
-                >
-                  <SelectTrigger size="sm" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MODEL_PRESETS.map((preset) => (
-                      <SelectItem key={preset.modelId} value={preset.modelId}>
-                        <span className="inline-flex items-center gap-1.5">
-                          {preset.label}
-                          {!!preset.reasoning && <kbd className="px-1 py-px rounded-sm bg-secondary font-mono text-2xs text-secondary-foreground">thinking</kbd>}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-2xs text-muted-foreground">
-                  Titles and transcript post-processing
-                </p>
-              </div>
-              <div className="space-y-1">
-                <label className="text-2xs text-muted-foreground">
-                  Synthesis Model
-                </label>
-                <Select
-                  value={config.synthesisModelId}
-                  onValueChange={(modelId) => set("synthesisModelId", modelId)}
-                >
-                  <SelectTrigger size="sm" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MODEL_PRESETS.map((preset) => (
-                      <SelectItem key={preset.modelId} value={preset.modelId}>
-                        <span className="inline-flex items-center gap-1.5">
-                          {preset.label}
-                          {!!preset.reasoning && <kbd className="px-1 py-px rounded-sm bg-secondary font-mono text-2xs text-secondary-foreground">thinking</kbd>}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-2xs text-muted-foreground">
-                  Session summary, agents summary, and agent learnings
-                </p>
-              </div>
+              {(() => {
+                const providerKey = (config.analysisProvider === "openrouter" || config.analysisProvider === "bedrock")
+                  ? config.analysisProvider
+                  : "openrouter" as const;
+                const providerConfig = MODEL_CONFIG[providerKey];
+                const activePresets = providerConfig.models;
+                return (
+                  <>
+                    <div className="space-y-1">
+                      <label className="text-2xs text-muted-foreground">
+                        Provider
+                      </label>
+                      <Select
+                        value={config.analysisProvider}
+                        onValueChange={(v) => {
+                          const provider = v as AppConfig["analysisProvider"];
+                          const nextConfig = (provider === "openrouter" || provider === "bedrock")
+                            ? MODEL_CONFIG[provider]
+                            : null;
+                          const defs = nextConfig?.defaults;
+                          const analysisPreset = nextConfig?.models.find((p) => p.modelId === defs?.analysisModelId);
+                          onConfigChange({
+                            ...config,
+                            analysisProvider: provider,
+                            analysisModelId: defs?.analysisModelId ?? config.analysisModelId,
+                            analysisReasoning: analysisPreset?.reasoning ?? false,
+                            analysisProviderOnly: analysisPreset?.providerOnly,
+                            taskModelId: defs?.taskModelId ?? config.taskModelId,
+                            taskProviders: defs?.taskProviders ?? [],
+                            utilityModelId: defs?.utilityModelId ?? config.utilityModelId,
+                            synthesisModelId: defs?.synthesisModelId ?? config.synthesisModelId,
+                          });
+                        }}
+                      >
+                        <SelectTrigger size="sm" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ANALYSIS_PROVIDERS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-2xs text-muted-foreground">AI provider for all model roles</p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-2xs text-muted-foreground">
+                        Analysis Model
+                      </label>
+                      <Select
+                        value={config.analysisModelId}
+                        onValueChange={(modelId) => {
+                          const preset = activePresets.find((p) => p.modelId === modelId);
+                          onConfigChange({
+                            ...config,
+                            analysisModelId: modelId,
+                            analysisReasoning: preset?.reasoning ?? config.analysisReasoning,
+                            analysisProviderOnly: preset?.providerOnly,
+                          });
+                        }}
+                      >
+                        <SelectTrigger size="sm" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {activePresets.map((preset) => (
+                            <SelectItem key={preset.modelId} value={preset.modelId}>
+                              <span className="inline-flex items-center gap-1.5">
+                                {preset.label}
+                                {!!preset.reasoning && <kbd className="px-1 py-px rounded-sm bg-secondary font-mono text-2xs text-secondary-foreground">thinking</kbd>}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-2xs text-muted-foreground">
+                        Live key points, insights, and agent reasoning
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-2xs text-muted-foreground">
+                        Task Model
+                      </label>
+                      <Select
+                        value={config.taskModelId}
+                        onValueChange={(modelId) => {
+                          const preset = activePresets.find((p) => p.modelId === modelId);
+                          onConfigChange({
+                            ...config,
+                            taskModelId: modelId,
+                            taskProviders: preset?.providers ?? [],
+                          });
+                        }}
+                      >
+                        <SelectTrigger size="sm" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {activePresets.map((preset) => (
+                            <SelectItem key={preset.modelId} value={preset.modelId}>
+                              <span className="inline-flex items-center gap-1.5">
+                                {preset.label}
+                                {!!preset.reasoning && <kbd className="px-1 py-px rounded-sm bg-secondary font-mono text-2xs text-secondary-foreground">thinking</kbd>}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-2xs text-muted-foreground">
+                        Task extraction and task-size classification
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-2xs text-muted-foreground">
+                        Utility Model
+                      </label>
+                      <Select
+                        value={config.utilityModelId}
+                        onValueChange={(modelId) => set("utilityModelId", modelId)}
+                      >
+                        <SelectTrigger size="sm" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {activePresets.map((preset) => (
+                            <SelectItem key={preset.modelId} value={preset.modelId}>
+                              <span className="inline-flex items-center gap-1.5">
+                                {preset.label}
+                                {!!preset.reasoning && <kbd className="px-1 py-px rounded-sm bg-secondary font-mono text-2xs text-secondary-foreground">thinking</kbd>}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-2xs text-muted-foreground">
+                        Titles and transcript post-processing
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-2xs text-muted-foreground">
+                        Synthesis Model
+                      </label>
+                      <Select
+                        value={config.synthesisModelId}
+                        onValueChange={(modelId) => set("synthesisModelId", modelId)}
+                      >
+                        <SelectTrigger size="sm" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {activePresets.map((preset) => (
+                            <SelectItem key={preset.modelId} value={preset.modelId}>
+                              <span className="inline-flex items-center gap-1.5">
+                                {preset.label}
+                                {!!preset.reasoning && <kbd className="px-1 py-px rounded-sm bg-secondary font-mono text-2xs text-secondary-foreground">thinking</kbd>}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-2xs text-muted-foreground">
+                        Session summary, agents summary, and agent learnings
+                      </p>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </section>
 
