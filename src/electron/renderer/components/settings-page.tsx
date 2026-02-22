@@ -486,6 +486,16 @@ export function SettingsPage({
                   />
                 }
               />
+              <SettingRow
+                label="Auto-Delegate"
+                description="Automatically launch agents for agent-classified tasks when a session summary is generated."
+                control={
+                  <Switch
+                    checked={config.autoDelegate}
+                    onCheckedChange={(v) => set("autoDelegate", v)}
+                  />
+                }
+              />
             </div>
           </section>
 

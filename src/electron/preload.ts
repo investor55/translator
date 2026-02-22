@@ -55,6 +55,7 @@ export type ElectronAPI = {
   shutdownSession: () => Promise<{ ok: boolean }>;
   generateFinalSummary: () => Promise<{ ok: boolean; error?: string }>;
   getFinalSummary: (sessionId: string) => Promise<{ ok: boolean; summary?: FinalSummary }>;
+  patchFinalSummary: (sessionId: string, patch: Partial<FinalSummary>) => Promise<{ ok: boolean }>;
   onFinalSummaryReady: (callback: (summary: FinalSummary) => void) => () => void;
   onFinalSummaryError: (callback: (error: string) => void) => () => void;
   generateAgentsSummary: () => Promise<{ ok: boolean; error?: string }>;
@@ -100,6 +101,12 @@ export type ElectronAPI = {
     sessionId: string,
     agentId: string,
     answers: AgentQuestionSelection[],
+    appConfig?: AppConfigOverrides,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  skipAgentQuestion: (agentId: string) => Promise<{ ok: boolean; error?: string }>;
+  skipAgentQuestionInSession: (
+    sessionId: string,
+    agentId: string,
     appConfig?: AppConfigOverrides,
   ) => Promise<{ ok: boolean; error?: string }>;
   respondAgentToolApproval: (agentId: string, response: AgentToolApprovalResponse) => Promise<{ ok: boolean; error?: string }>;
@@ -178,6 +185,7 @@ const api: ElectronAPI = {
   shutdownSession: () => ipcRenderer.invoke("shutdown-session"),
   generateFinalSummary: () => ipcRenderer.invoke("generate-final-summary"),
   getFinalSummary: (sessionId) => ipcRenderer.invoke("get-final-summary", sessionId),
+  patchFinalSummary: (sessionId, patch) => ipcRenderer.invoke("patch-final-summary", sessionId, patch),
   onFinalSummaryReady: createListener<FinalSummary>("session:final-summary-ready"),
   onFinalSummaryError: createListener<string>("session:final-summary-error"),
   generateAgentsSummary: () => ipcRenderer.invoke("generate-agents-summary"),
@@ -219,6 +227,9 @@ const api: ElectronAPI = {
   answerAgentQuestion: (agentId, answers) => ipcRenderer.invoke("answer-agent-question", agentId, answers),
   answerAgentQuestionInSession: (sessionId, agentId, answers, appConfig) =>
     ipcRenderer.invoke("answer-agent-question-in-session", sessionId, agentId, answers, appConfig),
+  skipAgentQuestion: (agentId) => ipcRenderer.invoke("skip-agent-question", agentId),
+  skipAgentQuestionInSession: (sessionId, agentId, appConfig) =>
+    ipcRenderer.invoke("skip-agent-question-in-session", sessionId, agentId, appConfig),
   respondAgentToolApproval: (agentId, response) =>
     ipcRenderer.invoke("respond-agent-tool-approval", agentId, response),
   respondAgentToolApprovalInSession: (sessionId, agentId, response, appConfig) =>

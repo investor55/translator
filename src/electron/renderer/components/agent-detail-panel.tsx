@@ -12,6 +12,7 @@ import {
   ArchiveIcon,
   CopyIcon,
   RefreshCwIcon,
+  SendHorizonalIcon,
 } from "lucide-react";
 import {
   CitedMessageResponse,
@@ -52,6 +53,8 @@ type FollowUpResult = { ok: boolean; error?: string };
 type AnswerQuestionResult = { ok: boolean; error?: string };
 type AnswerToolApprovalResult = { ok: boolean; error?: string };
 
+type SkipQuestionResult = { ok: boolean; error?: string };
+
 type AgentDetailPanelProps = {
   agent: Agent;
   agents: Agent[];
@@ -62,6 +65,9 @@ type AgentDetailPanelProps = {
     agent: Agent,
     answers: AgentQuestionSelection[],
   ) => Promise<AnswerQuestionResult> | AnswerQuestionResult;
+  onSkipQuestion?: (
+    agent: Agent,
+  ) => Promise<SkipQuestionResult> | SkipQuestionResult;
   onAnswerToolApproval?: (
     agent: Agent,
     response: AgentToolApprovalResponse,
@@ -71,10 +77,28 @@ type AgentDetailPanelProps = {
   onArchive?: (agent: Agent) => void;
 };
 
-function StatusBadge({ status }: { status: Agent["status"] }) {
+function isWaitingOnUser(steps: readonly AgentStep[]): boolean {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i]!;
+    if (step.toolName === "askQuestion") {
+      if (step.kind === "tool-call") return true;
+      if (step.kind === "tool-result") return false;
+    }
+    if (step.approvalState === "approval-requested") return true;
+  }
+  return false;
+}
+
+function StatusBadge({ status, steps }: { status: Agent["status"]; steps: readonly AgentStep[] }) {
+  const waiting = status === "running" && isWaitingOnUser(steps);
   switch (status) {
     case "running":
-      return (
+      return waiting ? (
+        <span className="inline-flex items-center gap-1 rounded-sm bg-amber-500/10 px-1.5 py-0.5 text-2xs font-medium text-amber-600">
+          <LoaderCircleIcon className="size-3" />
+          Waiting
+        </span>
+      ) : (
         <span className="inline-flex items-center gap-1 rounded-sm bg-primary/10 px-1.5 py-0.5 text-2xs font-medium text-primary">
           <LoaderCircleIcon className="size-3 animate-spin" />
           Running
@@ -205,6 +229,7 @@ function AskQuestionPendingCard({
   agent,
   request,
   onAnswerQuestion,
+  onSkipQuestion,
 }: {
   agent: Agent;
   request: AgentQuestionRequest;
@@ -212,112 +237,186 @@ function AskQuestionPendingCard({
     agent: Agent,
     answers: AgentQuestionSelection[],
   ) => Promise<AnswerQuestionResult> | AnswerQuestionResult;
+  onSkipQuestion?: (
+    agent: Agent,
+  ) => Promise<SkipQuestionResult> | SkipQuestionResult;
 }) {
-  const [selectionByQuestion, setSelectionByQuestion] = useState<Record<string, string[]>>({});
+  const [selectedByQuestion, setSelectedByQuestion] = useState<Record<string, Set<string>>>({});
+  const [textByQuestion, setTextByQuestion] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
-  const toggleOption = useCallback((questionId: string, optionId: string, allowMultiple: boolean) => {
-    setSelectionByQuestion((current) => {
-      const existing = current[questionId] ?? [];
-      if (!allowMultiple) {
-        if (existing.length === 1 && existing[0] === optionId) {
-          return { ...current, [questionId]: [] };
+  const toggleChip = useCallback(
+    (questionId: string, optionId: string, allowMultiple: boolean) => {
+      setSelectedByQuestion((prev) => {
+        const current = prev[questionId] ?? new Set<string>();
+        const next = new Set(current);
+        if (next.has(optionId)) {
+          next.delete(optionId);
+        } else {
+          if (!allowMultiple) next.clear();
+          next.add(optionId);
         }
-        return { ...current, [questionId]: [optionId] };
-      }
-
-      if (existing.includes(optionId)) {
-        return { ...current, [questionId]: existing.filter((id) => id !== optionId) };
-      }
-      return { ...current, [questionId]: [...existing, optionId] };
-    });
-  }, []);
+        return { ...prev, [questionId]: next };
+      });
+    },
+    [],
+  );
 
   const canSubmit = useMemo(
     () =>
-      request.questions.every(
-        (question) => (selectionByQuestion[question.id]?.length ?? 0) > 0
-      ),
-    [request.questions, selectionByQuestion]
+      request.questions.every((q) => {
+        const chips = selectedByQuestion[q.id];
+        const text = textByQuestion[q.id]?.trim();
+        return (chips && chips.size > 0) || (text && text.length > 0);
+      }),
+    [request.questions, selectedByQuestion, textByQuestion],
   );
 
   const handleSubmit = useCallback(async () => {
-    if (!onAnswerQuestion) return;
-    if (!canSubmit) return;
+    if (!onAnswerQuestion || !canSubmit) return;
     setSubmitting(true);
     setSubmitError("");
-    const answers: AgentQuestionSelection[] = request.questions.map((question) => ({
-      questionId: question.id,
-      selectedOptionIds: selectionByQuestion[question.id] ?? [],
-    }));
+    const answers: AgentQuestionSelection[] = request.questions.map((q) => {
+      const chips = selectedByQuestion[q.id];
+      const text = textByQuestion[q.id]?.trim();
+      return {
+        questionId: q.id,
+        selectedOptionIds: chips ? [...chips] : [],
+        ...(text ? { freeText: text } : {}),
+      };
+    });
     try {
       const result = await onAnswerQuestion(agent, answers);
       if (result.ok) return;
       setSubmitError(result.error ?? "Could not submit answers.");
     } catch (error) {
-      const errorText = error instanceof Error ? error.message : "Could not submit answers.";
+      const errorText =
+        error instanceof Error ? error.message : "Could not submit answers.";
       setSubmitError(errorText);
+    } finally {
       setSubmitting(false);
     }
-  }, [agent, canSubmit, onAnswerQuestion, request.questions, selectionByQuestion]);
+  }, [agent, canSubmit, onAnswerQuestion, request.questions, selectedByQuestion, textByQuestion]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" && !e.shiftKey && canSubmit) {
+        e.preventDefault();
+        void handleSubmit();
+      }
+    },
+    [canSubmit, handleSubmit],
+  );
+
+  const handleSkip = useCallback(async () => {
+    if (!onSkipQuestion) return;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const result = await onSkipQuestion(agent);
+      if (!result.ok) {
+        setSubmitError(result.error ?? "Could not skip.");
+      }
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Could not skip.");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [agent, onSkipQuestion]);
 
   return (
-    <div className="mt-1 pt-2">
-      <div className="rounded-sm border border-border bg-muted/20 px-2 py-2">
-        <p className="text-2xs font-semibold text-foreground">
-          {request.title || "Questions"}
+    <div className="mt-3 mb-1">
+      <div className="border-l-2 border-l-amber-500/60 pl-3">
+        <p className="text-2xs font-medium text-amber-600/80 mb-2.5">
+          {request.title || "Needs your input"}
         </p>
-        <div className="mt-1.5 space-y-2">
+
+        <div className="space-y-4">
           {request.questions.map((question, index) => {
-            const selected = selectionByQuestion[question.id] ?? [];
+            const selected = selectedByQuestion[question.id] ?? new Set<string>();
+            const text = textByQuestion[question.id] ?? "";
             return (
               <div key={question.id}>
-                <p className="text-2xs text-foreground font-medium">
-                  {index + 1}. {question.prompt}
+                <p className="text-2xs text-foreground/90 font-medium leading-relaxed mb-2">
+                  {request.questions.length > 1 ? `${index + 1}. ` : ""}
+                  {question.prompt}
                 </p>
-                <div className="mt-1 flex flex-col gap-1">
+
+                <div className="flex flex-wrap gap-1.5 mb-2">
                   {question.options.map((option) => {
-                    const isSelected = selected.includes(option.id);
+                    const isSelected = selected.has(option.id);
                     return (
                       <button
                         key={option.id}
                         type="button"
-                        onClick={() => toggleOption(question.id, option.id, !!question.allow_multiple)}
+                        onClick={() =>
+                          toggleChip(
+                            question.id,
+                            option.id,
+                            !!question.allow_multiple,
+                          )
+                        }
                         className={[
-                          "flex items-center gap-2 rounded-sm border px-2 py-1 text-left text-2xs transition-colors",
+                          "inline-flex items-center gap-1 text-2xs pl-2 pr-2.5 py-1 rounded-md transition-all",
                           isSelected
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "border-border/80 text-muted-foreground hover:border-border hover:text-foreground",
+                            ? "bg-primary/10 text-primary ring-1 ring-inset ring-primary/25"
+                            : "bg-muted/30 text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                         ].join(" ")}
                       >
-                        <span className="inline-flex h-4 min-w-4 items-center justify-center border border-current px-1 text-2xs font-semibold uppercase">
-                          {option.id.slice(0, 1)}
-                        </span>
-                        <span className="leading-relaxed">{option.label}</span>
+                        {isSelected && (
+                          <CheckIcon className="size-2.5 shrink-0" />
+                        )}
+                        {option.label}
                       </button>
                     );
                   })}
                 </div>
+
+                <input
+                  type="text"
+                  value={text}
+                  onChange={(e) =>
+                    setTextByQuestion((c) => ({
+                      ...c,
+                      [question.id]: e.target.value,
+                    }))
+                  }
+                  onKeyDown={handleKeyDown}
+                  placeholder="Or type something else..."
+                  className="w-full bg-muted/15 rounded-md px-2.5 py-1.5 text-2xs text-foreground placeholder:text-muted-foreground/30 border border-transparent focus:border-border/50 focus:outline-none transition-colors"
+                />
               </div>
             );
           })}
         </div>
-        <div className="mt-2 flex items-center justify-between">
-          {submitError ? (
-            <p className="text-2xs text-destructive">{submitError}</p>
-          ) : (
-            <p className="text-2xs text-muted-foreground">
-              Choose an option for each question.
-            </p>
+      </div>
+
+      <div className="flex items-center justify-between mt-3 pl-3">
+        <div className="flex-1 min-w-0">
+          {submitError && (
+            <p className="text-2xs text-destructive truncate">{submitError}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {onSkipQuestion && (
+            <button
+              type="button"
+              onClick={() => void handleSkip()}
+              disabled={submitting}
+              className="text-2xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
+            >
+              Chat instead
+            </button>
           )}
           <button
             type="button"
             onClick={() => void handleSubmit()}
             disabled={!onAnswerQuestion || !canSubmit || submitting}
-            className="rounded-sm border border-border px-2 py-1 text-2xs font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-50"
+            className="inline-flex items-center gap-1 text-2xs font-medium px-3 py-1 rounded-md transition-all disabled:opacity-25 bg-primary/10 hover:bg-primary/20 text-primary"
           >
-            {submitting ? "Submitting..." : "Continue"}
+            {submitting ? "Sending..." : "Reply"}
+            {!submitting && <SendHorizonalIcon className="size-2.5" />}
           </button>
         </div>
       </div>
@@ -327,31 +426,51 @@ function AskQuestionPendingCard({
 
 function AskQuestionResolvedCard({ output }: { output: AskQuestionToolOutput }) {
   const answersByQuestionId = new Map(
-    output.answers.map((answer) => [answer.questionId, answer.selectedOptionIds])
+    output.answers.map((answer) => [answer.questionId, answer])
   );
 
   return (
-    <div className="mt-1 pt-2">
-      <div className="rounded-sm border border-border/70 bg-muted/10 px-2 py-2">
-        <p className="text-2xs font-semibold text-foreground">
-          {output.title || "Clarification received"}
-        </p>
-        <div className="mt-1 space-y-1.5">
-          {output.questions.map((question) => {
-            const selectedIds = answersByQuestionId.get(question.id) ?? [];
-            const selectedLabels = question.options
-              .filter((option) => selectedIds.includes(option.id))
-              .map((option) => option.label);
-            return (
-              <div key={question.id}>
-                <p className="text-2xs font-medium text-foreground">{question.prompt}</p>
-                <p className="text-2xs text-muted-foreground">
-                  {selectedLabels.length > 0 ? selectedLabels.join(", ") : "No selection"}
-                </p>
+    <div className="mt-2 mb-1 border-l-2 border-l-border/40 pl-3 py-1">
+      <p className="text-2xs text-muted-foreground/60 mb-1.5">
+        {output.title || "Answered"}
+      </p>
+      <div className="space-y-1.5">
+        {output.questions.map((question) => {
+          const answer = answersByQuestionId.get(question.id);
+          const selectedLabels = question.options
+            .filter((option) => (answer?.selectedOptionIds ?? []).includes(option.id))
+            .map((option) => option.label);
+          const freeText = (answer as { freeText?: string } | undefined)?.freeText;
+          const parts = [...selectedLabels, ...(freeText ? [freeText] : [])];
+          const displayText = parts.length > 0 ? parts.join(", ") : "No answer";
+          return (
+            <div key={question.id}>
+              <p className="text-2xs text-muted-foreground/50 leading-snug">
+                {question.prompt}
+              </p>
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {selectedLabels.map((label) => (
+                  <span
+                    key={label}
+                    className="text-2xs px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground"
+                  >
+                    {label}
+                  </span>
+                ))}
+                {freeText && (
+                  <span className="text-2xs text-foreground/70 italic">
+                    {freeText}
+                  </span>
+                )}
+                {parts.length === 0 && (
+                  <span className="text-2xs text-muted-foreground/40 italic">
+                    {displayText}
+                  </span>
+                )}
               </div>
-            );
-          })}
-        </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -489,6 +608,7 @@ function StepItem({
   agent,
   step,
   onAnswerQuestion,
+  onSkipQuestion,
   onAnswerToolApproval,
   onRegenerate,
 }: {
@@ -498,6 +618,9 @@ function StepItem({
     agent: Agent,
     answers: AgentQuestionSelection[],
   ) => Promise<AnswerQuestionResult> | AnswerQuestionResult;
+  onSkipQuestion?: (
+    agent: Agent,
+  ) => Promise<SkipQuestionResult> | SkipQuestionResult;
   onAnswerToolApproval?: (
     agent: Agent,
     response: AgentToolApprovalResponse,
@@ -522,6 +645,7 @@ function StepItem({
         agent={agent}
         request={request}
         onAnswerQuestion={onAnswerQuestion}
+        onSkipQuestion={onSkipQuestion}
       />
     );
   }
@@ -755,6 +879,7 @@ export function AgentDetailPanel({
   onClose,
   onFollowUp,
   onAnswerQuestion,
+  onSkipQuestion,
   onAnswerToolApproval,
   onCancel,
   onRelaunch,
@@ -1035,7 +1160,7 @@ export function AgentDetailPanel({
       {/* Header */}
       <div className="shrink-0 border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
-          <StatusBadge status={agent.status} />
+          <StatusBadge status={agent.status} steps={agent.steps} />
           <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
             Agent
           </span>
@@ -1121,6 +1246,7 @@ export function AgentDetailPanel({
                 agent={agent}
                 step={item.step}
                 onAnswerQuestion={onAnswerQuestion}
+                onSkipQuestion={onSkipQuestion}
                 onAnswerToolApproval={onAnswerToolApproval}
                 onRegenerate={
                   !isRunning && onRelaunch && item.step.id === lastTextStepId
@@ -1135,6 +1261,13 @@ export function AgentDetailPanel({
               <Shimmer as="p" className="text-xs text-muted-foreground">
                 Planning
               </Shimmer>
+            </div>
+          )}
+          {agent.status === "failed" && agent.result && agent.result !== "Cancelled" && (
+            <div className="py-2">
+              <p className="text-2xs text-destructive leading-relaxed">
+                {agent.result}
+              </p>
             </div>
           )}
         </ConversationContent>

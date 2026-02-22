@@ -49,6 +49,7 @@ export type AgentManager = {
   archiveAgent: (agentId: string) => boolean;
   followUpAgent: (agentId: string, question: string) => boolean;
   answerAgentQuestion: (agentId: string, answers: AgentQuestionSelection[]) => { ok: boolean; error?: string };
+  skipAgentQuestion: (agentId: string) => { ok: boolean; error?: string };
   answerAgentToolApproval: (agentId: string, response: AgentToolApprovalResponse) => { ok: boolean; error?: string };
   cancelAgent: (id: string) => boolean;
   hydrateAgents: (items: Agent[]) => void;
@@ -279,19 +280,22 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       if (!answer) {
         return `Missing answer for question ${question.id}`;
       }
+      const hasFreeText = typeof answer.freeText === "string" && answer.freeText.trim().length > 0;
       const selected = answer.selectedOptionIds
         .map((id) => id.trim())
         .filter(Boolean);
-      if (selected.length === 0) {
-        return `Select at least one option for question ${question.id}`;
+      if (selected.length === 0 && !hasFreeText) {
+        return `Provide an answer for question ${question.id}`;
       }
-      if (!question.allow_multiple && selected.length > 1) {
-        return `Question ${question.id} allows only one option`;
-      }
-      const validOptions = new Set(question.options.map((opt) => opt.id));
-      for (const selectedId of selected) {
-        if (!validOptions.has(selectedId)) {
-          return `Invalid option ${selectedId} for question ${question.id}`;
+      if (selected.length > 0) {
+        if (!question.allow_multiple && selected.length > 1) {
+          return `Question ${question.id} allows only one option`;
+        }
+        const validOptions = new Set(question.options.map((opt) => opt.id));
+        for (const selectedId of selected) {
+          if (!validOptions.has(selectedId)) {
+            return `Invalid option ${selectedId} for question ${question.id}`;
+          }
         }
       }
     }
@@ -336,10 +340,13 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
             .catch((err) => log("WARN", `Learning extraction error: ${err}`));
         }
       },
-      onFail: (error: string) => {
+      onFail: (error: string, messages?: ModelMessage[]) => {
         agent.status = "failed" as const;
         agent.result = error;
         agent.completedAt = Date.now();
+        if (messages && messages.length > 0) {
+          conversationHistory.set(agent.id, messages);
+        }
         rejectPendingQuestion(agent.id, error || "Agent failed before clarification could be answered.");
         rejectPendingApproval(agent.id, error || "Agent failed before tool approval could be answered.");
         abortControllers.delete(agent.id);
@@ -527,6 +534,42 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   ): { ok: boolean; error?: string } {
     const pending = pendingQuestions.get(agentId);
     if (!pending) {
+      // If the agent failed while waiting for an answer, fall back to a
+      // follow-up with the selected answers formatted as text so the
+      // conversation can continue.
+      const agent = agents.get(agentId);
+      if (agent && agent.status === "failed") {
+        const askStep = [...agent.steps].reverse().find(
+          (s) => s.kind === "tool-call" && s.toolName === "askQuestion" && s.toolInput,
+        );
+        let formattedAnswers: string;
+        if (askStep?.toolInput) {
+          try {
+            const parsed = JSON.parse(askStep.toolInput) as {
+              questions?: Array<{
+                id: string;
+                prompt: string;
+                options: Array<{ id: string; label: string }>;
+              }>;
+            };
+            const lines = answers.map((a) => {
+              const q = parsed.questions?.find((qq) => qq.id === a.questionId);
+              const answerText = a.freeText
+                || a.selectedOptionIds.map((oid) => q?.options.find((o) => o.id === oid)?.label ?? oid).join(", ");
+              return `- ${q?.prompt ?? a.questionId}: ${answerText}`;
+            });
+            formattedAnswers = `Here are my answers:\n${lines.join("\n")}`;
+          } catch {
+            formattedAnswers = `Here are my answers:\n${answers.map((a) => `- ${a.questionId}: ${a.freeText || a.selectedOptionIds.join(", ")}`).join("\n")}`;
+          }
+        } else {
+          formattedAnswers = `Here are my answers:\n${answers.map((a) => `- ${a.questionId}: ${a.freeText || a.selectedOptionIds.join(", ")}`).join("\n")}`;
+        }
+        const success = followUpAgent(agentId, formattedAnswers);
+        return success
+          ? { ok: true }
+          : { ok: false, error: "Could not resume agent with answers" };
+      }
       return { ok: false, error: "No pending question for this agent" };
     }
 
@@ -540,13 +583,27 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       const selectedOptionIds = Array.from(new Set((answer?.selectedOptionIds ?? [])
         .map((id) => id.trim())
         .filter(Boolean)));
+      const freeText = answer?.freeText?.trim();
       return {
         questionId: question.id,
         selectedOptionIds,
+        ...(freeText ? { freeText } : {}),
       };
     });
 
     pending.resolve(normalizedAnswers);
+    return { ok: true };
+  }
+
+  function skipAgentQuestion(agentId: string): { ok: boolean; error?: string } {
+    const pending = pendingQuestions.get(agentId);
+    if (!pending) {
+      return { ok: false, error: "No pending question for this agent" };
+    }
+    rejectPendingQuestion(
+      agentId,
+      "The user skipped these questions and wants to discuss further via free-form conversation instead. Continue without structured answers — the user will elaborate in follow-up messages.",
+    );
     return { ok: true };
   }
 
@@ -664,6 +721,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     archiveAgent,
     followUpAgent,
     answerAgentQuestion,
+    skipAgentQuestion,
     answerAgentToolApproval,
     cancelAgent,
     hydrateAgents,

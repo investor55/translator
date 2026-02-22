@@ -1,7 +1,7 @@
-import type { Agent } from "../../../core/types";
+import type { Agent, AgentStep } from "../../../core/types";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { WorkoutRunIcon } from "@hugeicons/core-free-icons";
-import { PlusIcon } from "lucide-react";
+import { CirclePauseIcon, PlusIcon } from "lucide-react";
 import { SectionLabel } from "@/components/ui/section-label";
 
 type AgentListProps = {
@@ -20,7 +20,22 @@ function relativeTime(timestamp: number): string {
   return `${hours}h ago`;
 }
 
-function StatusIcon({ status }: { status: Agent["status"] }) {
+function isWaitingOnUser(steps: readonly AgentStep[]): boolean {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i]!;
+    if (step.toolName === "askQuestion") {
+      if (step.kind === "tool-call") return true;
+      if (step.kind === "tool-result") return false;
+    }
+    if (step.approvalState === "approval-requested") return true;
+  }
+  return false;
+}
+
+function StatusIcon({ status, steps }: { status: Agent["status"]; steps: readonly AgentStep[] }) {
+  if (status === "running" && isWaitingOnUser(steps)) {
+    return <CirclePauseIcon className="size-3.5 text-amber-500 shrink-0" />;
+  }
   switch (status) {
     case "running":
       return <HugeiconsIcon icon={WorkoutRunIcon} className="size-3.5 text-primary animate-pulse shrink-0" />;
@@ -67,7 +82,7 @@ export function AgentList({
                 }`}
               >
                 <div className="flex items-center gap-1.5">
-                  <StatusIcon status={agent.status} />
+                  <StatusIcon status={agent.status} steps={agent.steps} />
                   <p className="text-xs text-foreground truncate flex-1">
                     {agent.task}
                   </p>

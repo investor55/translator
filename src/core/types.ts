@@ -71,15 +71,18 @@ export type Summary = {
   updatedAt: number;
 };
 
+export type TodoItem = { text: string; doer: "agent" | "human" };
+
 export type FinalSummary = {
   narrative: string; // concise markdown snapshot of the full conversation
   agreements: string[]; // explicit agreements/decisions reached in the meeting
   missedItems: string[]; // important points that were likely missed or underexplored
   unansweredQuestions: string[]; // open questions that remained unresolved
-  agreementTodos: string[]; // concrete follow-up todos tied to agreements
-  missedItemTodos: string[]; // concrete todos to address missed/underexplored items
-  unansweredQuestionTodos: string[]; // concrete todos to answer unresolved questions
-  actionItems: string[]; // cross-cutting action items / todos
+  agreementTodos: TodoItem[]; // concrete follow-up todos tied to agreements
+  missedItemTodos: TodoItem[]; // concrete todos to address missed/underexplored items
+  unansweredQuestionTodos: TodoItem[]; // concrete todos to answer unresolved questions
+  actionItems: TodoItem[]; // cross-cutting action items / todos
+  acceptedTodoIds?: string[]; // IDs of todos already transferred to tasks
   modelId?: string; // synthesis model used to generate this summary
   generatedAt: number;
 };
@@ -229,6 +232,7 @@ export type AppConfig = {
   legacyAudio: boolean;
   translationEnabled: boolean;
   agentAutoApprove: boolean;
+  autoDelegate: boolean;
 };
 
 export type AppConfigOverrides = Partial<AppConfig>;
@@ -362,6 +366,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   legacyAudio: false,
   translationEnabled: true,
   agentAutoApprove: false,
+  autoDelegate: false,
 };
 
 export function normalizeAppConfig(
@@ -463,6 +468,7 @@ export function normalizeAppConfig(
     legacyAudio: !!merged.legacyAudio,
     translationEnabled: !!merged.translationEnabled,
     agentAutoApprove: !!merged.agentAutoApprove,
+    autoDelegate: !!merged.autoDelegate,
     analysisProviderOnly,
     analysisReasoning,
     taskProviders:
@@ -502,6 +508,7 @@ export type AgentQuestionRequest = Readonly<{
 export type AgentQuestionSelection = Readonly<{
   questionId: string;
   selectedOptionIds: string[];
+  freeText?: string;
 }>;
 
 export type AgentToolApprovalRequest = Readonly<{

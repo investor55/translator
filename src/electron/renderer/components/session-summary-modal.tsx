@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { PlusIcon, RefreshCwIcon, XIcon } from "lucide-react";
-import type { FinalSummary } from "../../../core/types";
+import { PlusIcon, RefreshCwIcon, UserIcon, XIcon } from "lucide-react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { WorkoutRunIcon } from "@hugeicons/core-free-icons";
+import type { FinalSummary, TodoItem } from "../../../core/types";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,10 +28,12 @@ function clampPanelHeight(height: number): number {
 
 type Props = {
   state: SummaryModalState;
+  existingTaskTexts?: ReadonlySet<string>;
   onClose: () => void;
   onAcceptItems?: (
-    items: Array<{ text: string; details?: string; source: TaskSource; userIntent?: string }>,
+    items: Array<{ text: string; details?: string; source: TaskSource; userIntent?: string; doer?: "agent" | "human" }>,
   ) => void;
+  onTodosAccepted?: (ids: string[]) => void;
   onRegenerate?: () => void;
   asTabbedPanel?: boolean;
 };
@@ -40,6 +44,7 @@ type TaskCandidate = {
   id: string;
   text: string;
   source: TaskSource;
+  doer: "agent" | "human";
 };
 
 function sourceMeta(source: TaskSource): {
@@ -203,7 +208,12 @@ function TaskRow({
                 : ""
           }`}
         />
-        <div className="flex min-w-0 items-start gap-2">
+        <div className="flex min-w-0 items-start gap-1.5">
+          {candidate.doer === "agent" ? (
+            <HugeiconsIcon icon={WorkoutRunIcon} className="mt-0.5 size-3 shrink-0 text-primary" aria-label="Agent task" />
+          ) : (
+            <UserIcon className="mt-0.5 size-3 shrink-0 text-amber-500/70" aria-label="Human task" />
+          )}
           <span className={`text-xs/relaxed ${selected && !accepted ? "text-foreground font-medium" : "text-foreground/80"}`}>
             {candidate.text}
           </span>
@@ -323,7 +333,7 @@ function InterleavedSection({
   );
 }
 
-export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerate, asTabbedPanel }: Props) {
+export function SessionSummaryPanel({ state, existingTaskTexts, onClose, onAcceptItems, onTodosAccepted, onRegenerate, asTabbedPanel }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [taskIntentById, setTaskIntentById] = useState<Record<string, string>>({});
@@ -357,13 +367,45 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
     };
   }, [stopResizing]);
 
+  const summaryRef = useRef<FinalSummary | null>(null);
   useEffect(() => {
-    if (state.kind === "ready") {
-      setSelected(new Set());
-      setAccepted(new Set());
-      setTaskIntentById({});
+    if (state.kind !== "ready") return;
+    if (summaryRef.current === state.summary) return;
+    summaryRef.current = state.summary;
+
+    setSelected(new Set());
+    setTaskIntentById({});
+
+    const persisted = state.summary.acceptedTodoIds;
+    if (persisted && persisted.length > 0) {
+      setAccepted(new Set(persisted));
+      return;
     }
-  }, [state.kind]);
+
+    if (!existingTaskTexts || existingTaskTexts.size === 0) {
+      setAccepted(new Set());
+      return;
+    }
+
+    const lowerTaskTexts = new Set([...existingTaskTexts].map((t) => t.toLowerCase()));
+    const allTodos = [
+      ...state.summary.agreementTodos.map((item, i) => ({ id: `agreement-task-${i}`, text: item.text })),
+      ...state.summary.missedItemTodos.map((item, i) => ({ id: `missed-task-${i}`, text: item.text })),
+      ...state.summary.unansweredQuestionTodos.map((item, i) => ({ id: `question-task-${i}`, text: item.text })),
+      ...state.summary.actionItems.map((item, i) => ({ id: `action-task-${i}`, text: item.text })),
+    ];
+    const matched = new Set<string>();
+    for (const todo of allTodos) {
+      const lower = todo.text.toLowerCase();
+      for (const taskText of lowerTaskTexts) {
+        if (taskText.includes(lower) || lower.includes(taskText)) {
+          matched.add(todo.id);
+          break;
+        }
+      }
+    }
+    setAccepted(matched);
+  }, [state, existingTaskTexts]);
 
   useEffect(() => {
     setTaskIntentById((prev) => {
@@ -391,10 +433,16 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
       };
     }
 
-    const agreement = summary.agreementTodos.map((text, i) => ({ id: `agreement-task-${i}`, text, source: "agreement" as const }));
-    const missed = summary.missedItemTodos.map((text, i) => ({ id: `missed-task-${i}`, text, source: "missed" as const }));
-    const question = summary.unansweredQuestionTodos.map((text, i) => ({ id: `question-task-${i}`, text, source: "question" as const }));
-    const action = summary.actionItems.map((text, i) => ({ id: `action-task-${i}`, text, source: "action" as const }));
+    const mapTodo = (item: TodoItem, i: number, prefix: string, source: TaskSource): TaskCandidate => ({
+      id: `${prefix}-task-${i}`,
+      text: item.text,
+      source,
+      doer: item.doer,
+    });
+    const agreement = summary.agreementTodos.map((item, i) => mapTodo(item, i, "agreement", "agreement"));
+    const missed = summary.missedItemTodos.map((item, i) => mapTodo(item, i, "missed", "missed"));
+    const question = summary.unansweredQuestionTodos.map((item, i) => mapTodo(item, i, "question", "question"));
+    const action = summary.actionItems.map((item, i) => mapTodo(item, i, "action", "action"));
 
     return {
       all: [...agreement, ...missed, ...question, ...action],
@@ -426,6 +474,7 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
       .map((item) => ({
         text: item.text,
         source: item.source,
+        doer: item.doer,
         userIntent: taskIntentById[item.id]?.trim() || undefined,
         details: [
           state.summary.narrative ? `Context summary:\n${state.summary.narrative}` : "",
@@ -436,9 +485,11 @@ export function SessionSummaryPanel({ state, onClose, onAcceptItems, onRegenerat
 
     if (payload.length === 0) return;
     onAcceptItems?.(payload);
-    setAccepted((prev) => new Set([...prev, ...selected]));
+    const nextAccepted = new Set([...accepted, ...selected]);
+    setAccepted(nextAccepted);
     setSelected(new Set());
     setTaskIntentById({});
+    onTodosAccepted?.([...nextAccepted]);
   };
 
   const totalItems = allTaskCandidates.all.length;

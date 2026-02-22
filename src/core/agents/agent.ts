@@ -52,7 +52,7 @@ type AgentDeps = {
   ) => Promise<AgentToolApprovalResponse>;
   onStep: (step: AgentStep) => void;
   onComplete: (result: string, messages: ModelMessage[]) => void;
-  onFail: (error: string) => void;
+  onFail: (error: string, messages?: ModelMessage[]) => void;
   abortSignal?: AbortSignal;
 };
 
@@ -430,7 +430,11 @@ async function buildTools(
                 .map((optId) => question.options.find((opt) => opt.id === optId)?.label)
                 .filter(Boolean)
             : [];
-          return { ...answer, selectedLabels };
+          return {
+            ...answer,
+            selectedLabels,
+            ...(answer.freeText ? { userText: answer.freeText } : {}),
+          };
         });
         return {
           title: input.title,
@@ -1042,7 +1046,7 @@ async function runAgentWithMessages(
         streamError = error instanceof Error ? error.message : String(error);
       },
       onAbort: () => {
-        onFail("Cancelled");
+        onFail("Cancelled", inputMessages);
       },
     });
 
@@ -1130,8 +1134,14 @@ async function runAgentWithMessages(
         case "tool-error": {
           const toolStepId = `tool:${part.toolCallId}`;
           const errorMessage = part.error instanceof Error ? part.error.message : safeJson(part.error);
+          // For askQuestion, preserve the original tool-call step so the question
+          // card stays visible even if the tool execution errors (e.g. agent
+          // cancelled/failed while waiting for user input).
+          const stepId = part.toolName === "askQuestion"
+            ? `${toolStepId}:error`
+            : toolStepId;
           onStep({
-            id: toolStepId,
+            id: stepId,
             kind: "tool-result",
             content: `${part.toolName} failed: ${errorMessage}`,
             toolName: part.toolName,
@@ -1227,6 +1237,6 @@ async function runAgentWithMessages(
     // is the SDK wrapper thrown when the stream ends with no steps recorded.
     const rawMessage = streamError ?? (error instanceof Error ? error.message : String(error));
     const message = normalizeProviderErrorMessage(rawMessage);
-    onFail(message);
+    onFail(message, inputMessages);
   }
 }

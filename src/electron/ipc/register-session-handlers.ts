@@ -4,7 +4,7 @@ import { validateEnv } from "../../core/config";
 import { log } from "../../core/logger";
 import { Session } from "../../core/session";
 import { toReadableError } from "../../core/text/text-utils";
-import type { AppConfigOverrides, LanguageCode } from "../../core/types";
+import type { AppConfigOverrides, FinalSummary, LanguageCode } from "../../core/types";
 import { SUPPORTED_LANGUAGES } from "../../core/types";
 import { buildSessionConfig, shutdownCurrentSession, wireSessionEvents } from "./ipc-utils";
 import type { IpcDeps } from "./types";
@@ -189,6 +189,13 @@ export function registerSessionHandlers({ db, getWindow, sessionRef, getExternal
   ipcMain.handle("get-final-summary", (_event, sessionId: string) => {
     const summary = db.getFinalSummary(sessionId);
     return summary ? { ok: true, summary } : { ok: false };
+  });
+
+  ipcMain.handle("patch-final-summary", (_event, sessionId: string, patch: Partial<FinalSummary>) => {
+    const existing = db.getFinalSummary(sessionId);
+    if (!existing) return { ok: false };
+    db.saveFinalSummary(sessionId, { ...existing, ...patch });
+    return { ok: true };
   });
 
   ipcMain.handle("generate-agents-summary", () => {

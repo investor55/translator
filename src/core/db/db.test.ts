@@ -308,10 +308,10 @@ describe("final summary", () => {
       agreements: ["Ship pilot in two weeks."],
       missedItems: ["No rollback plan discussed."],
       unansweredQuestions: ["Who owns post-launch support?"],
-      agreementTodos: ["Assign owner for pilot launch."],
-      missedItemTodos: ["Draft rollback and incident plan."],
-      unansweredQuestionTodos: ["Confirm support owner and escalation path."],
-      actionItems: ["Draft launch checklist"],
+      agreementTodos: [{ text: "Assign owner for pilot launch.", doer: "human" }],
+      missedItemTodos: [{ text: "Draft rollback and incident plan.", doer: "agent" }],
+      unansweredQuestionTodos: [{ text: "Confirm support owner and escalation path.", doer: "human" }],
+      actionItems: [{ text: "Draft launch checklist", doer: "agent" }],
       generatedAt: Date.now(),
     };
 
@@ -343,7 +343,7 @@ describe("final summary", () => {
       agreementTodos: [],
       missedItemTodos: [],
       unansweredQuestionTodos: [],
-      actionItems: ["Legacy item"],
+      actionItems: [{ text: "Legacy item", doer: "human" }],
       generatedAt: now,
     });
   });

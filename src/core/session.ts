@@ -933,10 +933,18 @@ export class Session {
           agreements: object.agreements.map((item) => item.trim()).filter(Boolean),
           missedItems: object.missedItems.map((item) => item.trim()).filter(Boolean),
           unansweredQuestions: object.unansweredQuestions.map((item) => item.trim()).filter(Boolean),
-          agreementTodos: object.agreementTodos.map((item) => item.trim()).filter(Boolean),
-          missedItemTodos: object.missedItemTodos.map((item) => item.trim()).filter(Boolean),
-          unansweredQuestionTodos: object.unansweredQuestionTodos.map((item) => item.trim()).filter(Boolean),
-          actionItems: object.actionItems.map((item) => item.trim()).filter(Boolean),
+          agreementTodos: object.agreementTodos
+            .map((item) => ({ text: item.text.trim(), doer: item.doer }))
+            .filter((item) => item.text),
+          missedItemTodos: object.missedItemTodos
+            .map((item) => ({ text: item.text.trim(), doer: item.doer }))
+            .filter((item) => item.text),
+          unansweredQuestionTodos: object.unansweredQuestionTodos
+            .map((item) => ({ text: item.text.trim(), doer: item.doer }))
+            .filter((item) => item.text),
+          actionItems: object.actionItems
+            .map((item) => ({ text: item.text.trim(), doer: item.doer }))
+            .filter((item) => item.text),
           modelId: this.config.synthesisModelId,
           generatedAt: Date.now(),
         };
@@ -1176,6 +1184,10 @@ export class Session {
 
   answerAgentQuestion(agentId: string, answers: AgentQuestionSelection[]): { ok: boolean; error?: string } {
     return this.agentManager?.answerAgentQuestion(agentId, answers) ?? { ok: false, error: "Agent system unavailable" };
+  }
+
+  skipAgentQuestion(agentId: string): { ok: boolean; error?: string } {
+    return this.agentManager?.skipAgentQuestion(agentId) ?? { ok: false, error: "Agent system unavailable" };
   }
 
   answerAgentToolApproval(agentId: string, response: AgentToolApprovalResponse): { ok: boolean; error?: string } {

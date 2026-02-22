@@ -160,6 +160,11 @@ export function registerAgentHandlers({
     return sessionRef.current.answerAgentQuestion(agentId, answers);
   });
 
+  ipcMain.handle("skip-agent-question", (_event, agentId: string) => {
+    if (!sessionRef.current) return { ok: false, error: "No active session" };
+    return sessionRef.current.skipAgentQuestion(agentId);
+  });
+
   ipcMain.handle(
     "respond-agent-tool-approval",
     (_event, agentId: string, response: AgentToolApprovalResponse) => {
@@ -181,6 +186,21 @@ export function registerAgentHandlers({
       if (!ensured.ok) return ensured;
       if (!sessionRef.current) return { ok: false, error: "Could not load session" };
       return sessionRef.current.answerAgentQuestion(agentId, answers);
+    },
+  );
+
+  ipcMain.handle(
+    "skip-agent-question-in-session",
+    async (
+      _event,
+      sessionId: string,
+      agentId: string,
+      appConfig?: AppConfigOverrides,
+    ) => {
+      const ensured = await ensureSession(sessionId, appConfig);
+      if (!ensured.ok) return ensured;
+      if (!sessionRef.current) return { ok: false, error: "Could not load session" };
+      return sessionRef.current.skipAgentQuestion(agentId);
     },
   );
 

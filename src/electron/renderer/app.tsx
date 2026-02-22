@@ -9,6 +9,7 @@ import type {
   LanguageCode,
   McpProviderToolSummary,
   TaskItem,
+  TaskSize,
   TaskSuggestion,
   Insight,
   ProjectMeta,
@@ -193,6 +194,7 @@ export function App() {
   const appConfig = useMemo(() => normalizeAppConfig(storedAppConfig), [storedAppConfig]);
 
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const existingTaskTexts = useMemo(() => new Set(tasks.map((t) => t.text)), [tasks]);
   const [pendingApprovalTask, setPendingApprovalTask] = useState<TaskItem | null>(null);
   const [approvingLargeTask, setApprovingLargeTask] = useState(false);
   const [suggestions, setSuggestions] = useState<TaskSuggestion[]>([]);
@@ -792,6 +794,7 @@ export function App() {
     text,
     details,
     source,
+    size = "large",
     id,
     createdAt,
   }: {
@@ -799,6 +802,7 @@ export function App() {
     text: string;
     details?: string;
     source: TaskItem["source"];
+    size?: TaskSize;
     id?: string;
     createdAt?: number;
   }): Promise<{ ok: boolean; task?: TaskItem; error?: string }> => {
@@ -806,7 +810,7 @@ export function App() {
       id: id ?? crypto.randomUUID(),
       text,
       details,
-      size: "large",
+      size,
       completed: false,
       source,
       createdAt: createdAt ?? Date.now(),
@@ -1233,6 +1237,18 @@ export function App() {
     );
   }, [appConfig, selectedSessionId, session.sessionId]);
 
+  const handleSkipAgentQuestion = useCallback(async (agent: Agent) => {
+    const targetSessionId = agent.sessionId ?? selectedSessionId ?? session.sessionId ?? null;
+    if (!targetSessionId) {
+      return { ok: false, error: "Missing session id for this agent" };
+    }
+    return window.electronAPI.skipAgentQuestionInSession(
+      targetSessionId,
+      agent.id,
+      appConfig,
+    );
+  }, [appConfig, selectedSessionId, session.sessionId]);
+
   const handleAnswerAgentToolApproval = useCallback(async (agent: Agent, response: AgentToolApprovalResponse) => {
     const targetSessionId = agent.sessionId ?? selectedSessionId ?? session.sessionId ?? null;
     if (!targetSessionId) {
@@ -1277,6 +1293,7 @@ export function App() {
       details?: string;
       source?: "agreement" | "missed" | "question" | "action";
       userIntent?: string;
+      doer?: "agent" | "human";
     }>,
   ) => {
     const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
@@ -1293,7 +1310,7 @@ export function App() {
           id: optimisticId,
           text: placeholderText,
           details: details?.trim() || undefined,
-          size: "large",
+          size: "small",
           completed: false,
           source: "ai",
           createdAt: Date.now(),
@@ -1331,6 +1348,7 @@ export function App() {
           text: finalTitle,
           details: refinedDetails,
           source: "ai",
+          size: "small",
           id: optimisticId,
           createdAt: optimisticTask.createdAt,
         });
@@ -1343,6 +1361,64 @@ export function App() {
       }
     })();
   }, [appConfig, persistTask, selectedSessionId, session.sessionId]);
+
+  const autoDelegateGenRef = useRef(0);
+  useEffect(() => {
+    if (!appConfig.autoDelegate) return;
+    if (finalSummaryState.kind !== "ready") return;
+
+    const gen = finalSummaryState.summary.generatedAt;
+    if (autoDelegateGenRef.current === gen) return;
+    autoDelegateGenRef.current = gen;
+
+    const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
+    if (!targetSessionId) return;
+
+    const summary = finalSummaryState.summary;
+    const indexed: Array<{ todo: typeof summary.actionItems[number]; todoId: string }> = [
+      ...summary.agreementTodos.map((todo, i) => ({ todo, todoId: `agreement-task-${i}` })),
+      ...summary.missedItemTodos.map((todo, i) => ({ todo, todoId: `missed-task-${i}` })),
+      ...summary.unansweredQuestionTodos.map((todo, i) => ({ todo, todoId: `question-task-${i}` })),
+      ...summary.actionItems.map((todo, i) => ({ todo, todoId: `action-task-${i}` })),
+    ];
+    const agentEntries = indexed.filter((e) => e.todo.doer === "agent");
+
+    if (agentEntries.length === 0) return;
+
+    const delegatedIds = agentEntries.map((e) => e.todoId);
+    const existingAccepted = summary.acceptedTodoIds ?? [];
+    const mergedIds = [...new Set([...existingAccepted, ...delegatedIds])];
+    void window.electronAPI.patchFinalSummary(targetSessionId, { acceptedTodoIds: mergedIds });
+    setFinalSummaryState((prev) => {
+      if (prev.kind !== "ready") return prev;
+      return { ...prev, summary: { ...prev.summary, acceptedTodoIds: mergedIds } };
+    });
+
+    void (async () => {
+      for (const { todo } of agentEntries) {
+        const result = await persistTask({
+          targetSessionId,
+          text: normalizeAgentTaskTitle(todo.text) || todo.text,
+          details: `Context: auto-delegated from session summary.\nTask: ${todo.text}`,
+          source: "ai",
+        });
+        if (result.ok && result.task) {
+          setTasks((prev) => [result.task!, ...prev]);
+          await launchTaskAgent(result.task);
+        }
+      }
+    })();
+  }, [appConfig.autoDelegate, finalSummaryState, launchTaskAgent, persistTask, selectedSessionId, session.sessionId]);
+
+  const handleTodosAccepted = useCallback((ids: string[]) => {
+    const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
+    if (!targetSessionId) return;
+    void window.electronAPI.patchFinalSummary(targetSessionId, { acceptedTodoIds: ids });
+    setFinalSummaryState((prev) => {
+      if (prev.kind !== "ready") return prev;
+      return { ...prev, summary: { ...prev.summary, acceptedTodoIds: ids } };
+    });
+  }, [selectedSessionId, session.sessionId]);
 
   const handleGenerateSummary = useCallback(async () => {
     if (finalSummaryState.kind === "loading") return;
@@ -1498,8 +1574,10 @@ export function App() {
               summaryContent={
                 <SessionSummaryPanel
                   state={finalSummaryState}
+                  existingTaskTexts={existingTaskTexts}
                   onClose={() => setFinalSummaryState({ kind: "idle" })}
                   onAcceptItems={handleAcceptSummaryItems}
+                  onTodosAccepted={handleTodosAccepted}
                   onRegenerate={handleRegenerateSummary}
                   asTabbedPanel
                 />
@@ -1518,6 +1596,7 @@ export function App() {
                     onClose={() => selectAgent(null)}
                     onFollowUp={handleFollowUp}
                     onAnswerQuestion={handleAnswerAgentQuestion}
+                    onSkipQuestion={handleSkipAgentQuestion}
                     onAnswerToolApproval={handleAnswerAgentToolApproval}
                     onCancel={handleCancelAgent}
                     onRelaunch={handleRelaunchAgent}

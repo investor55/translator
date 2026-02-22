@@ -17,7 +17,22 @@ import type {
   AgentStep,
   FinalSummary,
   AgentsSummary,
+  TodoItem,
 } from "../types";
+
+function normalizeTodoArray(raw: unknown): TodoItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item): TodoItem | null => {
+      if (typeof item === "string") return { text: item, doer: "human" };
+      if (item && typeof item === "object" && "text" in item && typeof item.text === "string") {
+        const doer = (item as { doer?: unknown }).doer === "agent" ? "agent" as const : "human" as const;
+        return { text: item.text, doer };
+      }
+      return null;
+    })
+    .filter((v): v is TodoItem => v !== null);
+}
 
 export type AppDatabase = ReturnType<typeof createDatabase>;
 
@@ -491,18 +506,21 @@ export function createDatabase(dbPath: string) {
 
       if (row?.summaryData) {
         try {
-          const parsed = JSON.parse(row.summaryData) as Partial<FinalSummary>;
+          const parsed = JSON.parse(row.summaryData) as Record<string, unknown>;
           if (typeof parsed.narrative === "string") {
             return {
               narrative: parsed.narrative,
               agreements: Array.isArray(parsed.agreements) ? parsed.agreements.filter((v): v is string => typeof v === "string") : [],
               missedItems: Array.isArray(parsed.missedItems) ? parsed.missedItems.filter((v): v is string => typeof v === "string") : [],
               unansweredQuestions: Array.isArray(parsed.unansweredQuestions) ? parsed.unansweredQuestions.filter((v): v is string => typeof v === "string") : [],
-              agreementTodos: Array.isArray(parsed.agreementTodos) ? parsed.agreementTodos.filter((v): v is string => typeof v === "string") : [],
-              missedItemTodos: Array.isArray(parsed.missedItemTodos) ? parsed.missedItemTodos.filter((v): v is string => typeof v === "string") : [],
-              unansweredQuestionTodos: Array.isArray(parsed.unansweredQuestionTodos) ? parsed.unansweredQuestionTodos.filter((v): v is string => typeof v === "string") : [],
-              actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems.filter((v): v is string => typeof v === "string") : [],
-              modelId: parsed.modelId,
+              agreementTodos: normalizeTodoArray(parsed.agreementTodos),
+              missedItemTodos: normalizeTodoArray(parsed.missedItemTodos),
+              unansweredQuestionTodos: normalizeTodoArray(parsed.unansweredQuestionTodos),
+              actionItems: normalizeTodoArray(parsed.actionItems),
+              acceptedTodoIds: Array.isArray(parsed.acceptedTodoIds)
+                ? parsed.acceptedTodoIds.filter((v): v is string => typeof v === "string")
+                : undefined,
+              modelId: typeof parsed.modelId === "string" ? parsed.modelId : undefined,
               generatedAt: typeof parsed.generatedAt === "number" ? parsed.generatedAt : (row.summaryGeneratedAt ?? 0),
             };
           }
@@ -520,7 +538,7 @@ export function createDatabase(dbPath: string) {
         agreementTodos: [],
         missedItemTodos: [],
         unansweredQuestionTodos: [],
-        actionItems: JSON.parse(row.summaryActionItems ?? "[]") as string[],
+        actionItems: normalizeTodoArray(JSON.parse(row.summaryActionItems ?? "[]")),
         generatedAt: row.summaryGeneratedAt ?? 0,
       };
     },

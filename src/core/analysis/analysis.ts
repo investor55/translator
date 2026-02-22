@@ -83,6 +83,13 @@ export function buildAgentTitlePrompt(task: string): string {
   return `Generate a short, descriptive title (3-6 words) for an AI agent task based on this prompt:\n\n${task.slice(0, 500)}\n\nBe specific about what is being done. No quotes.`;
 }
 
+const todoItemSchema = z.object({
+  text: z.string().describe("The todo. Atomic, imperative, under 12 words, starting with a strong verb."),
+  doer: z.enum(["agent", "human"]).describe(
+    "'agent' if completable by an AI with web search, transcript search, and MCP tools (Notion, Linear). 'human' if it requires personal memory, physical action, or context not in the transcript."
+  ),
+});
+
 export const finalSummarySchema = z.object({
   narrative: z.string().describe(
     "Markdown snapshot of the meeting in 2-4 concise sentences. No code fences."
@@ -96,17 +103,17 @@ export const finalSummarySchema = z.object({
   unansweredQuestions: z.array(z.string()).describe(
     "Open unresolved questions from the meeting. 0-8 items. Empty array if none."
   ),
-  agreementTodos: z.array(z.string()).describe(
-    "For agreements that exist, provide 1-3 concrete follow-up todos tied specifically to those agreements. Keep each todo atomic (one action), imperative, and under 12 words. Empty array if no agreements."
+  agreementTodos: z.array(todoItemSchema).describe(
+    "For agreements that exist, provide 1-3 concrete follow-up todos tied specifically to those agreements. Empty array if no agreements."
   ),
-  missedItemTodos: z.array(z.string()).describe(
-    "For missedItems that exist, provide 1-3 concrete todos to close gaps or blind spots. Keep each todo atomic (one action), imperative, and under 12 words. Empty array if no missedItems."
+  missedItemTodos: z.array(todoItemSchema).describe(
+    "For missedItems that exist, provide 1-3 concrete todos to close gaps or blind spots. Empty array if no missedItems."
   ),
-  unansweredQuestionTodos: z.array(z.string()).describe(
-    "For unansweredQuestions that exist, provide 1-3 concrete investigation/decision todos to resolve them. Keep each todo atomic (one action), imperative, and under 12 words. Empty array if no unansweredQuestions."
+  unansweredQuestionTodos: z.array(todoItemSchema).describe(
+    "For unansweredQuestions that exist, provide 1-3 concrete investigation/decision todos to resolve them. Empty array if no unansweredQuestions."
   ),
-  actionItems: z.array(z.string()).describe(
-    "Cross-cutting concrete action items not already captured in section-specific todos. Keep each todo atomic (one action), imperative, and under 12 words. Empty array if none."
+  actionItems: z.array(todoItemSchema).describe(
+    "Cross-cutting concrete action items not already captured in section-specific todos. Empty array if none."
   ),
 });
 
@@ -169,6 +176,11 @@ Output requirements:
 - "actionItems": only cross-cutting todos not already in the three section todo lists.
 - Use empty arrays instead of inventing content when unsure.
 - Do not include code fences.
+
+Classifying "doer" for each todo:
+- "agent": the task can be completed by an AI agent that can search the web, search transcript/agent history, ask the user clarifying questions, and call MCP tools (Notion, Linear).
+- "human": the task requires personal memory, physical action, calendar scheduling, phone calls, or context not present in the transcript.
+- When unsure, default to "human".
 
 Full transcript:
 ${transcript || "(No transcript available)"}${keyPointsSection}`;
