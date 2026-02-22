@@ -1351,11 +1351,7 @@ export function App() {
     setFinalSummaryState({ kind: "loading" });
     if (targetSessionId) {
       const cached = await window.electronAPI.getFinalSummary(targetSessionId);
-      if (
-        cached.ok &&
-        cached.summary &&
-        cached.summary.modelId === appConfig.synthesisModelId
-      ) {
+      if (cached.ok && cached.summary) {
         setFinalSummaryState({ kind: "ready", summary: cached.summary });
         return;
       }

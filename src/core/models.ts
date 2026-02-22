@@ -1,6 +1,6 @@
 // Centralized model configuration. Add/remove models here.
 // Set reasoning: true for models that support extended thinking.
-// The label should indicate this (e.g. "Model Name (Thinking)").
+// The UI shows a sparkle icon next to reasoning models automatically.
 
 export type AnalysisModelPreset = {
   label: string;
@@ -62,17 +62,17 @@ export const MODEL_PRESETS: ModelPreset[] = [
     reasoning: false,
   },
   {
-    label: "Kimi K2.5 Thinking",
+    label: "Kimi K2.5",
     modelId: "moonshotai/kimi-k2.5",
     reasoning: true,
   },
   {
-    label: "GLM 4.7 Thinking",
+    label: "GLM 4.7",
     modelId: "z-ai/glm-4.7",
     reasoning: true,
   },
   {
-    label: "GLM 5 Thinking",
+    label: "GLM 5",
     modelId: "z-ai/glm-5",
     reasoning: true,
   },

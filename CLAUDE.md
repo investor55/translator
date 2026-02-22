@@ -5,13 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build and Run Commands
 
 ```bash
-bun install          # Install dependencies
-bun run dev          # Start the application
-bun start            # Alternative: start the application
-bun run dev --list-devices  # List available audio devices
+pnpm install          # Install dependencies
+pnpm dev              # Start the application
+pnpm start            # Alternative: start the application
+pnpm dev --list-devices  # List available audio devices
 ```
 
-Tests are run with `bun run test` (Vitest).
+Tests are run with `pnpm test` (Vitest).
 
 ## Architecture Overview
 

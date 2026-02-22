@@ -33,7 +33,6 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import {
-  BrainIcon,
   Laptop2Icon,
   MoonIcon,
   RotateCcwIcon,
@@ -724,7 +723,7 @@ export function SettingsPage({
                         <SelectItem key={preset.modelId} value={preset.modelId}>
                           <span className="inline-flex items-center gap-1.5">
                             {preset.label}
-                            {!!preset.reasoning && <BrainIcon className="size-3 text-muted-foreground" />}
+                            {!!preset.reasoning && <kbd className="px-1 py-px rounded-sm bg-secondary font-mono text-2xs text-secondary-foreground">thinking</kbd>}
                           </span>
                         </SelectItem>
                       ))}
@@ -769,7 +768,10 @@ export function SettingsPage({
                   <SelectContent>
                     {MODEL_PRESETS.map((preset) => (
                       <SelectItem key={preset.modelId} value={preset.modelId}>
-                        {preset.label}
+                        <span className="inline-flex items-center gap-1.5">
+                          {preset.label}
+                          {!!preset.reasoning && <kbd className="px-1 py-px rounded-sm bg-secondary font-mono text-2xs text-secondary-foreground">thinking</kbd>}
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -792,7 +794,10 @@ export function SettingsPage({
                   <SelectContent>
                     {MODEL_PRESETS.map((preset) => (
                       <SelectItem key={preset.modelId} value={preset.modelId}>
-                        {preset.label}
+                        <span className="inline-flex items-center gap-1.5">
+                          {preset.label}
+                          {!!preset.reasoning && <kbd className="px-1 py-px rounded-sm bg-secondary font-mono text-2xs text-secondary-foreground">thinking</kbd>}
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -815,7 +820,10 @@ export function SettingsPage({
                   <SelectContent>
                     {MODEL_PRESETS.map((preset) => (
                       <SelectItem key={preset.modelId} value={preset.modelId}>
-                        {preset.label}
+                        <span className="inline-flex items-center gap-1.5">
+                          {preset.label}
+                          {!!preset.reasoning && <kbd className="px-1 py-px rounded-sm bg-secondary font-mono text-2xs text-secondary-foreground">thinking</kbd>}
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectContent>
