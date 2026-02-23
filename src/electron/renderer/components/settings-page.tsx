@@ -20,7 +20,7 @@ import {
   DEFAULT_VERTEX_MODEL_ID,
 } from "../../../core/types";
 import { MODEL_CONFIG } from "../../../core/models";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -39,11 +39,7 @@ import {
   ServerIcon,
   SunIcon,
 } from "lucide-react";
-import {
-  NotionIcon,
-  LinearIcon,
-  resolveProviderIcon,
-} from "./integration-icons";
+import { resolveProviderIcon } from "./integration-icons";
 
 type SettingsPageProps = {
   config: AppConfig;
@@ -57,10 +53,8 @@ type SettingsPageProps = {
   onReset: () => void;
   mcpIntegrations: McpIntegrationStatus[];
   mcpBusy?: boolean;
-  onConnectNotionMcp: () => void | Promise<void>;
-  onDisconnectNotionMcp: () => void | Promise<void>;
-  onSetLinearToken: (token: string) => Promise<{ ok: boolean; error?: string }>;
-  onClearLinearToken: () => Promise<{ ok: boolean; error?: string }>;
+  onConnectProvider: (id: string) => void | Promise<void>;
+  onDisconnectProvider: (id: string) => void | Promise<void>;
   customMcpServers: CustomMcpStatus[];
   onAddCustomServer: (cfg: {
     name: string;
@@ -245,10 +239,8 @@ export function SettingsPage({
   onReset,
   mcpIntegrations,
   mcpBusy = false,
-  onConnectNotionMcp,
-  onDisconnectNotionMcp,
-  onSetLinearToken,
-  onClearLinearToken,
+  onConnectProvider,
+  onDisconnectProvider,
   customMcpServers,
   onAddCustomServer,
   onRemoveCustomServer,
@@ -261,8 +253,6 @@ export function SettingsPage({
       ? globalThis.matchMedia("(prefers-color-scheme: dark)").matches
       : false
   );
-  const [linearTokenInput, setLinearTokenInput] = useState("");
-  const [linearTokenError, setLinearTokenError] = useState("");
   const [customServerName, setCustomServerName] = useState("");
   const [customServerUrl, setCustomServerUrl] = useState("");
   const [customServerTransport, setCustomServerTransport] = useState<
@@ -272,14 +262,6 @@ export function SettingsPage({
   const [customServerError, setCustomServerError] = useState("");
   const addFormRef = useRef<HTMLFormElement>(null);
 
-  const notionStatus = useMemo(
-    () => mcpIntegrations.find((item) => item.provider === "notion"),
-    [mcpIntegrations]
-  );
-  const linearStatus = useMemo(
-    () => mcpIntegrations.find((item) => item.provider === "linear"),
-    [mcpIntegrations]
-  );
   const showDarkStyle =
     config.themeMode === "dark" ||
     (config.themeMode === "system" && systemPrefersDark);
@@ -927,119 +909,57 @@ export function SettingsPage({
             </h2>
             <Separator className="my-3" />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="border border-border/70 bg-background px-3 py-3 rounded-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <NotionIcon className="w-4 h-4 shrink-0" />
-                    <p className="text-xs font-semibold text-foreground">
-                      Notion MCP
+              {mcpIntegrations.map((status) => {
+                const ProviderIcon = resolveProviderIcon(status.mcpUrl ?? "");
+                return (
+                  <div key={status.provider} className="border border-border/70 bg-background px-3 py-3 rounded-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        {ProviderIcon ? (
+                          <ProviderIcon className="w-4 h-4 shrink-0" />
+                        ) : (
+                          <ServerIcon className="w-4 h-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <p className="text-xs font-semibold text-foreground">
+                          {status.label ?? status.provider} MCP
+                        </p>
+                      </div>
+                      <span className="text-2xs text-muted-foreground">
+                        {status.state}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-2xs text-muted-foreground leading-relaxed">
+                      Hosted MCP via local OAuth callback.
                     </p>
+                    {status.error && (
+                      <p className="mt-1 text-2xs text-destructive">
+                        {status.error}
+                      </p>
+                    )}
+                    <div className="mt-2 flex items-center gap-2">
+                      {status.state === "connected" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void onDisconnectProvider(status.provider)}
+                          disabled={mcpBusy || status.enabled === false}
+                        >
+                          Disconnect
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          onClick={() => void onConnectProvider(status.provider)}
+                          disabled={mcpBusy || status.enabled === false}
+                        >
+                          Connect {status.label ?? status.provider}
+                        </Button>
+                      )}
+                    </div>
+                    <ToolList tools={mcpToolsByProvider[status.provider]?.tools ?? []} />
                   </div>
-                  <span className="text-2xs text-muted-foreground">
-                    {notionStatus?.state ?? "disconnected"}
-                  </span>
-                </div>
-                <p className="mt-1 text-2xs text-muted-foreground leading-relaxed">
-                  Hosted MCP via local OAuth callback.
-                </p>
-                {notionStatus?.error && (
-                  <p className="mt-1 text-2xs text-destructive">
-                    {notionStatus.error}
-                  </p>
-                )}
-                <div className="mt-2 flex items-center gap-2">
-                  {notionStatus?.state === "connected" ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void onDisconnectNotionMcp()}
-                      disabled={mcpBusy || notionStatus.enabled === false}
-                    >
-                      Disconnect
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      onClick={() => void onConnectNotionMcp()}
-                      disabled={mcpBusy || notionStatus?.enabled === false}
-                    >
-                      Connect Notion
-                    </Button>
-                  )}
-                </div>
-                <ToolList tools={mcpToolsByProvider["notion"]?.tools ?? []} />
-              </div>
-
-              <div className="border border-border/70 bg-background px-3 py-3 rounded-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <LinearIcon className="w-4 h-4 shrink-0" />
-                    <p className="text-xs font-semibold text-foreground">
-                      Linear MCP
-                    </p>
-                  </div>
-                  <span className="text-2xs text-muted-foreground">
-                    {linearStatus?.state ?? "disconnected"}
-                  </span>
-                </div>
-                <p className="mt-1 text-2xs text-muted-foreground leading-relaxed">
-                  Token-based access for Linear MCP.
-                </p>
-                {linearStatus?.error && (
-                  <p className="mt-1 text-2xs text-destructive">
-                    {linearStatus.error}
-                  </p>
-                )}
-                <div className="mt-2 flex items-center gap-2">
-                  <Input
-                    type="password"
-                    value={linearTokenInput}
-                    onChange={(e) => {
-                      setLinearTokenInput(e.target.value);
-                      setLinearTokenError("");
-                    }}
-                    placeholder="lin_api_..."
-                    className="flex-1"
-                  />
-                  <Button
-                    size="sm"
-                    onClick={async () => {
-                      const result = await onSetLinearToken(linearTokenInput);
-                      if (!result.ok) {
-                        setLinearTokenError(
-                          result.error ?? "Could not save Linear token."
-                        );
-                        return;
-                      }
-                      setLinearTokenInput("");
-                    }}
-                    disabled={mcpBusy || linearStatus?.enabled === false}
-                  >
-                    Save
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={async () => {
-                      const result = await onClearLinearToken();
-                      if (!result.ok) {
-                        setLinearTokenError(
-                          result.error ?? "Could not disconnect Linear."
-                        );
-                      }
-                    }}
-                    disabled={mcpBusy || linearStatus?.enabled === false}
-                  >
-                    Disconnect
-                  </Button>
-                </div>
-                {linearTokenError && (
-                  <p className="mt-1 text-2xs text-destructive">
-                    {linearTokenError}
-                  </p>
-                )}
-                <ToolList tools={mcpToolsByProvider["linear"]?.tools ?? []} />
-              </div>
+                );
+              })}
             </div>
 
             {/* ── Custom MCP Servers ── */}

@@ -239,18 +239,18 @@ export type AppConfig = {
 
 export type AppConfigOverrides = Partial<AppConfig>;
 
-export type McpIntegrationProvider = "notion" | "linear";
 export type McpIntegrationMode = "oauth" | "token";
 export type McpIntegrationConnection = "connected" | "disconnected" | "error";
 
 export type McpIntegrationStatus = Readonly<{
-  provider: McpIntegrationProvider;
+  provider: string;
   mode: McpIntegrationMode;
   state: McpIntegrationConnection;
   enabled: boolean;
   label?: string;
   error?: string;
   lastConnectedAt?: number;
+  mcpUrl?: string;
 }>;
 
 export type CustomMcpTransport = "streamable" | "sse";

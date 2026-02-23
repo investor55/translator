@@ -5,40 +5,36 @@ import type {
   OAuthClientInformationMixed,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { McpOAuthProviderConfig } from "./mcp-oauth-providers";
+import { getCallbackUrl } from "./mcp-oauth-providers";
 import { SecureCredentialStore } from "./secure-credential-store";
 
-export const NOTION_MCP_URL = "https://mcp.notion.com/mcp";
-export const NOTION_SSE_URL = "https://mcp.notion.com/sse";
-export const NOTION_CALLBACK_HOST = "127.0.0.1";
-export const NOTION_CALLBACK_PORT = 43199;
-export const NOTION_CALLBACK_PATH = "/oauth/notion/callback";
-export const NOTION_CALLBACK_URL = `http://${NOTION_CALLBACK_HOST}:${NOTION_CALLBACK_PORT}${NOTION_CALLBACK_PATH}`;
-
-export type NotionOAuthFlowOptions = {
-  store: SecureCredentialStore;
-  openExternal: (url: string) => Promise<void>;
-};
+const CALLBACK_HOST = "127.0.0.1";
 
 function randomState(): string {
   return crypto.randomBytes(18).toString("base64url");
 }
 
 function htmlPage(title: string, body: string): string {
-  return `<!doctype html><html><head><meta charset=\"utf-8\"><title>${title}</title></head><body><h2>${title}</h2><p>${body}</p><p>You can close this window and return to Ambient.</p></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body><h2>${title}</h2><p>${body}</p><p>You can close this window and return to Ambient.</p></body></html>`;
 }
 
-export function createNotionOAuthProvider({
-  store,
-  openExternal,
-}: NotionOAuthFlowOptions): OAuthClientProvider {
+export function createOAuthProvider(
+  config: McpOAuthProviderConfig,
+  store: SecureCredentialStore,
+  openExternal: (url: string) => Promise<void>,
+): OAuthClientProvider {
+  const callbackUrl = getCallbackUrl(config);
+  const { id } = config;
+
   return {
     get redirectUrl() {
-      return NOTION_CALLBACK_URL;
+      return callbackUrl;
     },
 
     get clientMetadata() {
       return {
-        redirect_uris: [NOTION_CALLBACK_URL],
+        redirect_uris: [callbackUrl],
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
         token_endpoint_auth_method: "none",
@@ -48,25 +44,25 @@ export function createNotionOAuthProvider({
 
     async state() {
       const state = randomState();
-      await store.setNotionPendingState(state);
+      await store.setOAuthPendingState(id, state);
       return state;
     },
 
     async clientInformation() {
-      return store.getNotionClientInformation();
+      return store.getOAuthClientInformation(id);
     },
 
     async saveClientInformation(clientInformation: OAuthClientInformationMixed) {
-      await store.setNotionClientInformation(clientInformation);
+      await store.setOAuthClientInformation(id, clientInformation);
     },
 
     async tokens() {
-      return store.getNotionTokens();
+      return store.getOAuthTokens(id);
     },
 
     async saveTokens(tokens: OAuthTokens) {
-      await store.setNotionTokens(tokens);
-      await store.setNotionMetadata({
+      await store.setOAuthTokens(id, tokens);
+      await store.setOAuthMetadata(id, {
         label: "Connected",
         lastConnectedAt: Date.now(),
         lastError: undefined,
@@ -78,36 +74,37 @@ export function createNotionOAuthProvider({
     },
 
     async saveCodeVerifier(codeVerifier: string) {
-      await store.setNotionCodeVerifier(codeVerifier);
+      await store.setOAuthCodeVerifier(id, codeVerifier);
     },
 
     async codeVerifier() {
-      const verifier = await store.getNotionCodeVerifier();
+      const verifier = await store.getOAuthCodeVerifier(id);
       if (!verifier) {
-        throw new Error("Missing PKCE code verifier for Notion OAuth flow.");
+        throw new Error(`Missing PKCE code verifier for ${config.label} OAuth flow.`);
       }
       return verifier;
     },
 
     async invalidateCredentials(scope) {
       if (scope === "all" || scope === "tokens") {
-        await store.setNotionTokens(undefined);
+        await store.setOAuthTokens(id, undefined);
       }
       if (scope === "all" || scope === "client") {
-        await store.setNotionClientInformation(undefined);
+        await store.setOAuthClientInformation(id, undefined);
       }
       if (scope === "all" || scope === "verifier") {
-        await store.setNotionCodeVerifier(undefined);
+        await store.setOAuthCodeVerifier(id, undefined);
       }
     },
   };
 }
 
-export async function waitForNotionOAuthAuthorizationCode(options: {
-  expectedState: string;
-  timeoutMs?: number;
-}): Promise<string> {
-  const timeoutMs = options.timeoutMs ?? 180_000;
+export async function waitForOAuthAuthorizationCode(
+  config: McpOAuthProviderConfig,
+  expectedState: string,
+  timeoutMs = 180_000,
+): Promise<string> {
+  const callbackUrl = getCallbackUrl(config);
 
   return await new Promise<string>((resolve, reject) => {
     let settled = false;
@@ -128,8 +125,8 @@ export async function waitForNotionOAuthAuthorizationCode(options: {
     }, timeoutMs);
 
     server = createServer((req, res) => {
-      const reqUrl = new URL(req.url ?? "/", NOTION_CALLBACK_URL);
-      if (reqUrl.pathname !== NOTION_CALLBACK_PATH) {
+      const reqUrl = new URL(req.url ?? "/", callbackUrl);
+      if (reqUrl.pathname !== config.callbackPath) {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
         res.end("Not found");
         return;
@@ -141,7 +138,7 @@ export async function waitForNotionOAuthAuthorizationCode(options: {
 
       if (error) {
         res.writeHead(400, { "content-type": "text/html; charset=utf-8" });
-        res.end(htmlPage("Notion connection failed", `OAuth returned error: ${error}`));
+        res.end(htmlPage(`${config.label} connection failed`, `OAuth returned error: ${error}`));
         clearTimeout(timeout);
         finish(() => reject(new Error(`OAuth error: ${error}`)));
         return;
@@ -149,20 +146,20 @@ export async function waitForNotionOAuthAuthorizationCode(options: {
 
       if (!code) {
         res.writeHead(400, { "content-type": "text/html; charset=utf-8" });
-        res.end(htmlPage("Notion connection failed", "Missing authorization code."));
+        res.end(htmlPage(`${config.label} connection failed`, "Missing authorization code."));
         return;
       }
 
-      if (!state || state !== options.expectedState) {
+      if (!state || state !== expectedState) {
         res.writeHead(400, { "content-type": "text/html; charset=utf-8" });
-        res.end(htmlPage("Notion connection failed", "OAuth state did not match the expected value."));
+        res.end(htmlPage(`${config.label} connection failed`, "OAuth state did not match the expected value."));
         clearTimeout(timeout);
         finish(() => reject(new Error("OAuth state mismatch.")));
         return;
       }
 
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(htmlPage("Notion connected", "Authorization complete."));
+      res.end(htmlPage(`${config.label} connected`, "Authorization complete."));
       clearTimeout(timeout);
       finish(() => resolve(code));
     });
@@ -172,6 +169,6 @@ export async function waitForNotionOAuthAuthorizationCode(options: {
       finish(() => reject(error));
     });
 
-    server.listen(NOTION_CALLBACK_PORT, NOTION_CALLBACK_HOST);
+    server.listen(config.callbackPort, CALLBACK_HOST);
   });
 }

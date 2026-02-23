@@ -8,14 +8,36 @@ import type {
 import type {
   CustomMcpServerRecord,
   IntegrationCredentialsFile,
-  LinearCredentialRecord,
-  NotionCredentialRecord,
+  OAuthCredentialRecord,
 } from "./types";
 
 const EMPTY_FILE: IntegrationCredentialsFile = { version: 1 };
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
+}
+
+/**
+ * Migrate legacy per-provider top-level fields into `oauthProviders`.
+ * Returns true if migration occurred (caller should persist).
+ */
+function migrateIfNeeded(data: IntegrationCredentialsFile): boolean {
+  let migrated = false;
+  const LEGACY_KEYS = ["notion", "linear"] as const;
+
+  for (const key of LEGACY_KEYS) {
+    const legacy = data[key];
+    if (!legacy) continue;
+
+    data.oauthProviders ??= {};
+    if (!data.oauthProviders[key]) {
+      data.oauthProviders[key] = legacy;
+    }
+    delete data[key];
+    migrated = true;
+  }
+
+  return migrated;
 }
 
 export class SecureCredentialStore {
@@ -68,6 +90,9 @@ export class SecureCredentialStore {
       if (!parsed || parsed.version !== 1) {
         return clone(EMPTY_FILE);
       }
+      if (migrateIfNeeded(parsed)) {
+        await this.writeFile(parsed);
+      }
       return parsed;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
@@ -90,119 +115,95 @@ export class SecureCredentialStore {
     await this.writeFile(next);
   }
 
-  async getNotionTokens(): Promise<OAuthTokens | undefined> {
+  // ── Generic OAuth provider methods ──
+
+  private providerRecord(data: IntegrationCredentialsFile, providerId: string): OAuthCredentialRecord {
+    return data.oauthProviders?.[providerId] ?? {};
+  }
+
+  private ensureProvider(data: IntegrationCredentialsFile, providerId: string): OAuthCredentialRecord {
+    data.oauthProviders ??= {};
+    data.oauthProviders[providerId] ??= {};
+    return data.oauthProviders[providerId];
+  }
+
+  async getOAuthTokens(providerId: string): Promise<OAuthTokens | undefined> {
     const data = await this.readFile();
-    return this.decryptJson<OAuthTokens>(data.notion?.tokensEncrypted);
+    return this.decryptJson<OAuthTokens>(this.providerRecord(data, providerId).tokensEncrypted);
   }
 
-  async setNotionTokens(tokens: OAuthTokens | undefined): Promise<void> {
+  async setOAuthTokens(providerId: string, tokens: OAuthTokens | undefined): Promise<void> {
     await this.mutate((current) => {
-      const notion: NotionCredentialRecord = current.notion ?? {};
-      notion.tokensEncrypted = tokens ? this.encryptJson(tokens) : undefined;
-      current.notion = notion;
+      const record = this.ensureProvider(current, providerId);
+      record.tokensEncrypted = tokens ? this.encryptJson(tokens) : undefined;
       return current;
     });
   }
 
-  async getNotionClientInformation(): Promise<OAuthClientInformationMixed | undefined> {
+  async getOAuthClientInformation(providerId: string): Promise<OAuthClientInformationMixed | undefined> {
     const data = await this.readFile();
-    return this.decryptJson<OAuthClientInformationMixed>(data.notion?.clientInformationEncrypted);
+    return this.decryptJson<OAuthClientInformationMixed>(this.providerRecord(data, providerId).clientInformationEncrypted);
   }
 
-  async setNotionClientInformation(info: OAuthClientInformationMixed | undefined): Promise<void> {
+  async setOAuthClientInformation(providerId: string, info: OAuthClientInformationMixed | undefined): Promise<void> {
     await this.mutate((current) => {
-      const notion: NotionCredentialRecord = current.notion ?? {};
-      notion.clientInformationEncrypted = info ? this.encryptJson(info) : undefined;
-      current.notion = notion;
+      const record = this.ensureProvider(current, providerId);
+      record.clientInformationEncrypted = info ? this.encryptJson(info) : undefined;
       return current;
     });
   }
 
-  async getNotionCodeVerifier(): Promise<string | undefined> {
+  async getOAuthCodeVerifier(providerId: string): Promise<string | undefined> {
     const data = await this.readFile();
-    return this.decryptString(data.notion?.codeVerifierEncrypted);
+    return this.decryptString(this.providerRecord(data, providerId).codeVerifierEncrypted);
   }
 
-  async setNotionCodeVerifier(verifier: string | undefined): Promise<void> {
+  async setOAuthCodeVerifier(providerId: string, verifier: string | undefined): Promise<void> {
     await this.mutate((current) => {
-      const notion: NotionCredentialRecord = current.notion ?? {};
-      notion.codeVerifierEncrypted = verifier ? this.encryptString(verifier) : undefined;
-      current.notion = notion;
+      const record = this.ensureProvider(current, providerId);
+      record.codeVerifierEncrypted = verifier ? this.encryptString(verifier) : undefined;
       return current;
     });
   }
 
-  async getNotionPendingState(): Promise<string | undefined> {
+  async getOAuthPendingState(providerId: string): Promise<string | undefined> {
     const data = await this.readFile();
-    return data.notion?.pendingState;
+    return this.providerRecord(data, providerId).pendingState;
   }
 
-  async setNotionPendingState(state: string | undefined): Promise<void> {
+  async setOAuthPendingState(providerId: string, state: string | undefined): Promise<void> {
     await this.mutate((current) => {
-      const notion: NotionCredentialRecord = current.notion ?? {};
-      notion.pendingState = state;
-      current.notion = notion;
+      const record = this.ensureProvider(current, providerId);
+      record.pendingState = state;
       return current;
     });
   }
 
-  async setNotionMetadata(input: { label?: string; lastConnectedAt?: number; lastError?: string }): Promise<void> {
+  async setOAuthMetadata(providerId: string, meta: { label?: string; lastConnectedAt?: number; lastError?: string }): Promise<void> {
     await this.mutate((current) => {
-      const notion: NotionCredentialRecord = current.notion ?? {};
-      notion.label = input.label;
-      notion.lastConnectedAt = input.lastConnectedAt;
-      notion.lastError = input.lastError;
-      current.notion = notion;
+      const record = this.ensureProvider(current, providerId);
+      record.label = meta.label;
+      record.lastConnectedAt = meta.lastConnectedAt;
+      record.lastError = meta.lastError;
       return current;
     });
   }
 
-  async clearNotion(): Promise<void> {
+  async clearOAuthProvider(providerId: string): Promise<void> {
     await this.mutate((current) => {
-      current.notion = {
-        label: current.notion?.label,
-        lastConnectedAt: undefined,
-        lastError: undefined,
-      };
+      const existing = current.oauthProviders?.[providerId];
+      if (current.oauthProviders) {
+        current.oauthProviders[providerId] = {
+          label: existing?.label,
+          lastConnectedAt: undefined,
+          lastError: undefined,
+        };
+      }
       return current;
     });
   }
 
-  async getLinearToken(): Promise<string | undefined> {
-    const data = await this.readFile();
-    return this.decryptString(data.linear?.tokenEncrypted);
-  }
-
-  async setLinearToken(token: string | undefined): Promise<void> {
-    await this.mutate((current) => {
-      const linear: LinearCredentialRecord = current.linear ?? {};
-      linear.tokenEncrypted = token ? this.encryptString(token) : undefined;
-      current.linear = linear;
-      return current;
-    });
-  }
-
-  async setLinearMetadata(input: { label?: string; lastConnectedAt?: number; lastError?: string }): Promise<void> {
-    await this.mutate((current) => {
-      const linear: LinearCredentialRecord = current.linear ?? {};
-      linear.label = input.label;
-      linear.lastConnectedAt = input.lastConnectedAt;
-      linear.lastError = input.lastError;
-      current.linear = linear;
-      return current;
-    });
-  }
-
-  async clearLinear(): Promise<void> {
-    await this.mutate((current) => {
-      current.linear = {
-        label: current.linear?.label,
-        lastConnectedAt: undefined,
-        lastError: undefined,
-      };
-      return current;
-    });
-  }
+  // ── Custom MCP server methods ──
 
   encryptToken(token: string): string {
     return this.encryptString(token);

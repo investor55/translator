@@ -451,14 +451,14 @@ export function App() {
     }
   }, [micCapture]);
 
-  const handleConnectNotionMcp = useCallback(async () => {
+  const handleConnectMcpProvider = useCallback(async (providerId: string) => {
     setMcpBusy(true);
     try {
-      const result = await window.electronAPI.connectNotionMcp();
+      const result = await window.electronAPI.connectMcpProvider(providerId);
       if (!result.ok) {
-        setRouteNotice(`Notion connection failed: ${result.error ?? "Unknown error"}`);
+        setRouteNotice(`${providerId} connection failed: ${result.error ?? "Unknown error"}`);
       } else {
-        setRouteNotice("Notion MCP connected.");
+        setRouteNotice(`${providerId} MCP connected.`);
       }
     } finally {
       await Promise.all([refreshMcpIntegrations(), refreshMcpToolsInfo()]);
@@ -466,47 +466,15 @@ export function App() {
     }
   }, [refreshMcpIntegrations, refreshMcpToolsInfo]);
 
-  const handleDisconnectNotionMcp = useCallback(async () => {
+  const handleDisconnectMcpProvider = useCallback(async (providerId: string) => {
     setMcpBusy(true);
     try {
-      const result = await window.electronAPI.disconnectNotionMcp();
+      const result = await window.electronAPI.disconnectMcpProvider(providerId);
       if (!result.ok) {
-        setRouteNotice(`Could not disconnect Notion: ${result.error ?? "Unknown error"}`);
+        setRouteNotice(`Could not disconnect ${providerId}: ${result.error ?? "Unknown error"}`);
       } else {
-        setRouteNotice("Notion MCP disconnected.");
+        setRouteNotice(`${providerId} MCP disconnected.`);
       }
-    } finally {
-      await Promise.all([refreshMcpIntegrations(), refreshMcpToolsInfo()]);
-      setMcpBusy(false);
-    }
-  }, [refreshMcpIntegrations, refreshMcpToolsInfo]);
-
-  const handleSetLinearToken = useCallback(async (token: string) => {
-    setMcpBusy(true);
-    try {
-      const result = await window.electronAPI.setLinearMcpToken(token);
-      if (!result.ok) {
-        setRouteNotice(`Linear connection failed: ${result.error ?? "Unknown error"}`);
-      } else {
-        setRouteNotice("Linear MCP connected.");
-      }
-      return result;
-    } finally {
-      await Promise.all([refreshMcpIntegrations(), refreshMcpToolsInfo()]);
-      setMcpBusy(false);
-    }
-  }, [refreshMcpIntegrations, refreshMcpToolsInfo]);
-
-  const handleClearLinearToken = useCallback(async () => {
-    setMcpBusy(true);
-    try {
-      const result = await window.electronAPI.clearLinearMcpToken();
-      if (!result.ok) {
-        setRouteNotice(`Could not disconnect Linear: ${result.error ?? "Unknown error"}`);
-      } else {
-        setRouteNotice("Linear MCP disconnected.");
-      }
-      return result;
     } finally {
       await Promise.all([refreshMcpIntegrations(), refreshMcpToolsInfo()]);
       setMcpBusy(false);
@@ -1511,10 +1479,8 @@ export function App() {
             onReset={() => setStoredAppConfig(DEFAULT_APP_CONFIG)}
             mcpIntegrations={mcpIntegrations}
             mcpBusy={mcpBusy}
-            onConnectNotionMcp={handleConnectNotionMcp}
-            onDisconnectNotionMcp={handleDisconnectNotionMcp}
-            onSetLinearToken={handleSetLinearToken}
-            onClearLinearToken={handleClearLinearToken}
+            onConnectProvider={handleConnectMcpProvider}
+            onDisconnectProvider={handleDisconnectMcpProvider}
             customMcpServers={customMcpServers}
             onAddCustomServer={handleAddCustomServer}
             onRemoveCustomServer={handleRemoveCustomServer}

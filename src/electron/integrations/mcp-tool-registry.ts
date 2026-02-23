@@ -6,16 +6,12 @@ import type { ListToolsResult } from "@modelcontextprotocol/sdk/types.js";
 import type { McpIntegrationStatus, McpIntegrationConnection, CustomMcpStatus, CustomMcpTransport, McpProviderToolSummary, McpToolInfo } from "../../core/types";
 import type { AgentExternalToolSet, AgentExternalToolProvider } from "../../core/agents/external-tools";
 import type { CustomMcpServerRecord } from "./types";
-import { log } from "../../core/logger";
-import {
-  createNotionOAuthProvider,
-  NOTION_MCP_URL,
-  NOTION_SSE_URL,
-  waitForNotionOAuthAuthorizationCode,
-} from "./notion-oauth-client";
+import type { McpOAuthProviderConfig } from "./mcp-oauth-providers";
+import { MCP_OAUTH_PROVIDERS, getProviderConfig } from "./mcp-oauth-providers";
+import { createOAuthProvider, waitForOAuthAuthorizationCode } from "./mcp-oauth-client";
 import { SecureCredentialStore } from "./secure-credential-store";
+import { log } from "../../core/logger";
 
-const LINEAR_MCP_URL = "https://mcp.linear.app/mcp";
 const CLIENT_INFO = {
   name: "ambient-mcp-client",
   version: "1.0.0",
@@ -29,7 +25,7 @@ type ProviderRuntime = {
   toolCache?: AgentExternalToolSet;
 };
 
-type NotionTransportKind = "streamable" | "sse";
+type TransportKind = "streamable" | "sse";
 
 export function isMutatingToolName(name: string): boolean {
   return MUTATING_NAME_PATTERN.test(name);
@@ -105,9 +101,131 @@ export function createMcpToolRegistry(options: {
 }) {
   const { enabled, store, openExternal } = options;
 
-  let notionRuntime: ProviderRuntime | undefined;
-  let linearRuntime: ProviderRuntime | undefined;
+  const oauthRuntimes = new Map<string, ProviderRuntime>();
   const customRuntimes = new Map<string, ProviderRuntime>();
+
+  // ── Generic OAuth runtime factories ──
+
+  function createOAuthRuntime(config: McpOAuthProviderConfig, kind: TransportKind): ProviderRuntime {
+    const provider = createOAuthProvider(config, store, openExternal);
+    const transport = kind === "streamable"
+      ? new StreamableHTTPClientTransport(new URL(config.mcpUrl), { authProvider: provider })
+      : new SSEClientTransport(new URL(config.sseUrl), { authProvider: provider });
+    const client = new Client(CLIENT_INFO);
+    return { client, transport };
+  }
+
+  async function authenticateOAuthRuntime(config: McpOAuthProviderConfig, runtime: ProviderRuntime, kind: TransportKind): Promise<void> {
+    try {
+      await runtime.client.connect(runtime.transport);
+      await runtime.client.listTools();
+      return;
+    } catch (error) {
+      if (!isUnauthorizedLike(error)) {
+        throw error;
+      }
+      log("INFO", `${config.label} ${kind} requested interactive OAuth authorization.`);
+    }
+
+    const expectedState = await store.getOAuthPendingState(config.id);
+    if (!expectedState) {
+      throw new Error("OAuth flow started but no pending state was recorded.");
+    }
+
+    const code = await waitForOAuthAuthorizationCode(config, expectedState);
+    log("INFO", `${config.label} OAuth callback received for ${kind}. Exchanging authorization code.`);
+    await runtime.transport.finishAuth(code);
+    await runtime.client.listTools();
+  }
+
+  async function ensureOAuthRuntime(config: McpOAuthProviderConfig): Promise<ProviderRuntime | undefined> {
+    if (!enabled) return undefined;
+    const tokens = await store.getOAuthTokens(config.id);
+    if (!tokens) return undefined;
+
+    const existing = oauthRuntimes.get(config.id);
+    if (existing) return existing;
+
+    const streamableRuntime = createOAuthRuntime(config, "streamable");
+    try {
+      await streamableRuntime.client.connect(streamableRuntime.transport);
+      await streamableRuntime.client.listTools();
+      oauthRuntimes.set(config.id, streamableRuntime);
+      return streamableRuntime;
+    } catch (streamableError) {
+      await closeRuntime(streamableRuntime);
+      log("WARN", `${config.label} streamable runtime unavailable, trying SSE fallback: ${formatError(streamableError)}`);
+    }
+
+    const sseRuntime = createOAuthRuntime(config, "sse");
+    await sseRuntime.client.connect(sseRuntime.transport);
+    await sseRuntime.client.listTools();
+    oauthRuntimes.set(config.id, sseRuntime);
+    return sseRuntime;
+  }
+
+  async function connectProvider(providerId: string): Promise<{ ok: boolean; error?: string }> {
+    if (!enabled) {
+      return { ok: false, error: "MCP integrations are disabled. Set MCP_INTEGRATIONS_ENABLED=true (or remove MCP_INTEGRATIONS_ENABLED=false)." };
+    }
+
+    const config = getProviderConfig(providerId);
+    if (!config) {
+      return { ok: false, error: `Unknown MCP OAuth provider: ${providerId}` };
+    }
+
+    try {
+      store.ensureEncryptionAvailable();
+      await closeRuntime(oauthRuntimes.get(providerId));
+      oauthRuntimes.delete(providerId);
+      await store.setOAuthPendingState(providerId, undefined);
+      await store.setOAuthCodeVerifier(providerId, undefined);
+      await store.setOAuthTokens(providerId, undefined);
+      await store.setOAuthClientInformation(providerId, undefined);
+      log("INFO", `Starting ${config.label} MCP connect using streamable transport.`);
+
+      let runtime = createOAuthRuntime(config, "streamable");
+      try {
+        await authenticateOAuthRuntime(config, runtime, "streamable");
+      } catch (streamableError) {
+        await closeRuntime(runtime);
+        log("WARN", `${config.label} streamable connect failed, trying SSE fallback: ${formatError(streamableError)}`);
+        runtime = createOAuthRuntime(config, "sse");
+        await authenticateOAuthRuntime(config, runtime, "sse");
+      }
+
+      await store.setOAuthPendingState(providerId, undefined);
+      await store.setOAuthCodeVerifier(providerId, undefined);
+      await store.setOAuthMetadata(providerId, {
+        label: "Connected",
+        lastConnectedAt: Date.now(),
+        lastError: undefined,
+      });
+
+      oauthRuntimes.set(providerId, runtime);
+      return { ok: true };
+    } catch (error) {
+      const message = formatError(error);
+      await store.setOAuthPendingState(providerId, undefined);
+      await store.setOAuthCodeVerifier(providerId, undefined);
+      await store.setOAuthMetadata(providerId, {
+        label: "Disconnected",
+        lastConnectedAt: undefined,
+        lastError: message,
+      });
+      log("ERROR", `${config.label} MCP connect failed: ${message}`);
+      return { ok: false, error: message };
+    }
+  }
+
+  async function disconnectProvider(providerId: string): Promise<{ ok: boolean; error?: string }> {
+    await closeRuntime(oauthRuntimes.get(providerId));
+    oauthRuntimes.delete(providerId);
+    await store.clearOAuthProvider(providerId);
+    return { ok: true };
+  }
+
+  // ── Custom MCP server methods ──
 
   function createCustomRuntime(record: CustomMcpServerRecord, token?: string): ProviderRuntime {
     const requestInit: RequestInit | undefined = token
@@ -118,248 +236,6 @@ export function createMcpToolRegistry(options: {
       : new SSEClientTransport(new URL(record.url), requestInit ? { requestInit } : {});
     const client = new Client(CLIENT_INFO);
     return { client, transport };
-  }
-
-  function createNotionRuntime(kind: NotionTransportKind): ProviderRuntime {
-    const provider = createNotionOAuthProvider({ store, openExternal });
-    const transport = kind === "streamable"
-      ? new StreamableHTTPClientTransport(new URL(NOTION_MCP_URL), {
-        authProvider: provider,
-      })
-      : new SSEClientTransport(new URL(NOTION_SSE_URL), {
-        authProvider: provider,
-      });
-    const client = new Client(CLIENT_INFO);
-    return { client, transport };
-  }
-
-  async function authenticateNotionRuntime(runtime: ProviderRuntime, kind: NotionTransportKind): Promise<void> {
-    try {
-      await runtime.client.connect(runtime.transport);
-      await runtime.client.listTools();
-      return;
-    } catch (error) {
-      if (!isUnauthorizedLike(error)) {
-        throw error;
-      }
-      log("INFO", `Notion ${kind} requested interactive OAuth authorization.`);
-    }
-
-    const expectedState = await store.getNotionPendingState();
-    if (!expectedState) {
-      throw new Error("OAuth flow started but no pending state was recorded.");
-    }
-
-    const code = await waitForNotionOAuthAuthorizationCode({ expectedState });
-    log("INFO", `Notion OAuth callback received for ${kind}. Exchanging authorization code.`);
-    await runtime.transport.finishAuth(code);
-    await runtime.client.listTools();
-  }
-
-  async function buildAgentToolsForProvider(
-    provider: AgentExternalToolProvider,
-    runtime: ProviderRuntime,
-  ): Promise<AgentExternalToolSet> {
-    if (runtime.toolCache) {
-      return runtime.toolCache;
-    }
-
-    const { tools } = await runtime.client.listTools();
-    const mapped: AgentExternalToolSet = {};
-
-    for (const tool of tools) {
-      const prefixedName = `${provider}__${tool.name}`;
-      const isMutating = classifyMutatingTool(provider, tool);
-
-      mapped[prefixedName] = {
-        name: prefixedName,
-        provider,
-        description: tool.description ?? `${provider} MCP tool: ${tool.name}`,
-        inputSchema: tool.inputSchema,
-        isMutating,
-        execute: async (input, execOptions) => {
-          const result = await runtime.client.callTool(
-            {
-              name: tool.name,
-              arguments: normalizeToolInput(input),
-            },
-            undefined,
-            { signal: execOptions.abortSignal },
-          );
-
-          if ("isError" in result && result.isError === true) {
-            const detail = extractCallToolErrorText(result);
-            throw new Error(
-              detail
-                ? `MCP tool "${tool.name}" returned an error: ${detail}`
-                : `MCP tool "${tool.name}" returned an error.`,
-            );
-          }
-
-          if ("structuredContent" in result && result.structuredContent != null) {
-            return result.structuredContent;
-          }
-          if ("toolResult" in result) {
-            return result.toolResult;
-          }
-          return result;
-        },
-      };
-    }
-
-    runtime.toolCache = mapped;
-    return mapped;
-  }
-
-  async function ensureLinearRuntime(): Promise<ProviderRuntime | undefined> {
-    if (!enabled) return undefined;
-    const token = await store.getLinearToken();
-    if (!token) return undefined;
-
-    if (linearRuntime) return linearRuntime;
-
-    const transport = new StreamableHTTPClientTransport(new URL(LINEAR_MCP_URL), {
-      requestInit: {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
-    });
-    const client = new Client(CLIENT_INFO);
-    await client.connect(transport);
-    linearRuntime = { client, transport };
-    return linearRuntime;
-  }
-
-  async function ensureNotionRuntime(): Promise<ProviderRuntime | undefined> {
-    if (!enabled) return undefined;
-    const tokens = await store.getNotionTokens();
-    if (!tokens) return undefined;
-
-    if (notionRuntime) return notionRuntime;
-
-    const streamableRuntime = createNotionRuntime("streamable");
-    try {
-      await streamableRuntime.client.connect(streamableRuntime.transport);
-      await streamableRuntime.client.listTools();
-      notionRuntime = streamableRuntime;
-      return notionRuntime;
-    } catch (streamableError) {
-      await closeRuntime(streamableRuntime);
-      log("WARN", `Notion streamable runtime unavailable, trying SSE fallback: ${formatError(streamableError)}`);
-    }
-
-    const sseRuntime = createNotionRuntime("sse");
-    await sseRuntime.client.connect(sseRuntime.transport);
-    await sseRuntime.client.listTools();
-    notionRuntime = sseRuntime;
-    return notionRuntime;
-  }
-
-  async function connectNotion(): Promise<{ ok: boolean; error?: string }> {
-    if (!enabled) {
-      return { ok: false, error: "MCP integrations are disabled. Set MCP_INTEGRATIONS_ENABLED=true (or remove MCP_INTEGRATIONS_ENABLED=false)." };
-    }
-
-    try {
-      store.ensureEncryptionAvailable();
-      await closeRuntime(notionRuntime);
-      notionRuntime = undefined;
-      await store.setNotionPendingState(undefined);
-      await store.setNotionCodeVerifier(undefined);
-      await store.setNotionTokens(undefined);
-      await store.setNotionClientInformation(undefined);
-      log("INFO", "Starting Notion MCP connect using streamable transport.");
-
-      let runtime = createNotionRuntime("streamable");
-      try {
-        await authenticateNotionRuntime(runtime, "streamable");
-      } catch (streamableError) {
-        await closeRuntime(runtime);
-        log("WARN", `Notion streamable connect failed, trying SSE fallback: ${formatError(streamableError)}`);
-        runtime = createNotionRuntime("sse");
-        await authenticateNotionRuntime(runtime, "sse");
-      }
-
-      await store.setNotionPendingState(undefined);
-      await store.setNotionCodeVerifier(undefined);
-      await store.setNotionMetadata({
-        label: "Connected",
-        lastConnectedAt: Date.now(),
-        lastError: undefined,
-      });
-
-      notionRuntime = runtime;
-      return { ok: true };
-    } catch (error) {
-      const message = formatError(error);
-      await store.setNotionPendingState(undefined);
-      await store.setNotionCodeVerifier(undefined);
-      await store.setNotionMetadata({
-        label: "Disconnected",
-        lastConnectedAt: undefined,
-        lastError: message,
-      });
-      log("ERROR", `Notion MCP connect failed: ${message}`);
-      return { ok: false, error: message };
-    }
-  }
-
-  async function disconnectNotion(): Promise<{ ok: boolean; error?: string }> {
-    await closeRuntime(notionRuntime);
-    notionRuntime = undefined;
-    await store.clearNotion();
-    return { ok: true };
-  }
-
-  async function setLinearToken(token: string): Promise<{ ok: boolean; error?: string }> {
-    if (!enabled) {
-      return { ok: false, error: "MCP integrations are disabled. Set MCP_INTEGRATIONS_ENABLED=true (or remove MCP_INTEGRATIONS_ENABLED=false)." };
-    }
-
-    try {
-      store.ensureEncryptionAvailable();
-      const trimmed = token.trim();
-      if (!trimmed) {
-        return { ok: false, error: "Linear token is required." };
-      }
-
-      await store.setLinearToken(trimmed);
-      await closeRuntime(linearRuntime);
-      linearRuntime = undefined;
-
-      const runtime = await ensureLinearRuntime();
-      if (!runtime) {
-        throw new Error("Could not initialize Linear MCP runtime.");
-      }
-
-      await runtime.client.listTools();
-      await store.setLinearMetadata({
-        label: "Connected",
-        lastConnectedAt: Date.now(),
-        lastError: undefined,
-      });
-
-      return { ok: true };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await store.setLinearMetadata({
-        label: "Disconnected",
-        lastConnectedAt: undefined,
-        lastError: message,
-      });
-      await closeRuntime(linearRuntime);
-      linearRuntime = undefined;
-      log("ERROR", `Linear MCP connect failed: ${message}`);
-      return { ok: false, error: message };
-    }
-  }
-
-  async function clearLinearToken(): Promise<{ ok: boolean; error?: string }> {
-    await closeRuntime(linearRuntime);
-    linearRuntime = undefined;
-    await store.clearLinear();
-    return { ok: true };
   }
 
   async function addCustomMcpServer(cfg: {
@@ -477,55 +353,106 @@ export function createMcpToolRegistry(options: {
     });
   }
 
+  // ── Shared tool building ──
+
+  async function buildAgentToolsForProvider(
+    provider: AgentExternalToolProvider,
+    runtime: ProviderRuntime,
+  ): Promise<AgentExternalToolSet> {
+    if (runtime.toolCache) {
+      return runtime.toolCache;
+    }
+
+    const { tools } = await runtime.client.listTools();
+    const mapped: AgentExternalToolSet = {};
+
+    for (const tool of tools) {
+      const prefixedName = `${provider}__${tool.name}`;
+      const isMutating = classifyMutatingTool(provider, tool);
+
+      mapped[prefixedName] = {
+        name: prefixedName,
+        provider,
+        description: tool.description ?? `${provider} MCP tool: ${tool.name}`,
+        inputSchema: tool.inputSchema,
+        isMutating,
+        execute: async (input, execOptions) => {
+          const result = await runtime.client.callTool(
+            {
+              name: tool.name,
+              arguments: normalizeToolInput(input),
+            },
+            undefined,
+            { signal: execOptions.abortSignal },
+          );
+
+          if ("isError" in result && result.isError === true) {
+            const detail = extractCallToolErrorText(result);
+            throw new Error(
+              detail
+                ? `MCP tool "${tool.name}" returned an error: ${detail}`
+                : `MCP tool "${tool.name}" returned an error.`,
+            );
+          }
+
+          if ("structuredContent" in result && result.structuredContent != null) {
+            return result.structuredContent;
+          }
+          if ("toolResult" in result) {
+            return result.toolResult;
+          }
+          return result;
+        },
+      };
+    }
+
+    runtime.toolCache = mapped;
+    return mapped;
+  }
+
+  // ── Status / tools / dispose ──
+
   async function getStatus(): Promise<McpIntegrationStatus[]> {
     const data = await store.readFile();
-    let notionHasTokens = false;
-    let linearHasToken = false;
+    const statuses: McpIntegrationStatus[] = [];
+
     let encryptionError: string | undefined;
+    const tokenResults = new Map<string, boolean>();
+
     try {
-      notionHasTokens = !!(await store.getNotionTokens());
-      linearHasToken = !!(await store.getLinearToken());
+      for (const config of MCP_OAUTH_PROVIDERS) {
+        const hasTokens = !!(await store.getOAuthTokens(config.id));
+        tokenResults.set(config.id, hasTokens);
+      }
     } catch (error) {
       encryptionError = error instanceof Error ? error.message : String(error);
     }
 
-    const notionState: McpIntegrationStatus = {
-      provider: "notion",
-      mode: "oauth",
-      enabled,
-      state: !enabled
-        ? "disconnected"
-        : encryptionError
-        ? "error"
-        : data.notion?.lastError
-        ? "error"
-        : notionHasTokens
-        ? "connected"
-        : "disconnected",
-      label: data.notion?.label,
-      error: encryptionError ?? data.notion?.lastError,
-      lastConnectedAt: data.notion?.lastConnectedAt,
-    };
+    for (const config of MCP_OAUTH_PROVIDERS) {
+      const record = data.oauthProviders?.[config.id];
+      const hasTokens = tokenResults.get(config.id) ?? false;
 
-    const linearState: McpIntegrationStatus = {
-      provider: "linear",
-      mode: "token",
-      enabled,
-      state: !enabled
-        ? "disconnected"
-        : encryptionError
-        ? "error"
-        : data.linear?.lastError
-        ? "error"
-        : linearHasToken
-        ? "connected"
-        : "disconnected",
-      label: data.linear?.label,
-      error: encryptionError ?? data.linear?.lastError,
-      lastConnectedAt: data.linear?.lastConnectedAt,
-    };
+      statuses.push({
+        provider: config.id,
+        mode: "oauth",
+        enabled,
+        mcpUrl: config.mcpUrl,
+        state: !enabled
+          ? "disconnected"
+          : encryptionError
+          ? "error"
+          : record?.lastError
+          ? "error"
+          : hasTokens
+          ? "connected"
+          : "disconnected",
+        label: record?.label ?? config.label,
+        error: encryptionError ?? record?.lastError,
+        lastConnectedAt: record?.lastConnectedAt,
+      });
+    }
 
-    return [notionState, linearState];
+    return statuses;
   }
 
   async function getExternalTools(): Promise<AgentExternalToolSet> {
@@ -533,34 +460,21 @@ export function createMcpToolRegistry(options: {
 
     const merged: AgentExternalToolSet = {};
 
-    try {
-      const runtime = await ensureNotionRuntime();
-      if (runtime) {
-        Object.assign(merged, await buildAgentToolsForProvider("notion", runtime));
+    for (const config of MCP_OAUTH_PROVIDERS) {
+      try {
+        const runtime = await ensureOAuthRuntime(config);
+        if (runtime) {
+          Object.assign(merged, await buildAgentToolsForProvider(config.id as AgentExternalToolProvider, runtime));
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await store.setOAuthMetadata(config.id, {
+          label: "Disconnected",
+          lastConnectedAt: undefined,
+          lastError: message,
+        });
+        log("WARN", `${config.label} MCP tools unavailable: ${message}`);
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await store.setNotionMetadata({
-        label: "Disconnected",
-        lastConnectedAt: undefined,
-        lastError: message,
-      });
-      log("WARN", `Notion MCP tools unavailable: ${message}`);
-    }
-
-    try {
-      const runtime = await ensureLinearRuntime();
-      if (runtime) {
-        Object.assign(merged, await buildAgentToolsForProvider("linear", runtime));
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await store.setLinearMetadata({
-        label: "Disconnected",
-        lastConnectedAt: undefined,
-        lastError: message,
-      });
-      log("WARN", `Linear MCP tools unavailable: ${message}`);
     }
 
     for (const [id, runtime] of customRuntimes) {
@@ -596,13 +510,18 @@ export function createMcpToolRegistry(options: {
       }
     }
 
-    // Use ensure* so saved credentials get a live runtime even before the first agent run.
-    const [notion, linear] = await Promise.all([
-      ensureNotionRuntime().catch(() => undefined),
-      ensureLinearRuntime().catch(() => undefined),
-    ]);
-    if (notion) await collectTools("notion", notion);
-    if (linear) await collectTools("linear", linear);
+    const runtimePromises = MCP_OAUTH_PROVIDERS.map((config) =>
+      ensureOAuthRuntime(config).catch(() => undefined),
+    );
+    const runtimes = await Promise.all(runtimePromises);
+
+    for (let i = 0; i < MCP_OAUTH_PROVIDERS.length; i++) {
+      const runtime = runtimes[i];
+      if (runtime) {
+        await collectTools(MCP_OAUTH_PROVIDERS[i].id, runtime);
+      }
+    }
+
     for (const [id, runtime] of customRuntimes) {
       await collectTools(`custom:${id}`, runtime);
     }
@@ -611,10 +530,10 @@ export function createMcpToolRegistry(options: {
   }
 
   async function dispose(): Promise<void> {
-    await closeRuntime(notionRuntime);
-    notionRuntime = undefined;
-    await closeRuntime(linearRuntime);
-    linearRuntime = undefined;
+    for (const [id, runtime] of oauthRuntimes) {
+      await closeRuntime(runtime);
+      oauthRuntimes.delete(id);
+    }
     for (const [id, runtime] of customRuntimes) {
       await closeRuntime(runtime);
       customRuntimes.delete(id);
@@ -623,10 +542,8 @@ export function createMcpToolRegistry(options: {
 
   return {
     enabled,
-    connectNotion,
-    disconnectNotion,
-    setLinearToken,
-    clearLinearToken,
+    connectProvider,
+    disconnectProvider,
     getStatus,
     getExternalTools,
     dispose,

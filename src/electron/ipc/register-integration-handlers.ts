@@ -6,20 +6,12 @@ export function registerIntegrationHandlers(integrations: IntegrationManager) {
     return integrations.getStatus();
   });
 
-  ipcMain.handle("connect-notion-mcp", async () => {
-    return integrations.connectNotion();
+  ipcMain.handle("connect-mcp-provider", async (_event, providerId: string) => {
+    return integrations.connectProvider(providerId);
   });
 
-  ipcMain.handle("disconnect-notion-mcp", async () => {
-    return integrations.disconnectNotion();
-  });
-
-  ipcMain.handle("set-linear-mcp-token", async (_event, token: string) => {
-    return integrations.setLinearToken(token);
-  });
-
-  ipcMain.handle("clear-linear-mcp-token", async () => {
-    return integrations.clearLinearToken();
+  ipcMain.handle("disconnect-mcp-provider", async (_event, providerId: string) => {
+    return integrations.disconnectProvider(providerId);
   });
 
   ipcMain.handle("add-custom-mcp-server", async (_event, cfg: { name: string; url: string; transport: "streamable" | "sse"; bearerToken?: string }) => {

@@ -22,10 +22,8 @@ export function createIntegrationManager(userDataPath: string): IntegrationManag
   return {
     enabled,
     getStatus: registry.getStatus,
-    connectNotion: registry.connectNotion,
-    disconnectNotion: registry.disconnectNotion,
-    setLinearToken: registry.setLinearToken,
-    clearLinearToken: registry.clearLinearToken,
+    connectProvider: registry.connectProvider,
+    disconnectProvider: registry.disconnectProvider,
     getExternalTools: registry.getExternalTools,
     dispose: registry.dispose,
     addCustomMcpServer: registry.addCustomMcpServer,

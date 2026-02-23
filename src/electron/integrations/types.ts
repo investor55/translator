@@ -5,20 +5,11 @@ import type {
 import type { McpIntegrationStatus, CustomMcpTransport, CustomMcpStatus, McpProviderToolSummary } from "../../core/types";
 import type { AgentExternalToolSet } from "../../core/agents/external-tools";
 
-export type IntegrationProvider = "notion" | "linear";
-
-export type NotionCredentialRecord = {
+export type OAuthCredentialRecord = {
   tokensEncrypted?: string;
   clientInformationEncrypted?: string;
   codeVerifierEncrypted?: string;
   pendingState?: string;
-  label?: string;
-  lastConnectedAt?: number;
-  lastError?: string;
-};
-
-export type LinearCredentialRecord = {
-  tokenEncrypted?: string;
   label?: string;
   lastConnectedAt?: number;
   lastError?: string;
@@ -37,25 +28,25 @@ export type CustomMcpServerRecord = {
 
 export type IntegrationCredentialsFile = {
   version: 1;
-  notion?: NotionCredentialRecord;
-  linear?: LinearCredentialRecord;
+  oauthProviders?: Record<string, OAuthCredentialRecord>;
   customServers?: CustomMcpServerRecord[];
+  /** @deprecated Old per-provider fields — migrated on first read. */
+  notion?: OAuthCredentialRecord;
+  /** @deprecated Old per-provider fields — migrated on first read. */
+  linear?: OAuthCredentialRecord;
 };
 
 export type IntegrationSecretPayload = {
   tokens?: OAuthTokens;
   clientInformation?: OAuthClientInformationMixed;
   codeVerifier?: string;
-  linearToken?: string;
 };
 
 export type IntegrationManager = {
   readonly enabled: boolean;
   getStatus: () => Promise<McpIntegrationStatus[]>;
-  connectNotion: () => Promise<{ ok: boolean; error?: string }>;
-  disconnectNotion: () => Promise<{ ok: boolean; error?: string }>;
-  setLinearToken: (token: string) => Promise<{ ok: boolean; error?: string }>;
-  clearLinearToken: () => Promise<{ ok: boolean; error?: string }>;
+  connectProvider: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  disconnectProvider: (id: string) => Promise<{ ok: boolean; error?: string }>;
   getExternalTools: () => Promise<AgentExternalToolSet>;
   dispose: () => Promise<void>;
   addCustomMcpServer: (cfg: { name: string; url: string; transport: CustomMcpTransport; bearerToken?: string }) => Promise<{ ok: boolean; error?: string; id?: string }>;
