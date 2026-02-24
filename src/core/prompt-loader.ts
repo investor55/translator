@@ -4,7 +4,7 @@ import path from "node:path";
 const SUMMARY_PROMPT_PATH = path.join("prompts", "summary", "system.md");
 const INSIGHTS_PROMPT_PATH = path.join("prompts", "insights", "system.md");
 const ANALYSIS_REQUEST_PROMPT_PATH = path.join("prompts", "analysis", "request.md");
-const TASK_EXTRACT_PROMPT_PATH = path.join("prompts", "task", "extract.md");
+const AGENT_SUGGESTION_PROMPT_PATH = path.join("prompts", "task", "extract.md");
 const TASK_FROM_SELECTION_PROMPT_PATH = path.join("prompts", "task", "from-selection.md");
 const TASK_SHARED_PROMPT_PATH = path.join("prompts", "task", "shared.md");
 const TASK_SIZE_CLASSIFIER_PROMPT_PATH = path.join("prompts", "task", "size-classifier.md");
@@ -52,14 +52,11 @@ Bad examples:
 
 const DEFAULT_ANALYSIS_REQUEST_PROMPT = `{{summary_system_prompt}}
 
-{{insights_system_prompt}}
-
 Recent transcript:
-{{transcript}}{{previous_key_points_section}}{{previous_insights_section}}
+{{transcript}}{{previous_key_points_section}}
 
 Grounding requirements:
 - Use only information from the transcript and previous key points from THIS session.
-- Use previous educational insights from THIS session to avoid repeating the same insight.
 - Do not use memory from prior sessions.
 - Avoid duplicating previous key points unless the new transcript adds materially new detail.
 - If transcript details are sparse, return fewer items rather than inventing details.`;
@@ -84,29 +81,31 @@ const DEFAULT_TASK_CREATION_SHARED_PROMPT = `Shared task creation standard (appl
 - Preserve concrete facts from transcript and user intent.
 - If critical details are missing, state assumptions explicitly.`;
 
-const DEFAULT_TASK_EXTRACT_PROMPT = `You extract tasks from live conversation transcripts.
+const DEFAULT_AGENT_SUGGESTION_PROMPT = `You are an AI assistant watching a live conversation over someone's shoulder. Your job is to proactively offer to help — research, draft, flag risks, or follow up on loose threads.
 
 Recent transcript:
-{{transcript}}{{existing_tasks_section}}{{historical_suggestions_section}}
+{{transcript}}{{existing_tasks_section}}{{historical_suggestions_section}}{{key_points_section}}{{educational_context_section}}
 
-Task:
-- Extract only clear tasks, action items, or follow-ups.
-- Suggest tasks when there is explicit intent, commitment, or concrete planning (for example: "I need to", "we should", "add a task", "remind me to", "don't forget to", "I'm planning to", "I'm going to", "I'm looking to", "I want to", "I wanna").
-- Treat first-person planning statements as actionable tasks even when dates are not fixed yet.
-- Treat travel planning and scheduling intent as tasks (for example: "I'm planning to visit X", "we should decide where else to go", "need to book X").
-- Skip vague brainstorming and informational statements without a clear next action.
-- Prioritize impactful next steps over shallow restatements. If a candidate is too broad, reframe it into a deeper exploratory prompt (for example: "Dive into whether X is the right approach?").
+Your role:
+- Watch the conversation and offer to DO things, not just observe.
+- Every suggestion must be phrased as a conversational question the agent can act on.
+- Prioritize: research gaps, conflicts/risks, drafting opportunities, and followups on loose threads.
+- Use educational context to make informed offers (e.g. "You mentioned X — did you know Y? Want me to dig deeper?").
+
+Rules:
+- Return 0-3 suggestions. Quality over quantity. Return empty when nothing warrants an offer.
+- Every suggestion must be something the agent can actually DO if accepted (search, draft, compare, verify, etc.).
+- Phrase each suggestion as a question: "Want me to…?", "Should I…?", "I noticed X — shall I check?".
+- Do NOT duplicate existing tasks or historical suggestions.
+- Do NOT suggest things that are purely observational or passive.
 - Ignore bracketed non-speech tags like [silence], [music], [noise], [laughs].
-- Preserve details exactly: names, places, dates, times, constraints.
-- Merge fragments across neighboring lines into one complete task.
-- Follow this shared task creation standard:
-{{task_creation_shared_rules}}
-- For each task, return:
-  - taskTitle: short high-impact action phrase.
-  - taskDetails: output exactly in the shared structure above.
-  - transcriptExcerpt: short verbatim excerpt from the transcript that grounds the task.
-- Do NOT duplicate existing tasks or historical suggestions that are semantically similar.
-- Return an empty list when no clear actionable task was discussed.`;
+- Preserve specifics: names, places, dates, numbers, constraints.
+
+For each suggestion, return:
+  - kind: "research" | "action" | "insight" | "flag" | "followup"
+  - text: the conversational offer (question form).
+  - details: brief rationale or context (optional).
+  - transcriptExcerpt: short verbatim excerpt grounding the suggestion (optional).`;
 
 const DEFAULT_TASK_FROM_SELECTION_PROMPT = `You convert highlighted transcript text into one concrete task.
 
@@ -303,9 +302,12 @@ export function getAnalysisRequestPromptTemplate(): string {
   return loadPrompt(ANALYSIS_REQUEST_PROMPT_PATH, DEFAULT_ANALYSIS_REQUEST_PROMPT);
 }
 
-export function getTaskExtractPromptTemplate(): string {
-  return loadPrompt(TASK_EXTRACT_PROMPT_PATH, DEFAULT_TASK_EXTRACT_PROMPT);
+export function getAgentSuggestionPromptTemplate(): string {
+  return loadPrompt(AGENT_SUGGESTION_PROMPT_PATH, DEFAULT_AGENT_SUGGESTION_PROMPT);
 }
+
+/** @deprecated Use getAgentSuggestionPromptTemplate instead */
+export const getTaskExtractPromptTemplate = getAgentSuggestionPromptTemplate;
 
 export function getTaskCreationSharedPromptTemplate(): string {
   return loadPrompt(TASK_SHARED_PROMPT_PATH, DEFAULT_TASK_CREATION_SHARED_PROMPT);

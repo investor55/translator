@@ -1,14 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocalStorage } from "usehooks-ts";
-import type { TaskItem, TaskSuggestion, Agent } from "../../../core/types";
+import type { TaskItem, TaskSuggestion, SuggestionKind, Agent } from "../../../core/types";
 import {
   ChevronDownIcon,
-  CheckIcon,
   XIcon,
   LoaderCircleIcon,
   PlayIcon,
   Trash2Icon,
   ZapIcon,
+  SearchIcon,
+  PencilIcon,
+  LightbulbIcon,
+  AlertTriangleIcon,
+  ListChecksIcon,
 } from "lucide-react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { WorkoutRunIcon } from "@hugeicons/core-free-icons";
@@ -24,7 +28,15 @@ import { AgentDebriefPanel } from "./agent-debrief-panel";
 import { useAgentsSummary } from "../hooks/use-agents-summary";
 import { SectionLabel } from "@/components/ui/section-label";
 
-const SUGGESTION_TTL_MS = 30_000;
+const SUGGESTION_TTL_MS = 60_000;
+
+const SUGGESTION_KIND_ICONS: Record<SuggestionKind, typeof SearchIcon> = {
+  research: SearchIcon,
+  action: PencilIcon,
+  insight: LightbulbIcon,
+  flag: AlertTriangleIcon,
+  followup: ListChecksIcon,
+};
 type RightRailMode = "work" | "agents";
 
 type RightSidebarProps = {
@@ -98,22 +110,25 @@ function SuggestionItem({
     };
   }, [suggestion.createdAt, onDismiss]);
 
+  const KindIcon = suggestion.kind ? SUGGESTION_KIND_ICONS[suggestion.kind] : SearchIcon;
+
   return (
     <li
       className="relative overflow-hidden border-l-2 border-l-primary/40 bg-primary/5 transition-opacity duration-500"
       style={{ opacity }}
     >
-      <div className="flex items-center gap-2 h-7 px-2 relative z-10">
-        <span className="text-xs text-foreground truncate flex-1">
+      <div className="flex items-start gap-2 min-h-7 py-1.5 px-2 relative z-10">
+        <KindIcon className="size-3 shrink-0 text-muted-foreground mt-0.5" />
+        <span className="text-xs text-foreground flex-1 break-words">
           {suggestion.text}
         </span>
         <button
           type="button"
           onClick={onAccept}
           className="shrink-0 p-0.5 text-primary hover:text-primary/80 transition-colors"
-          aria-label="Accept suggestion"
+          aria-label="Go"
         >
-          <CheckIcon className="size-3" />
+          <PlayIcon className="size-3" />
         </button>
         <button
           type="button"

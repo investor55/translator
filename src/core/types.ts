@@ -119,11 +119,14 @@ export type TaskItem = Readonly<{
 
 export type TaskSize = "small" | "large";
 
+export type SuggestionKind = "research" | "action" | "insight" | "flag" | "followup";
+
 export type TaskSuggestion = Readonly<{
   id: string;
   text: string;
   details?: string;
   transcriptExcerpt?: string;
+  kind?: SuggestionKind;
   sessionId?: string;
   createdAt: number;
 }>;
@@ -586,8 +589,6 @@ export type SessionEvents = {
   "task-added": [task: TaskItem];
   "task-updated": [task: TaskItem];
   "task-suggested": [suggestion: TaskSuggestion];
-  "insight-added": [insight: Insight];
-  "insights-updated": [insights: Insight[]];
   "agent-started": [agent: Agent];
   "agent-step": [agentId: string, step: AgentStep];
   "agent-completed": [agentId: string, result: string];

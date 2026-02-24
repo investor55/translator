@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocalStorage } from "usehooks-ts";
-import type { Insight, ProjectMeta, SessionMeta } from "../../../core/types";
+import type { ProjectMeta, SessionMeta } from "../../../core/types";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,13 +12,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { BookOpen, Info, Link2, MoreHorizontal, Star, Zap } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
 import { SectionLabel } from "@/components/ui/section-label";
 
 type LeftSidebarProps = {
   rollingKeyPoints: string[];
-  insights: Insight[];
   sessions: SessionMeta[];
   activeSessionId?: string | null;
   onSelectSession?: (sessionId: string) => void;
@@ -48,19 +46,6 @@ function formatDate(ms: number): string {
   yesterday.setDate(yesterday.getDate() - 1);
   if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-const INSIGHT_ICONS: Record<string, LucideIcon> = {
-  definition: BookOpen,
-  context: Link2,
-  fact: Info,
-  tip: Zap,
-  "key-point": Star,
-};
-
-function InsightIcon({ kind }: { kind: string }) {
-  const Icon = INSIGHT_ICONS[kind];
-  return Icon ? <Icon className="size-3" /> : <span>·</span>;
 }
 
 function normalizeListText(text: string): string {
@@ -105,7 +90,6 @@ function RailModeButton({
 
 export function LeftSidebar({
   rollingKeyPoints,
-  insights,
   sessions,
   activeSessionId,
   onSelectSession,
@@ -144,19 +128,6 @@ export function LeftSidebar({
     }
     return [...unique].reverse();
   }, [rollingKeyPoints]);
-  const visibleInsights = useMemo(() => {
-    const seen = new Set<string>();
-    const unique: Insight[] = [];
-    for (const insight of insights) {
-      const text = insight.text.trim().replace(/\s+/g, " ");
-      if (!text) continue;
-      const key = `${insight.kind}:${normalizeListText(text)}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      unique.push({ ...insight, text });
-    }
-    return [...unique].reverse();
-  }, [insights]);
 
   function openCreateForm() {
     setFormName("");
@@ -295,7 +266,7 @@ export function LeftSidebar({
 
       <div className="px-3 py-2.5 flex-1 min-h-0 flex flex-col">
         {mode === "briefing" ? (
-          <div className="flex-1 min-h-0 flex flex-col gap-3">
+          <div className="flex-1 min-h-0 flex flex-col">
             <section className="min-h-0 flex-1 flex flex-col">
               <SectionLabel className="mb-2">Live Summary</SectionLabel>
               <div className="min-h-0 flex-1 overflow-y-auto pr-1">
@@ -311,28 +282,6 @@ export function LeftSidebar({
                 ) : (
                   <p className="text-xs text-muted-foreground italic">
                     Summary will appear during recording...
-                  </p>
-                )}
-              </div>
-            </section>
-            <Separator className="shrink-0" />
-            <section className="min-h-0 flex-1 flex flex-col">
-              <SectionLabel className="mb-2">Insights</SectionLabel>
-              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                {visibleInsights.length > 0 ? (
-                  <ul className="space-y-1.5">
-                    {visibleInsights.map((insight) => (
-                      <li key={insight.id} className="text-xs leading-relaxed flex gap-1.5 items-start">
-                        <span className="text-muted-foreground shrink-0">
-                          <InsightIcon kind={insight.kind} />
-                        </span>
-                        <span className="text-foreground">{insight.text}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-xs text-muted-foreground italic">
-                    AI insights will appear here...
                   </p>
                 )}
               </div>

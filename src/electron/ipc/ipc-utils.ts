@@ -117,10 +117,6 @@ export function wireSessionEvents(
     if (!isCurrentSession()) return;
     sendToRenderer(getWindow, "session:task-suggested", suggestion);
   });
-  activeSession.events.on("insight-added", (insight) => {
-    if (!isCurrentSession()) return;
-    sendToRenderer(getWindow, "session:insight-added", insight);
-  });
   activeSession.events.on("agent-started", (agent: Agent) => {
     if (!isCurrentSession()) return;
     sendToRenderer(getWindow, "session:agent-started", agent);

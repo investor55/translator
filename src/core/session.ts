@@ -26,14 +26,14 @@ import { pcmToWavBuffer, computeRms } from "./audio/audio-utils";
 import { isLikelyDuplicateTaskText, normalizeTaskText, toReadableError } from "./text/text-utils";
 import {
   analysisSchema,
-  taskAnalysisSchema,
-  type TaskExtractSuggestion,
+  agentSuggestionSchema,
+  type AgentSuggestionItem,
   taskFromSelectionSchema,
   finalSummarySchema,
   agentsSummarySchema,
   sessionTitleSchema,
   buildAnalysisPrompt,
-  buildTaskPrompt,
+  buildAgentSuggestionPrompt,
   buildTaskFromSelectionPrompt,
   buildFinalSummaryPrompt,
   buildAgentsSummaryPrompt,
@@ -121,6 +121,7 @@ type TaskSuggestionDraft = {
   text: string;
   details?: string;
   transcriptExcerpt?: string;
+  kind?: import("./types").SuggestionKind;
 };
 
 function stringifyErrorPart(value: unknown): string | null {
@@ -261,7 +262,7 @@ export class Session {
   private readonly analysisDebounceMs = 300;
   private readonly analysisHeartbeatMs = 5000;
   private readonly analysisRetryDelayMs = 2000;
-  private readonly taskAnalysisIntervalMs = 10_000;
+  private readonly taskAnalysisIntervalMs = 60_000;
   private readonly taskAnalysisMaxBlocks = 60;
   private recentSuggestedTaskTexts: string[] = [];
   private taskScanRequested = false;
@@ -2035,7 +2036,6 @@ export class Session {
     const startTime = Date.now();
     let analysisElapsedMs = 0;
     let analysisKeyPointsCount = 0;
-    let analysisInsightsCount = 0;
     let taskAnalysisRan = false;
     let taskSuggestionsEmitted = 0;
     let emittedTaskSuggestions: TaskSuggestion[] = [];
@@ -2053,7 +2053,6 @@ export class Session {
         const analysisPrompt = buildAnalysisPrompt(
           recentBlocks,
           previousKeyPoints,
-          previousEducationalInsights.slice(-20),
         );
 
         const analysisProvider = this.config.analysisProvider;
@@ -2096,31 +2095,6 @@ export class Session {
         }
         this.lastSummary = { keyPoints: analysisResult.keyPoints, updatedAt: Date.now() };
         this.events.emit("summary-updated", this.lastSummary);
-
-        // Emit educational insights (dedupe against prior session insights + this analysis batch)
-        const seenEducationalInsights = new Set(
-          previousEducationalInsights.map((text) => normalizeInsightText(text)),
-        );
-        analysisInsightsCount = 0;
-        for (const item of analysisResult.educationalInsights) {
-          const normalized = normalizeInsightText(item.text);
-          if (!normalized || seenEducationalInsights.has(normalized)) {
-            continue;
-          }
-          seenEducationalInsights.add(normalized);
-          const text = item.text.trim().replace(/\s+/g, " ");
-          const insight: Insight = {
-            id: crypto.randomUUID(),
-            kind: item.kind,
-            text,
-            sessionId: this.sessionId,
-            createdAt: Date.now(),
-          };
-          this.db?.insertInsight(insight);
-          this.contextState.allEducationalInsights.push(text);
-          this.events.emit("insight-added", insight);
-          analysisInsightsCount += 1;
-        }
       }
 
       let taskSuggestions: TaskSuggestionDraft[] = [];
@@ -2141,15 +2115,17 @@ export class Session {
         this.lastTaskAnalysisAt = now;
 
         try {
-          const taskPrompt = buildTaskPrompt(
+          const suggestionPrompt = buildAgentSuggestionPrompt(
             taskBlocks,
             existingTasks,
             this.recentSuggestedTaskTexts,
+            previousKeyPoints,
+            previousEducationalInsights.slice(-20),
           );
-          const { object: taskResult, usage: taskUsage } = await generateObject({
+          const { object: suggestionResult, usage: taskUsage } = await generateObject({
             model: this.taskModel,
-            schema: taskAnalysisSchema,
-            prompt: taskPrompt,
+            schema: agentSuggestionSchema,
+            prompt: suggestionPrompt,
             temperature: 0,
           });
 
@@ -2161,19 +2137,19 @@ export class Session {
             "openrouter"
           );
           this.events.emit("cost-updated", totalWithTask);
-          taskSuggestions = taskResult.suggestedTasks
-            .map((raw) => this.normalizeTaskSuggestion(raw, taskBlocks))
+          taskSuggestions = suggestionResult.suggestions
+            .map((raw) => this.normalizeAgentSuggestion(raw))
             .filter((candidate): candidate is TaskSuggestionDraft => candidate !== null);
           this.lastTaskAnalysisBlockCount = analysisTargetBlockCount;
         } catch (taskError) {
           if (this.config.debug) {
-            log("WARN", `Task extraction failed: ${toReadableError(taskError)}`);
+            log("WARN", `Agent suggestion generation failed: ${toReadableError(taskError)}`);
           }
         }
       }
 
       if (this.config.debug) {
-        log("INFO", `Analysis response: ${analysisElapsedMs}ms, keyPoints=${analysisKeyPointsCount}, insights=${analysisInsightsCount}, tasks=${taskSuggestions.length}`);
+        log("INFO", `Analysis response: ${analysisElapsedMs}ms, keyPoints=${analysisKeyPointsCount}, suggestions=${taskSuggestions.length}`);
       }
 
       // Emit task suggestions (not auto-added — user must accept)
@@ -2199,8 +2175,8 @@ export class Session {
         this.events.emit(
           "status",
           taskAnalysisRan
-            ? `Task scan complete: ${taskSuggestionsEmitted} suggestion${suffix}.`
-            : "Task scan skipped."
+            ? `Suggestion scan complete: ${taskSuggestionsEmitted} suggestion${suffix}.`
+            : "Suggestion scan skipped."
         );
         setTimeout(() => this.events.emit("status", ""), 3000);
       }
@@ -2209,7 +2185,7 @@ export class Session {
         log("WARN", `Analysis failed: ${toReadableError(error)}`);
       }
       if (forceTaskAnalysis) {
-        this.events.emit("status", `Task scan failed: ${toReadableError(error)}`);
+        this.events.emit("status", `Suggestion scan failed: ${toReadableError(error)}`);
         setTimeout(() => this.events.emit("status", ""), 5000);
       }
     } finally {
@@ -2273,6 +2249,7 @@ export class Session {
       text: normalized,
       details: candidate.details?.trim() || undefined,
       transcriptExcerpt: candidate.transcriptExcerpt?.trim() || undefined,
+      kind: candidate.kind,
       sessionId: this.sessionId,
       createdAt: Date.now(),
     };
@@ -2284,122 +2261,17 @@ export class Session {
     return suggestion;
   }
 
-  private normalizeTaskSuggestion(
-    rawSuggestion: TaskExtractSuggestion,
-    taskBlocks: readonly TranscriptBlock[],
+  private normalizeAgentSuggestion(
+    rawSuggestion: AgentSuggestionItem,
   ): TaskSuggestionDraft | null {
-    if (typeof rawSuggestion === "string") {
-      const text = rawSuggestion.trim();
-      if (!text) return null;
-      return {
-        text,
-        ...this.buildTaskSuggestionFallbackContext(text, taskBlocks),
-      };
-    }
-
-    const text = rawSuggestion.taskTitle.trim();
+    const text = rawSuggestion.text.trim();
     if (!text) return null;
-    const details = rawSuggestion.taskDetails?.trim();
-    const transcriptExcerpt = rawSuggestion.transcriptExcerpt?.trim();
-    const fallback = this.buildTaskSuggestionFallbackContext(text, taskBlocks);
     return {
       text,
-      details: details || fallback.details,
-      transcriptExcerpt: transcriptExcerpt || fallback.transcriptExcerpt,
+      kind: rawSuggestion.kind,
+      details: rawSuggestion.details?.trim() || undefined,
+      transcriptExcerpt: rawSuggestion.transcriptExcerpt?.trim() || undefined,
     };
   }
 
-  private buildTaskSuggestionFallbackContext(
-    taskText: string,
-    taskBlocks: readonly TranscriptBlock[],
-  ): Pick<TaskSuggestionDraft, "details" | "transcriptExcerpt"> {
-    if (taskBlocks.length === 0) {
-      return {};
-    }
-
-    const relevantBlocks = this.selectRelevantTaskBlocks(taskText, taskBlocks);
-    const transcriptExcerpt = relevantBlocks
-      .map((block) => {
-        const source = `[${block.audioSource}] ${block.sourceText}`;
-        const translation = block.translation ? ` → ${block.translation}` : "";
-        return source + translation;
-      })
-      .join("\n")
-      .trim();
-
-    if (!transcriptExcerpt) {
-      return {};
-    }
-
-    return {
-      details: [
-        "Rough thinking:",
-        "- Derived from a live transcript task scan.",
-        "- Prioritize explicit commitments and planning intent from the excerpt.",
-        "",
-        "Rough plan:",
-        "- Confirm scope from the transcript excerpt.",
-        "- Execute one focused action for this task.",
-        "- Report outcome and unresolved blockers.",
-        "",
-        "Questions for user:",
-        "- What output format should the final result use?",
-        "- Any hard deadline or priority constraints to respect?",
-        "",
-        "Done when:",
-        "- The core action is completed or a decision is documented.",
-        "- Output includes evidence from transcript context.",
-        "",
-        "Constraints:",
-        "- Preserve names, dates, places, and boundaries from the excerpt.",
-      ].join("\n"),
-      transcriptExcerpt,
-    };
-  }
-
-  private selectRelevantTaskBlocks(
-    taskText: string,
-    taskBlocks: readonly TranscriptBlock[],
-  ): TranscriptBlock[] {
-    if (taskBlocks.length <= 3) {
-      return [...taskBlocks];
-    }
-
-    const taskTokens = normalizeTaskText(taskText)
-      .split(" ")
-      .filter((token) => token.length >= 3);
-    if (taskTokens.length === 0) {
-      return [...taskBlocks.slice(-3)];
-    }
-
-    const scored = taskBlocks
-      .map((block) => {
-        const searchableText = normalizeTaskText(
-          `${block.sourceText} ${block.translation ?? ""}`,
-        );
-        const score = taskTokens.reduce((acc, token) => (
-          searchableText.includes(token) ? acc + 1 : acc
-        ), 0);
-        return { block, score };
-      })
-      .filter((item) => item.score > 0)
-      .sort((left, right) => {
-        if (right.score !== left.score) return right.score - left.score;
-        if (right.block.createdAt !== left.block.createdAt) {
-          return right.block.createdAt - left.block.createdAt;
-        }
-        return right.block.id - left.block.id;
-      })
-      .slice(0, 3)
-      .map((item) => item.block);
-
-    if (scored.length === 0) {
-      return [...taskBlocks.slice(-3)];
-    }
-
-    return scored.sort((left, right) => {
-      if (left.createdAt !== right.createdAt) return left.createdAt - right.createdAt;
-      return left.id - right.id;
-    });
-  }
 }

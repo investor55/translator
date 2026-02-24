@@ -11,7 +11,6 @@ import type {
   TaskItem,
   TaskSize,
   TaskSuggestion,
-  Insight,
   ProjectMeta,
   SessionMeta,
   AgentQuestionSelection,
@@ -58,7 +57,6 @@ const LEFT_PANEL_MIN_WIDTH = 220;
 const LEFT_PANEL_MAX_WIDTH = 520;
 const RIGHT_PANEL_MIN_WIDTH = 240;
 const RIGHT_PANEL_MAX_WIDTH = 560;
-const MAX_INSIGHTS = 240;
 
 function clampWidth(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
@@ -137,34 +135,6 @@ function buildSummaryTaskIntent(
   return sections.join("\n\n");
 }
 
-function normalizeInsightText(text: string): string {
-  return text
-    .trim()
-    .replace(/\s+/g, " ")
-    .replace(/[.!?,;:]+$/g, "")
-    .toLowerCase();
-}
-
-function mergeInsights(existing: readonly Insight[], incoming: readonly Insight[]): Insight[] {
-  const dedupe = new Set<string>();
-  const ordered = [...existing, ...incoming]
-    .sort((a, b) => {
-      if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
-      return a.id.localeCompare(b.id);
-    });
-  const next: Insight[] = [];
-  for (const insight of ordered) {
-    const text = insight.text.trim().replace(/\s+/g, " ");
-    if (!text) continue;
-    const key = `${insight.kind}:${normalizeInsightText(text)}`;
-    if (dedupe.has(key)) continue;
-    dedupe.add(key);
-    next.push({ ...insight, text });
-  }
-  if (next.length <= MAX_INSIGHTS) return next;
-  return next.slice(-MAX_INSIGHTS);
-}
-
 export function App() {
   useEffect(() => {
     initializeWhisperGpuClient();
@@ -199,7 +169,6 @@ export function App() {
   const [approvingLargeTask, setApprovingLargeTask] = useState(false);
   const [suggestions, setSuggestions] = useState<TaskSuggestion[]>([]);
   const [processingTaskIds, setProcessingTaskIds] = useState<string[]>([]);
-  const [insights, setInsights] = useState<Insight[]>([]);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
   const [mcpIntegrations, setMcpIntegrations] = useState<McpIntegrationStatus[]>([]);
@@ -228,7 +197,6 @@ export function App() {
     setSelectedSessionId(data.sessionId);
     setTasks(data.tasks);
     setProcessingTaskIds([]);
-    setInsights(mergeInsights([], data.insights));
     seedAgents(data.agents);
     setFinalSummaryState({ kind: "idle" });
     void refreshSessions();
@@ -281,7 +249,7 @@ export function App() {
       setTasks([]);
       setProcessingTaskIds([]);
       setSuggestions([]);
-      setInsights([]);
+
       seedAgents([]);
       setFinalSummaryState({ kind: "idle" });
       session.clearSession();
@@ -299,7 +267,7 @@ export function App() {
       setTasks([]);
       setProcessingTaskIds([]);
       setSuggestions([]);
-      setInsights([]);
+
       seedAgents([]);
       setFinalSummaryState({ kind: "idle" });
       session.clearSession();
@@ -312,7 +280,6 @@ export function App() {
     setSuggestions([]);
     setTasks([]);
     setProcessingTaskIds([]);
-    setInsights([]);
     seedAgents([]);
     setFinalSummaryState({ kind: "idle" });
     setSelectedSessionId(parsed.sessionId);
@@ -416,10 +383,6 @@ export function App() {
     appendSuggestions([suggestion]);
   }, [appendSuggestions]);
 
-  const handleInsightAdded = useCallback((insight: Insight) => {
-    setInsights((prev) => mergeInsights(prev, [insight]));
-  }, []);
-
   const handleFinalSummaryReady = useCallback((summary: FinalSummary) => {
     setFinalSummaryState({ kind: "ready", summary });
   }, []);
@@ -428,10 +391,8 @@ export function App() {
     setFinalSummaryState({ kind: "error", message: error });
   }, []);
 
-  // Keep these listeners active so task suggestions and insights stream into the UI.
   useSessionEventStream({
     onTaskSuggested: handleTaskSuggested,
-    onInsightAdded: handleInsightAdded,
     onFinalSummaryReady: handleFinalSummaryReady,
     onFinalSummaryError: handleFinalSummaryError,
   });
@@ -609,7 +570,6 @@ export function App() {
     setResumeSessionId(null);
     setTasks([]);
     setProcessingTaskIds([]);
-    setInsights([]);
     seedAgents([]);
     setFinalSummaryState({ kind: "idle" });
     setSessionActive(true);
@@ -637,7 +597,6 @@ export function App() {
     setTasks([]);
     setProcessingTaskIds([]);
     setSuggestions([]);
-    setInsights([]);
     seedAgents([]);
     setFinalSummaryState({ kind: "idle" });
     session.clearSession();
@@ -1160,7 +1119,6 @@ export function App() {
     setSuggestions([]);
     setTasks([]);
     setProcessingTaskIds([]);
-    setInsights([]);
     seedAgents([]);
     setSessionActive(true);
   }, [micCapture, seedAgents]);
@@ -1177,7 +1135,7 @@ export function App() {
       setSuggestions([]);
       setTasks([]);
       setProcessingTaskIds([]);
-      setInsights([]);
+
       seedAgents([]);
       session.clearSession();
     }
@@ -1428,10 +1386,6 @@ export function App() {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [selectAgent, selectedAgent]);
 
-  const educationalInsights = useMemo(
-    () => insights.filter((i) => i.kind !== "key-point"),
-    [insights],
-  );
   const visibleSessions = activeProjectId
     ? sessions.filter((s) => s.projectId === activeProjectId)
     : sessions;
@@ -1493,7 +1447,6 @@ export function App() {
             <div className="shrink-0 min-h-0" style={{ width: leftPanelWidth }}>
               <LeftSidebar
                 rollingKeyPoints={session.rollingKeyPoints}
-                insights={educationalInsights}
                 sessions={visibleSessions}
                 activeSessionId={selectedSessionId}
                 onSelectSession={handleSelectSession}

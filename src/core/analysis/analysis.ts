@@ -1,11 +1,10 @@
 import { z } from "zod";
 import type { TranscriptBlock, TaskItem, Agent } from "../types";
 import {
+  getAgentSuggestionPromptTemplate,
   getAnalysisRequestPromptTemplate,
-  getInsightsSystemPrompt,
   getSummarySystemPrompt,
   getTaskCreationSharedPromptTemplate,
-  getTaskExtractPromptTemplate,
   getTaskFromSelectionPromptTemplate,
   renderPromptTemplate,
 } from "../prompt-loader";
@@ -14,39 +13,33 @@ export const analysisSchema = z.object({
   keyPoints: z
     .array(z.string())
     .describe("2-4 key points from the recent conversation. Each must be a specific, verifiable fact. One sentence each."),
-  educationalInsights: z
-    .array(
-      z.object({
-        text: z.string().describe("A concise educational note providing background knowledge about a topic mentioned in the conversation"),
-        kind: z
-          .enum(["definition", "context", "fact", "tip"])
-          .describe("definition = explains a term or concept; context = provides relevant background; fact = interesting related fact; tip = practical advice related to the topic"),
-      })
-    )
-    .describe("1-3 educational notes that help the listener understand topics mentioned in the conversation. Think of these as helpful footnotes."),
 });
 
-export const taskAnalysisSchema = z.object({
-  suggestedTasks: z
+export const agentSuggestionSchema = z.object({
+  suggestions: z
     .array(
-      z.union([
-        z.string().describe("Legacy fallback: short actionable task title."),
-        z.object({
-          taskTitle: z
-            .string()
-            .describe("Short actionable task title (3-10 words)."),
-          taskDetails: z
-            .string()
-            .describe("Rich context and constraints for autonomous execution."),
-          transcriptExcerpt: z
-            .string()
-            .describe("Short verbatim transcript excerpt grounding this task.")
-            .optional(),
-        }),
-      ]),
+      z.object({
+        kind: z
+          .enum(["research", "action", "insight", "flag", "followup"])
+          .describe("research = offer to look something up; action = offer to draft/create/do; insight = share a relevant fact as a question; flag = highlight a conflict or risk; followup = remind about a loose thread"),
+        text: z
+          .string()
+          .describe("Conversational offer phrased as a question the agent can act on (e.g. 'Want me to look up X?', 'Should I draft Y?')."),
+        details: z
+          .string()
+          .describe("Brief context or rationale for the suggestion.")
+          .optional(),
+        transcriptExcerpt: z
+          .string()
+          .describe("Short verbatim transcript excerpt grounding this suggestion.")
+          .optional(),
+      }),
     )
-    .describe("Clear action items from the conversation. Prefer structured items with title, details, and supporting excerpt."),
+    .describe("0-3 proactive agent suggestions. Each must be something the agent can actually DO if accepted."),
 });
+
+/** @deprecated Use agentSuggestionSchema instead */
+export const taskAnalysisSchema = agentSuggestionSchema;
 
 export const taskFromSelectionSchema = z.object({
   shouldCreateTask: z
@@ -187,17 +180,17 @@ ${transcript || "(No transcript available)"}${keyPointsSection}`;
 }
 
 export type AnalysisResult = z.infer<typeof analysisSchema>;
-export type TaskAnalysisResult = z.infer<typeof taskAnalysisSchema>;
-export type TaskExtractSuggestion = TaskAnalysisResult["suggestedTasks"][number];
+export type AgentSuggestionResult = z.infer<typeof agentSuggestionSchema>;
+export type AgentSuggestionItem = AgentSuggestionResult["suggestions"][number];
+/** @deprecated Use AgentSuggestionResult instead */
+export type TaskAnalysisResult = AgentSuggestionResult;
 export type TaskFromSelectionResult = z.infer<typeof taskFromSelectionSchema>;
 
 export function buildAnalysisPrompt(
   recentBlocks: TranscriptBlock[],
   previousKeyPoints: readonly string[],
-  previousEducationalInsights: readonly string[] = [],
 ): string {
   const summarySystemPrompt = getSummarySystemPrompt();
-  const insightsSystemPrompt = getInsightsSystemPrompt();
 
   const transcript = recentBlocks
     .map((b) => {
@@ -211,24 +204,20 @@ export function buildAnalysisPrompt(
     previousKeyPoints.length > 0
       ? `\n\nPrevious key points from this session:\n${previousKeyPoints.map((p) => `- ${p}`).join("\n")}`
       : "";
-  const insightsSection =
-    previousEducationalInsights.length > 0
-      ? `\n\nPrevious educational insights from this session:\n${previousEducationalInsights.map((text) => `- ${text}`).join("\n")}`
-      : "";
 
   return renderPromptTemplate(getAnalysisRequestPromptTemplate(), {
     summary_system_prompt: summarySystemPrompt,
-    insights_system_prompt: insightsSystemPrompt,
     transcript,
     previous_key_points_section: keyPointsSection,
-    previous_insights_section: insightsSection,
   });
 }
 
-export function buildTaskPrompt(
+export function buildAgentSuggestionPrompt(
   recentBlocks: TranscriptBlock[],
   existingTasks: ReadonlyArray<Pick<TaskItem, "text" | "completed">>,
   historicalSuggestions: readonly string[] = [],
+  keyPoints: readonly string[] = [],
+  educationalContext: readonly string[] = [],
 ): string {
   const transcript = recentBlocks
     .map((b) => {
@@ -258,13 +247,25 @@ export function buildTaskPrompt(
     ? `\n\nHistorical suggestions already shown in this session:\n${normalizedHistory.map((text) => `- ${text}`).join("\n")}`
     : "";
 
-  return renderPromptTemplate(getTaskExtractPromptTemplate(), {
+  const keyPointsSection = keyPoints.length > 0
+    ? `\n\nKey points from the conversation so far:\n${keyPoints.map((p) => `- ${p}`).join("\n")}`
+    : "";
+
+  const educationalSection = educationalContext.length > 0
+    ? `\n\nPrior educational insights (use to inform suggestions, do not repeat):\n${educationalContext.map((text) => `- ${text}`).join("\n")}`
+    : "";
+
+  return renderPromptTemplate(getAgentSuggestionPromptTemplate(), {
     transcript,
     existing_tasks_section: tasksSection,
     historical_suggestions_section: historicalSuggestionsSection,
-    task_creation_shared_rules: getTaskCreationSharedPromptTemplate(),
+    key_points_section: keyPointsSection,
+    educational_context_section: educationalSection,
   });
 }
+
+/** @deprecated Use buildAgentSuggestionPrompt instead */
+export const buildTaskPrompt = buildAgentSuggestionPrompt;
 
 export function buildTaskFromSelectionPrompt(
   selectedText: string,
