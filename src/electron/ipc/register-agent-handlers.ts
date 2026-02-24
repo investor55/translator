@@ -116,6 +116,26 @@ export function registerAgentHandlers({
     },
   );
 
+  ipcMain.handle(
+    "launch-custom-agent-in-session",
+    async (
+      _event,
+      sessionId: string,
+      task: string,
+      taskContext?: string,
+      kind?: AgentKind,
+      appConfig?: AppConfigOverrides,
+    ) => {
+      const ensured = await ensureSession(sessionId, appConfig);
+      if (!ensured.ok) return ensured;
+      if (!sessionRef.current) return { ok: false, error: "Could not load session" };
+      const safeKind: AgentKind = kind === "analysis" ? "analysis" : "custom";
+      const agent = sessionRef.current.launchAgent(safeKind, undefined, task, taskContext);
+      if (!agent) return { ok: false, error: "Agent system unavailable (EXA_API_KEY not set)" };
+      return { ok: true, agent };
+    },
+  );
+
   ipcMain.handle("archive-agent", (_event, agentId: string) => {
     if (!sessionRef.current) return { ok: false, error: "No active session" };
     const archived = sessionRef.current.archiveAgent(agentId);

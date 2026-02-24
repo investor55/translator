@@ -17,7 +17,7 @@ import {
 import { normalizeProviderErrorMessage } from "../text/text-utils";
 import type { AgentExternalToolSet } from "./external-tools";
 import {
-  rankExternalTools,
+  formatToolNamesForPrompt,
   resolveExternalToolName,
   shouldRequireApproval,
 } from "./mcp-tool-resolution";
@@ -94,6 +94,7 @@ const buildSystemPrompt = (
   projectInstructions?: string,
   agentsMd?: string,
   compact?: boolean,
+  mcpToolCatalog?: string,
 ) => {
   const base = renderPromptTemplate(getAgentSystemPromptTemplate(), {
     today: formatCurrentDateForPrompt(new Date()),
@@ -108,6 +109,15 @@ const buildSystemPrompt = (
     sections.push(`## Agent Memory\n\n${agentsMd.trim()}`);
   }
   sections.push(base);
+
+  if (mcpToolCatalog) {
+    sections.push(
+      "## Available MCP Tools\n\n" +
+      "The following integration tools are available. " +
+      "Use `getMcpToolSchema` to inspect a tool's inputSchema, then `callMcpTool` to execute it.\n\n" +
+      mcpToolCatalog
+    );
+  }
 
   if (compact) {
     sections.push(
@@ -200,7 +210,7 @@ function hasRecentMcpContextInMessages(messages: ModelMessage[]): boolean {
     if (!message) continue;
 
     if (typeof message.content === "string") {
-      if (/searchMcpTools|callMcpTool|notion__|linear__/i.test(message.content)) {
+      if (/getMcpToolSchema|callMcpTool|notion__|linear__/i.test(message.content)) {
         return true;
       }
       continue;
@@ -211,7 +221,7 @@ function hasRecentMcpContextInMessages(messages: ModelMessage[]): boolean {
       if (!part || typeof part !== "object") continue;
       const maybeToolName = (part as { toolName?: unknown }).toolName;
       if (
-        maybeToolName === "searchMcpTools" ||
+        maybeToolName === "getMcpToolSchema" ||
         maybeToolName === "callMcpTool"
       ) {
         return true;
@@ -221,7 +231,7 @@ function hasRecentMcpContextInMessages(messages: ModelMessage[]): boolean {
       if (maybeType === "tool-call" || maybeType === "tool-result") {
         const toolName = (part as { toolName?: unknown }).toolName;
         if (
-          toolName === "searchMcpTools" ||
+          toolName === "getMcpToolSchema" ||
           toolName === "callMcpTool"
         ) {
           return true;
@@ -241,7 +251,7 @@ function shouldEnforceMcpLoop(userText: string, messages: ModelMessage[]): boole
 }
 
 function hasMcpMetaTools(tools: Record<string, unknown>): boolean {
-  return !!tools.searchMcpTools && !!tools.callMcpTool;
+  return !!tools.getMcpToolSchema && !!tools.callMcpTool;
 }
 
 type CallMcpToolErrorCode =
@@ -470,7 +480,7 @@ async function buildTools(
   }
 
   if (!getExternalTools) {
-    return baseTools;
+    return { tools: baseTools, externalTools: {} as AgentExternalToolSet };
   }
 
   let externalTools: AgentExternalToolSet = {};
@@ -489,44 +499,55 @@ async function buildTools(
     return baseTools;
   }
 
-  // Instead of registering every MCP tool directly, expose two meta-tools so
-  // the full tool registry never lands in the model's context window.
-  baseTools["searchMcpTools"] = tool({
+  // Expose a schema-lookup tool so the agent can inspect a tool's inputSchema
+  // before calling it. Tool names are already listed in the system prompt.
+  baseTools["getMcpToolSchema"] = tool({
     description:
-      "Search available MCP integration tools (Notion, Linear, and custom servers). Call this first to discover tools before using callMcpTool.",
+      "Look up the full schema (name, description, inputSchema) for an MCP tool by exact name. " +
+      "Use this when you need to see a tool's required arguments before calling callMcpTool. " +
+      "Tool names are listed in the system prompt under 'Available MCP Tools'.",
     inputSchema: z.object({
-      query: z.string().describe("Keywords to search for, e.g. 'create page', 'list issues', 'search'"),
+      name: z.string().describe("Exact MCP tool name from the Available MCP Tools list"),
     }),
-    execute: async ({ query }) => {
+    execute: async ({ name }) => {
       if (Object.keys(externalTools).length === 0) {
         throw new Error("No MCP tools are currently available. Connect an integration first.");
       }
-      const matches = rankExternalTools(query, externalTools, 10).map(({ name, tool: t }) => ({
-          name,
-          description: t.description ?? `MCP tool: ${name}`,
-          isMutating: t.isMutating,
-          inputSchema: t.inputSchema,
-      }));
-      return matches;
+      const resolution = resolveExternalToolName(name, externalTools);
+      if (!resolution.ok) {
+        return resolution.suggestions
+          ? { errorCode: resolution.code, error: resolution.error, hint: resolution.hint, suggestions: resolution.suggestions }
+          : { errorCode: resolution.code, error: resolution.error, hint: resolution.hint };
+      }
+      const t = externalTools[resolution.toolName];
+      if (!t) {
+        return { errorCode: "tool_not_found", error: `Tool "${name}" not found.`, hint: "Check the Available MCP Tools list in the system prompt." };
+      }
+      return {
+        name: resolution.toolName,
+        description: t.description ?? `MCP tool: ${resolution.toolName}`,
+        isMutating: t.isMutating,
+        inputSchema: t.inputSchema,
+      };
     },
   });
 
   const callMcpToolSchema = allowAutoApprove
     ? z.object({
-        name: z.string().describe("Tool name from searchMcpTools results"),
+        name: z.string().describe("Exact tool name from the Available MCP Tools list"),
         args: z.record(z.string(), z.unknown()).describe("Arguments matching the tool's inputSchema"),
         _autoApprove: z.boolean().optional().describe(
           "Set to true only when creating brand-new content that does not overwrite or delete anything existing, and the action can be easily undone. Leave false or omit for updates, deletes, archives, or any irreversible change."
         ),
       })
     : z.object({
-        name: z.string().describe("Tool name from searchMcpTools results"),
+        name: z.string().describe("Exact tool name from the Available MCP Tools list"),
         args: z.record(z.string(), z.unknown()).describe("Arguments matching the tool's inputSchema"),
       });
 
   baseTools["callMcpTool"] = tool({
     description:
-      "Execute an MCP integration tool by name. Use searchMcpTools first to find the right tool and its required arguments.",
+      "Execute an MCP integration tool by name. Use getMcpToolSchema first if you need to check the tool's inputSchema.",
     inputSchema: callMcpToolSchema,
     execute: async (input, { toolCallId, abortSignal }) => {
       const { name, args, _autoApprove: autoApprove } = input as {
@@ -557,7 +578,7 @@ async function buildTools(
         return {
           errorCode: "tool_not_found" as const,
           error: `Tool "${resolvedName}" not found.`,
-          hint: "Call searchMcpTools with relevant keywords and use the exact tool name returned.",
+          hint: "Check the Available MCP Tools list in the system prompt and use the exact tool name.",
         };
       }
 
@@ -656,7 +677,7 @@ async function buildTools(
     },
   });
 
-  return baseTools;
+  return { tools: baseTools, externalTools };
 }
 
 function safeJson(value: unknown): string {
@@ -727,9 +748,9 @@ function summarizeToolCall(
     return { content: query ? `Searching agents: ${query}` : "Searching agent history" };
   }
 
-  if (toolName === "searchMcpTools") {
-    const query = getSearchQuery(input);
-    return { content: query ? `Searching MCP tools: ${query}` : "Searching MCP tools" };
+  if (toolName === "getMcpToolSchema") {
+    const name = (input as Record<string, unknown>)?.name;
+    return { content: typeof name === "string" ? `Looking up schema: ${name}` : "Looking up MCP tool schema" };
   }
 
   if (toolName === "callMcpTool") {
@@ -784,9 +805,10 @@ function summarizeToolResult(
     return { content: `Found ${results.length} agent result${results.length === 1 ? "" : "s"}` };
   }
 
-  if (toolName === "searchMcpTools") {
-    const results = Array.isArray(output) ? output : [];
-    return { content: `Found ${results.length} MCP tool${results.length === 1 ? "" : "s"}` };
+  if (toolName === "getMcpToolSchema") {
+    const record = asObject(output);
+    const name = record && typeof record.name === "string" ? record.name : null;
+    return { content: name ? `Schema loaded: ${name}` : "Schema lookup complete" };
   }
 
   if (toolName === "callMcpTool") {
@@ -869,13 +891,7 @@ async function runAgentWithMessages(
   let streamError: string | null = null;
 
   try {
-    const systemPrompt = buildSystemPrompt(
-      getTranscriptContext(),
-      projectInstructions,
-      agentsMd,
-      compact,
-    );
-    const tools = await buildTools(
+    const { tools, externalTools } = await buildTools(
       exa,
       getTranscriptContext,
       requestClarification,
@@ -885,6 +901,16 @@ async function runAgentWithMessages(
       getExternalTools,
       searchTranscriptHistory,
       searchAgentHistory,
+    );
+    const mcpToolCatalog = Object.keys(externalTools).length > 0
+      ? formatToolNamesForPrompt(externalTools)
+      : undefined;
+    const systemPrompt = buildSystemPrompt(
+      getTranscriptContext(),
+      projectInstructions,
+      agentsMd,
+      compact,
+      mcpToolCatalog,
     );
     const latestUserText = getLatestUserMessageText(inputMessages);
     const enforceMcpLoop =
@@ -897,11 +923,11 @@ async function runAgentWithMessages(
       stopWhen: stepCountIs(20),
       prepareStep: enforceMcpLoop
         ? ({ stepNumber, steps }) => {
-          const hasSearchMcpToolCall = steps.some((step) =>
-            step.toolCalls.some((call) => call.toolName === "searchMcpTools"),
-          );
           const callMcpToolResults = steps.flatMap((step) =>
             step.toolResults.filter((toolResult) => toolResult.toolName === "callMcpTool"),
+          );
+          const hasGetSchemaCall = steps.some((step) =>
+            step.toolCalls.some((call) => call.toolName === "getMcpToolSchema"),
           );
           const hasAskQuestionToolCall = steps.some((step) =>
             step.toolCalls.some((call) => call.toolName === "askQuestion"),
@@ -938,10 +964,12 @@ async function runAgentWithMessages(
             ? getMcpCallResultHint(latestCallMcpToolResult.output)
             : "";
 
-          if (stepNumber === 0 || !hasSearchMcpToolCall) {
+          // Step 0: the agent has tool names in the system prompt. Let it
+          // choose getMcpToolSchema, callMcpTool, or askQuestion freely.
+          if (stepNumber === 0) {
             return {
-              activeTools: ["searchMcpTools"],
-              toolChoice: { type: "tool", toolName: "searchMcpTools" as const },
+              activeTools: ["getMcpToolSchema", "callMcpTool", "askQuestion"],
+              toolChoice: "required" as const,
             };
           }
 
@@ -982,15 +1010,22 @@ async function runAgentWithMessages(
               latestCallCode === "tool_name_required"
             ) {
               return {
-                activeTools: ["searchMcpTools"],
-                toolChoice: { type: "tool", toolName: "searchMcpTools" as const },
+                activeTools: ["getMcpToolSchema"],
+                toolChoice: { type: "tool", toolName: "getMcpToolSchema" as const },
               };
             }
 
             if (latestCallCode === "missing_or_invalid_args") {
+              // If schema was already looked up, escalate to clarification
+              if (hasGetSchemaCall) {
+                return {
+                  activeTools: ["askQuestion"],
+                  toolChoice: { type: "tool", toolName: "askQuestion" as const },
+                };
+              }
               return {
-                activeTools: ["askQuestion"],
-                toolChoice: { type: "tool", toolName: "askQuestion" as const },
+                activeTools: ["getMcpToolSchema"],
+                toolChoice: { type: "tool", toolName: "getMcpToolSchema" as const },
               };
             }
 
@@ -999,13 +1034,13 @@ async function runAgentWithMessages(
             }
 
             if (
-              /not found|ambiguous|exact tool name|searchmcptools/.test(
+              /not found|ambiguous|exact tool name|getmcptoolschema/.test(
                 latestCallHint,
               )
             ) {
               return {
-                activeTools: ["searchMcpTools"],
-                toolChoice: { type: "tool", toolName: "searchMcpTools" as const },
+                activeTools: ["getMcpToolSchema"],
+                toolChoice: { type: "tool", toolName: "getMcpToolSchema" as const },
               };
             }
 
@@ -1014,9 +1049,15 @@ async function runAgentWithMessages(
                 latestCallHint,
               )
             ) {
+              if (hasGetSchemaCall) {
+                return {
+                  activeTools: ["askQuestion"],
+                  toolChoice: { type: "tool", toolName: "askQuestion" as const },
+                };
+              }
               return {
-                activeTools: ["askQuestion"],
-                toolChoice: { type: "tool", toolName: "askQuestion" as const },
+                activeTools: ["getMcpToolSchema"],
+                toolChoice: { type: "tool", toolName: "getMcpToolSchema" as const },
               };
             }
           }
@@ -1033,7 +1074,7 @@ async function runAgentWithMessages(
 
           if (stepNumber >= 1) {
             return {
-              activeTools: ["callMcpTool", "askQuestion"],
+              activeTools: ["getMcpToolSchema", "callMcpTool", "askQuestion"],
               toolChoice: "required" as const,
             };
           }
@@ -1051,6 +1092,10 @@ async function runAgentWithMessages(
     });
 
     const streamedAt = Date.now();
+    // Per-run prefix ensures step IDs are unique across runs (initial + follow-ups).
+    // Some providers (e.g. Gemini) reuse the same part.id across calls, which would
+    // cause follow-up text steps to overwrite initial ones in-place via findIndex.
+    const runPrefix = `${streamedAt}`;
     let textStepId: string | null = null;
     let streamedText = "";
     let lastNonEmptyText = ""; // survives start-step resets; used as finalText fallback
@@ -1066,7 +1111,7 @@ async function runAgentWithMessages(
             firstDeltaAfterMs = Date.now() - streamedAt;
           }
           streamedText += part.text;
-          textStepId = `text:${part.id}`;
+          textStepId = `text:${runPrefix}:${part.id}`;
           onStep({
             id: textStepId,
             kind: "text",
@@ -1076,7 +1121,7 @@ async function runAgentWithMessages(
           break;
         }
         case "reasoning-start": {
-          const reasoningStepId = `reasoning:${part.id}`;
+          const reasoningStepId = `reasoning:${runPrefix}:${part.id}`;
           onStep({
             id: reasoningStepId,
             kind: "thinking",
@@ -1086,7 +1131,7 @@ async function runAgentWithMessages(
           break;
         }
         case "reasoning-delta": {
-          const reasoningStepId = `reasoning:${part.id}`;
+          const reasoningStepId = `reasoning:${runPrefix}:${part.id}`;
           const next = `${reasoningById.get(reasoningStepId) ?? ""}${part.text}`;
           reasoningById.set(reasoningStepId, next);
           onStep({

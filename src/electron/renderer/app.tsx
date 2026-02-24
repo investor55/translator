@@ -1071,13 +1071,20 @@ export function App() {
 
   const handleLaunchCustomAgent = useCallback(async (task: string) => {
     setNewAgentMode(false);
-    const result = await window.electronAPI.launchCustomAgent(task);
+    const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
+    if (!targetSessionId) {
+      setRouteNotice("No session available to launch agent.");
+      return;
+    }
+    const result = sessionActive && session.sessionId === targetSessionId
+      ? await window.electronAPI.launchCustomAgent(task)
+      : await window.electronAPI.launchCustomAgentInSession(targetSessionId, task, undefined, undefined, appConfig);
     if (result.ok && result.agent) {
       selectAgent(result.agent.id);
     } else {
       setRouteNotice(`Failed to launch agent: ${result.error ?? "Unknown error"}`);
     }
-  }, [selectAgent]);
+  }, [appConfig, selectAgent, selectedSessionId, session.sessionId, sessionActive]);
 
   const handleArchiveAgent = useCallback(async (agent: Agent) => {
     await window.electronAPI.archiveAgent(agent.id);

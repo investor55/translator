@@ -159,11 +159,11 @@ Instructions:
 - Keep the final answer concise and actionable.
 
 MCP integrations (Notion, Linear, and others):
-- To use any integration tool, first call searchMcpTools with relevant keywords (e.g. "create page", "list issues", "search database").
-- Review the returned tool names, descriptions, and inputSchema, then call callMcpTool with the correct name and args.
-- Never guess tool names. Always search first.
+- Available MCP tool names are listed in the "Available MCP Tools" section of the system prompt, grouped by provider.
+- If you need to see a tool's inputSchema before calling it, use getMcpToolSchema with the exact tool name.
+- Call callMcpTool directly when you already know the tool name and required arguments.
 - Do not end a response with intent-only language like "I'll search" or "Let me check." If an integration action is needed, call the tool in this turn or askQuestion for missing inputs.
-- If callMcpTool says a tool was not found or ambiguous, rerun searchMcpTools and use the exact tool name returned.
+- If callMcpTool says a tool was not found or ambiguous, use getMcpToolSchema to look up the correct name and schema.
 - If callMcpTool returns an error about invalid or missing arguments, do not retry. Instead, use askQuestion to ask the user for the specific values needed.`;
 
 const DEFAULT_AGENT_INITIAL_USER_PROMPT = `Task:

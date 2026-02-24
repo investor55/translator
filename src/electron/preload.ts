@@ -84,6 +84,13 @@ export type ElectronAPI = {
   approveLargeTask: (taskId: string) => Promise<{ ok: boolean; approvalToken?: string; error?: string }>;
   launchAgent: (taskId: string, task: string, taskContext?: string, approvalToken?: string) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
   launchCustomAgent: (task: string, taskContext?: string, kind?: AgentKind) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
+  launchCustomAgentInSession: (
+    sessionId: string,
+    task: string,
+    taskContext?: string,
+    kind?: AgentKind,
+    appConfig?: AppConfigOverrides,
+  ) => Promise<{ ok: boolean; agent?: Agent; error?: string }>;
   launchAgentInSession: (
     sessionId: string,
     taskId: string,
@@ -215,6 +222,8 @@ const api: ElectronAPI = {
     ipcRenderer.invoke("launch-agent", taskId, task, taskContext, approvalToken),
   launchCustomAgent: (task, taskContext, kind) =>
     ipcRenderer.invoke("launch-custom-agent", task, taskContext, kind),
+  launchCustomAgentInSession: (sessionId, task, taskContext, kind, appConfig) =>
+    ipcRenderer.invoke("launch-custom-agent-in-session", sessionId, task, taskContext, kind, appConfig),
   launchAgentInSession: (sessionId, taskId, task, taskContext, appConfig, approvalToken) =>
     ipcRenderer.invoke("launch-agent-in-session", sessionId, taskId, task, taskContext, appConfig, approvalToken),
   archiveAgent: (agentId) => ipcRenderer.invoke("archive-agent", agentId),

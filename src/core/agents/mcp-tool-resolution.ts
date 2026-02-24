@@ -78,7 +78,7 @@ function resolveFromCandidates(
     ok: false,
     code: "tool_ambiguous",
     error: `Tool "${requestedName}" is ambiguous: ${detail}.`,
-    hint: "Run searchMcpTools and use the exact tool name returned in its results.",
+    hint: "Use getMcpToolSchema with the exact tool name from the Available MCP Tools list.",
     suggestions,
   };
 }
@@ -93,7 +93,7 @@ export function resolveExternalToolName(
       ok: false,
       code: "tool_name_required",
       error: "Tool name is required.",
-      hint: "Run searchMcpTools with relevant keywords, then call callMcpTool with the exact name.",
+      hint: "Use getMcpToolSchema with the exact tool name from the Available MCP Tools list.",
     };
   }
 
@@ -107,7 +107,7 @@ export function resolveExternalToolName(
       ok: false,
       code: "no_tools_available",
       error: `Tool "${raw}" not found because no MCP tools are currently available.`,
-      hint: "Reconnect MCP integrations, then run searchMcpTools before calling callMcpTool.",
+      hint: "Reconnect MCP integrations, then check the Available MCP Tools list before calling callMcpTool.",
     };
   }
 
@@ -130,9 +130,26 @@ export function resolveExternalToolName(
     ok: false,
     code: "tool_not_found",
     error: `Tool "${raw}" not found.`,
-    hint: "Run searchMcpTools with relevant keywords and use the exact tool name returned.",
+    hint: "Check the Available MCP Tools list in the system prompt and use the exact tool name.",
     suggestions: sortAndCapSuggestions(allNames, 10),
   };
+}
+
+export function formatToolNamesForPrompt(
+  externalTools: AgentExternalToolSet,
+): string {
+  const grouped = new Map<string, string[]>();
+  for (const [name, tool] of Object.entries(externalTools)) {
+    const provider = tool.provider;
+    const list = grouped.get(provider) ?? [];
+    list.push(name);
+    grouped.set(provider, list);
+  }
+
+  return [...grouped.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([provider, names]) => `${provider}: ${names.sort().join(", ")}`)
+    .join("\n");
 }
 
 function scoreTokenAgainstSet(token: string, candidates: Set<string>): number {

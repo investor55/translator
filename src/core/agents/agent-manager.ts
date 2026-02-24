@@ -107,12 +107,20 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       history.push({ role: "user", content: taskPrompt });
     }
 
+    // Skip the first user step — it mirrors the initial task and
+    // buildAgentInitialUserPrompt already added the enriched version above.
+    let skippedInitialUser = false;
     for (const step of agent.steps) {
       if (!step.content.trim()) continue;
       if (step.kind === "user") {
+        if (!skippedInitialUser) {
+          skippedInitialUser = true;
+          continue;
+        }
         history.push({ role: "user", content: step.content });
       }
       if (step.kind === "text") {
+        skippedInitialUser = true;
         history.push({ role: "assistant", content: step.content });
       }
     }
@@ -365,6 +373,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     sessionId?: string,
     taskContext?: string,
   ): Agent {
+    const now = Date.now();
     const agent: Agent = {
       id: crypto.randomUUID(),
       kind,
@@ -372,8 +381,10 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       task,
       taskContext,
       status: "running",
-      steps: [],
-      createdAt: Date.now(),
+      steps: [
+        { id: crypto.randomUUID(), kind: "user", content: task, createdAt: now },
+      ],
+      createdAt: now,
       sessionId,
     };
 
@@ -662,16 +673,19 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     conversationHistory.delete(agentId);
 
     // Reset the agent in-place so the same object/ID is reused
+    const now = Date.now();
     agent.status = "running";
-    agent.steps = [];
+    agent.steps = [
+      { id: crypto.randomUUID(), kind: "user", content: agent.task, createdAt: now },
+    ];
     agent.result = undefined;
     agent.completedAt = undefined;
-    agent.createdAt = Date.now();
+    agent.createdAt = now;
     // Refresh task context so the agent starts with current transcript, not the
     // stale snapshot captured when the task was originally created.
     agent.taskContext = deps.getTranscriptContext();
 
-    deps.db?.updateAgent(agentId, { status: "running", steps: [], result: undefined, completedAt: undefined });
+    deps.db?.updateAgent(agentId, { status: "running", steps: agent.steps, result: undefined, completedAt: undefined });
     deps.events.emit("agent-started", agent);
     log("INFO", `Agent relaunched: ${agentId}`);
 

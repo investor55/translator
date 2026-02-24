@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import {
   CitedMessageResponse,
+  Message,
+  MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message";
 import {
@@ -668,10 +670,11 @@ function StepItem({
       );
     case "user":
       return (
-        <div className="py-2 border-t border-border mt-2">
-          <p className="text-xs text-muted-foreground font-medium mb-0.5">You</p>
-          <p className="text-xs text-foreground leading-relaxed">{step.content}</p>
-        </div>
+        <Message from="user" className="py-2 border-t border-border mt-2 max-w-full">
+          <MessageContent className="text-xs leading-relaxed">
+            {step.content}
+          </MessageContent>
+        </Message>
       );
     default:
       return null;
@@ -900,26 +903,26 @@ export function AgentDetailPanel({
           step.kind === "tool-result"
       );
 
-      const trimmedTask = agent.task.trim();
       const firstNonUserAt = filtered.reduce((earliest, step) => {
         if (step.kind === "user") return earliest;
         return Math.min(earliest, step.createdAt);
       }, Number.POSITIVE_INFINITY);
 
+      // If there's already a user step before the first response, the original
+      // input is preserved in the steps array — no synthetic step needed.
       const hasInitialPromptStep = filtered.some(
         (step) =>
           step.kind === "user" &&
-          step.content.trim() === trimmedTask &&
           step.createdAt <= firstNonUserAt
       );
 
       const withInitialPrompt =
-        trimmedTask && !hasInitialPromptStep
+        agent.task.trim() && !hasInitialPromptStep
           ? [
               {
                 id: `initial-user:${agent.id}`,
                 kind: "user" as const,
-                content: trimmedTask,
+                content: agent.task.trim(),
                 createdAt: agent.createdAt,
               },
               ...filtered,

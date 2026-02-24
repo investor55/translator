@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentExternalToolSet } from "./external-tools";
 import {
+  formatToolNamesForPrompt,
   rankExternalTools,
   resolveExternalToolName,
   shouldRequireApproval,
@@ -109,5 +110,43 @@ describe("rankExternalTools", () => {
     const ranked = rankExternalTools("create page", buildTools(), 10);
     expect(ranked.length).toBeGreaterThan(0);
     expect(ranked[0]?.name).toBe("notion__create_page");
+  });
+});
+
+describe("formatToolNamesForPrompt", () => {
+  it("groups tool names by provider, sorted alphabetically", () => {
+    const result = formatToolNamesForPrompt(buildTools());
+    const lines = result.split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toBe("linear: linear__create_issue, linear__list_issues");
+    expect(lines[1]).toBe("notion: notion__create_page, notion__create_project");
+  });
+
+  it("returns empty string for empty tool set", () => {
+    const result = formatToolNamesForPrompt({});
+    expect(result).toBe("");
+  });
+
+  it("handles single provider", () => {
+    const tools: AgentExternalToolSet = {
+      slack__post_message: {
+        name: "slack__post_message",
+        provider: "slack",
+        description: "Post a message",
+        inputSchema: { type: "object" },
+        isMutating: true,
+        execute: async () => ({ ok: true }),
+      },
+      slack__list_channels: {
+        name: "slack__list_channels",
+        provider: "slack",
+        description: "List channels",
+        inputSchema: { type: "object" },
+        isMutating: false,
+        execute: async () => ({ ok: true }),
+      },
+    };
+    const result = formatToolNamesForPrompt(tools);
+    expect(result).toBe("slack: slack__list_channels, slack__post_message");
   });
 });
