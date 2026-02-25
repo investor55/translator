@@ -670,8 +670,8 @@ function StepItem({
       );
     case "user":
       return (
-        <Message from="user" className="py-2 border-t border-border mt-2 max-w-full">
-          <MessageContent className="text-xs leading-relaxed">
+        <Message from="user" className="mt-1 max-w-full">
+          <MessageContent className="text-xs leading-relaxed rounded-md px-3 py-1.5">
             {step.content}
           </MessageContent>
         </Message>
@@ -1126,6 +1126,26 @@ export function AgentDetailPanel({
     }
 
     flushActivity();
+
+    // Post-process: within each turn, hoist activity groups that follow text
+    // so chain-of-thought always precedes the response (standard AI chat pattern).
+    if (!isRunning) {
+      for (let i = 1; i < items.length; i++) {
+        if (items[i].kind !== "activity") continue;
+        // Find the earliest preceding text in this turn
+        let insertAt = i;
+        for (let j = i - 1; j >= 0; j--) {
+          const prev = items[j];
+          if (prev.kind === "step" && prev.step.kind === "user") break;
+          if (prev.kind === "step" && prev.step.kind === "text") insertAt = j;
+        }
+        if (insertAt < i) {
+          const [activity] = items.splice(i, 1);
+          items.splice(insertAt, 0, activity);
+        }
+      }
+    }
+
     return items;
   }, [activeTurnStartAt, agent.id, isRunning, timelineNow, visibleSteps]);
 
