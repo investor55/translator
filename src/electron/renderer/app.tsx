@@ -1479,6 +1479,7 @@ export function App() {
             <MiddlePanelTabs
               summaryState={finalSummaryState}
               hasAgent={!!selectedAgent || newAgentMode}
+              newAgentMode={newAgentMode}
               selectedAgent={selectedAgent}
               agents={agents}
               onCloseAgent={() => {

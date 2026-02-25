@@ -40,7 +40,7 @@ export const SUPPORTED_LANGUAGES: Language[] = [
 
 export type Direction = "auto" | "source-target";
 export type Device = { index: number; name: string };
-export type AudioSource = "system" | "microphone";
+export type AudioSource = "system" | "microphone" | "note";
 export type ThemeMode = "system" | "light" | "dark";
 export type LightVariant = "warm" | "linen" | "ivory" | "petal" | "aqua";
 export type DarkVariant = "charcoal" | "steel" | "pitch-black" | "abyss";

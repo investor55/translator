@@ -167,6 +167,14 @@ export function registerSessionHandlers({ db, getWindow, sessionRef, getExternal
     return { ok: true, enabled };
   });
 
+  ipcMain.handle("add-context-note", (_event, text: string) => {
+    if (!sessionRef.current) return { ok: false, error: "No active session" };
+    const trimmed = (text ?? "").trim();
+    if (!trimmed) return { ok: false, error: "Empty note" };
+    const block = sessionRef.current.addNote(trimmed);
+    return { ok: true, block };
+  });
+
   ipcMain.handle("list-mic-devices", async () => {
     try {
       return await listMicDevices();

@@ -13,16 +13,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SectionLabel } from "@/components/ui/section-label";
 
-type UserNote = {
-  id: string;
-  text: string;
-  createdAt: number;
-};
-
-type TranscriptEntry =
-  | { kind: "paragraph"; blocks: TranscriptBlock[]; key: string }
-  | { kind: "note"; note: UserNote; key: string };
-
 type TranscriptAreaProps = {
   blocks: TranscriptBlock[];
   systemPartial?: string;
@@ -88,54 +78,6 @@ function joinTexts(
     .join(" ");
 }
 
-function Paragraph({ blocks, isLast, canTranslate, translationEnabled }: { blocks: TranscriptBlock[]; isLast: boolean; canTranslate: boolean; translationEnabled: boolean }) {
-  const first = blocks[0];
-  const isNonEnglishSource = first.sourceLabel !== "EN";
-
-  const sourceText = joinTexts(blocks, (b) => b.sourceText);
-  const translationText = joinTexts(blocks, (b) => b.translation);
-  const hasPending = canTranslate && translationEnabled && blocks.some((b) => !b.translation);
-
-  return (
-    <div className={`pb-3 ${isLast ? "" : "mb-3 border-b border-border/50"}`}>
-      <div className="font-mono text-muted-foreground text-2xs mb-1 flex items-center gap-1.5">
-        {first.audioSource === "microphone" ? (
-          <MicIcon className="size-3 text-mic-source" />
-        ) : (
-          <Volume2Icon className="size-3 text-system-source" />
-        )}
-        {formatTimestamp(first.createdAt)}
-      </div>
-      <div className="text-sm">
-        <span className="text-foreground">{sourceText}</span>
-        {isNonEnglishSource && (
-          <span className="text-2xs text-muted-foreground/60 ml-1.5 font-mono">
-            {first.sourceLabel.toLowerCase()}
-          </span>
-        )}
-      </div>
-      {translationEnabled && canTranslate && (
-        <div className="text-sm mt-0.5">
-          {translationText ? (
-            <span className="text-foreground">
-              {translationText}
-              {hasPending && (
-                <span className="text-muted-foreground ml-1 animate-pulse">
-                  Translating...
-                </span>
-              )}
-            </span>
-          ) : (
-            <span className="text-muted-foreground animate-pulse">
-              Translating...
-            </span>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 const NOTE_COLLAPSE_CHARS = 300;
 const NOTE_COLLAPSE_LINES = 5;
 
@@ -143,31 +85,77 @@ function isLongNote(text: string): boolean {
   return text.length > NOTE_COLLAPSE_CHARS || text.split("\n").length > NOTE_COLLAPSE_LINES;
 }
 
-function NoteBlock({ note, isLast }: { note: UserNote; isLast: boolean }) {
-  const long = isLongNote(note.text);
+function Paragraph({ blocks, isLast, canTranslate, translationEnabled }: { blocks: TranscriptBlock[]; isLast: boolean; canTranslate: boolean; translationEnabled: boolean }) {
+  const first = blocks[0];
+  const isNote = first.audioSource === "note";
   const [expanded, setExpanded] = useState(false);
+
+  const sourceText = joinTexts(blocks, (b) => b.sourceText);
+  const translationText = joinTexts(blocks, (b) => b.translation);
+  const hasPending = canTranslate && translationEnabled && blocks.some((b) => !b.translation);
+  const isNonEnglishSource = first.sourceLabel !== "EN";
+  const long = isNote && isLongNote(sourceText);
 
   return (
     <div className={`pb-3 ${isLast ? "" : "mb-3 border-b border-border/50"}`}>
       <div className="font-mono text-muted-foreground text-2xs mb-1 flex items-center gap-1.5">
-        <PencilIcon className="size-3" />
-        {formatTimestamp(note.createdAt)}
+        {isNote ? (
+          <PencilIcon className="size-3" />
+        ) : first.audioSource === "microphone" ? (
+          <MicIcon className="size-3 text-mic-source" />
+        ) : (
+          <Volume2Icon className="size-3 text-system-source" />
+        )}
+        {formatTimestamp(first.createdAt)}
       </div>
-      <div className={`text-sm text-foreground/80 whitespace-pre-wrap ${long && !expanded ? "line-clamp-3" : ""}`}>
-        {note.text}
-      </div>
-      {long && (
-        <button
-          type="button"
-          className="mt-1 flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? (
-            <><ChevronUpIcon className="size-3" />Show less</>
-          ) : (
-            <><ChevronDownIcon className="size-3" />Show more</>
+      {isNote ? (
+        <>
+          <div className={`text-sm text-foreground/80 whitespace-pre-wrap ${long && !expanded ? "line-clamp-3" : ""}`}>
+            {sourceText}
+          </div>
+          {long && (
+            <button
+              type="button"
+              className="mt-1 flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? (
+                <><ChevronUpIcon className="size-3" />Show less</>
+              ) : (
+                <><ChevronDownIcon className="size-3" />Show more</>
+              )}
+            </button>
           )}
-        </button>
+        </>
+      ) : (
+        <>
+          <div className="text-sm">
+            <span className="text-foreground">{sourceText}</span>
+            {isNonEnglishSource && (
+              <span className="text-2xs text-muted-foreground/60 ml-1.5 font-mono">
+                {first.sourceLabel.toLowerCase()}
+              </span>
+            )}
+          </div>
+          {translationEnabled && canTranslate && (
+            <div className="text-sm mt-0.5">
+              {translationText ? (
+                <span className="text-foreground">
+                  {translationText}
+                  {hasPending && (
+                    <span className="text-muted-foreground ml-1 animate-pulse">
+                      Translating...
+                    </span>
+                  )}
+                </span>
+              ) : (
+                <span className="text-muted-foreground animate-pulse">
+                  Translating...
+                </span>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -182,37 +170,18 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
     const [selectionText, setSelectionText] = useState("");
     const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
     const [addedFeedback, setAddedFeedback] = useState(false);
-    const [userNotes, setUserNotes] = useState<UserNote[]>([]);
     const [noteInput, setNoteInput] = useState("");
 
-    const entries = useMemo((): TranscriptEntry[] => {
-      const paragraphEntries: TranscriptEntry[] = paragraphs.map((p) => ({
-        kind: "paragraph",
-        blocks: p,
-        key: String(p[0].id),
-      }));
-      const noteEntries: TranscriptEntry[] = userNotes.map((n) => ({
-        kind: "note",
-        note: n,
-        key: n.id,
-      }));
-      return [...paragraphEntries, ...noteEntries].sort((a, b) => {
-        const aTime = a.kind === "paragraph" ? a.blocks[0].createdAt : a.note.createdAt;
-        const bTime = b.kind === "paragraph" ? b.blocks[0].createdAt : b.note.createdAt;
-        return aTime - bTime;
-      });
-    }, [paragraphs, userNotes]);
-
-    const submitNote = useCallback(() => {
+    const submitNote = useCallback(async () => {
       const text = noteInput.trim();
       if (!text) return;
-      setUserNotes((prev) => [...prev, { id: crypto.randomUUID(), text, createdAt: Date.now() }]);
       setNoteInput("");
+      await window.electronAPI.addContextNote(text);
     }, [noteInput]);
 
     useEffect(() => {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [blocks.length, userNotes.length]);
+    }, [blocks.length]);
 
     const setContainerRef = useCallback((node: HTMLDivElement | null) => {
       containerRef.current = node;
@@ -378,28 +347,20 @@ export const TranscriptArea = forwardRef<HTMLDivElement, TranscriptAreaProps>(
             </div>
           )}
 
-          {entries.length === 0 ? (
+          {paragraphs.length === 0 ? (
             <p className="text-sm text-muted-foreground italic mt-2">
-              Speak to see transcriptions here...
+              Speak or add a note to get started...
             </p>
           ) : (
-            entries.map((entry, i) =>
-              entry.kind === "paragraph" ? (
-                <Paragraph
-                  key={entry.key}
-                  blocks={entry.blocks}
-                  isLast={i === entries.length - 1}
-                  canTranslate={canTranslate ?? false}
-                  translationEnabled={translationEnabled ?? false}
-                />
-              ) : (
-                <NoteBlock
-                  key={entry.key}
-                  note={entry.note}
-                  isLast={i === entries.length - 1}
-                />
-              )
-            )
+            paragraphs.map((p, i) => (
+              <Paragraph
+                key={String(p[0].id)}
+                blocks={p}
+                isLast={i === paragraphs.length - 1}
+                canTranslate={canTranslate ?? false}
+                translationEnabled={translationEnabled ?? false}
+              />
+            ))
           )}
           {systemPartial && (
             <div className="flex items-center gap-1.5 text-sm text-muted-foreground/50 italic animate-pulse">

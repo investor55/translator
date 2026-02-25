@@ -11,6 +11,7 @@ type MiddlePanelTabsProps = {
   agentContent: ReactNode;
   summaryState: SummaryModalState;
   hasAgent: boolean;
+  newAgentMode?: boolean;
   onCloseAgent: () => void;
   onGenerateSummary?: () => void;
   selectedAgent?: Agent | null;
@@ -82,6 +83,7 @@ export function MiddlePanelTabs({
   agentContent,
   summaryState,
   hasAgent,
+  newAgentMode,
   onCloseAgent,
   onGenerateSummary,
   selectedAgent,
@@ -107,7 +109,7 @@ export function MiddlePanelTabs({
     prevSummaryKindRef.current = summaryState.kind;
   }, [summaryState.kind]);
 
-  // Auto-switch to agent when selectedAgent changes
+  // Auto-switch to agent when selectedAgent changes or new agent mode opens
   useEffect(() => {
     const agentId = selectedAgent?.id;
     if (agentId && agentId !== prevAgentIdRef.current) {
@@ -115,6 +117,10 @@ export function MiddlePanelTabs({
     }
     prevAgentIdRef.current = agentId;
   }, [selectedAgent?.id]);
+
+  useEffect(() => {
+    if (newAgentMode) setActiveTab("agent");
+  }, [newAgentMode]);
 
   const handleCloseAgent = () => {
     onCloseAgent();

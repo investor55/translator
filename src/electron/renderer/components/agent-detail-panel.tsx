@@ -205,9 +205,10 @@ function parseAskQuestionOutput(raw: string | undefined): AskQuestionToolOutput 
             const selectedOptionIds = answer.selectedOptionIds
               .map((id) => (typeof id === "string" ? id.trim() : ""))
               .filter(Boolean);
-            return { questionId: answer.questionId, selectedOptionIds };
+            const freeText = typeof answer.freeText === "string" ? answer.freeText : undefined;
+            return { questionId: answer.questionId, selectedOptionIds, freeText };
           })
-          .filter((answer): answer is AgentQuestionSelection => !!answer)
+          .filter((answer): answer is NonNullable<typeof answer> => !!answer)
       : [];
 
     return {
@@ -1227,15 +1228,18 @@ export function AgentDetailPanel({
 
     flushActivity();
 
-    // Post-process: hoist activity groups and plan steps before text in the
-    // same turn so chain-of-thought / plan cards precede the response.
-    // Plan steps are hoisted always (including during streaming); activity
-    // groups are only reordered once the run finishes to avoid jitter.
+    // Post-process: hoist activity groups, plan steps, and askQuestion steps
+    // before text in the same turn so chain-of-thought / plan / QA cards
+    // precede the response.
+    // Plan and askQuestion steps are hoisted always (including during
+    // streaming); activity groups are only reordered once the run finishes
+    // to avoid jitter.
     for (let i = 1; i < items.length; i++) {
       const item = items[i];
       const isPlanItem = item.kind === "step" && item.step.kind === "plan";
+      const isAskQuestionItem = item.kind === "step" && isAskQuestionStep(item.step);
       const isActivityItem = item.kind === "activity";
-      if (!isPlanItem && !(isActivityItem && !isRunning)) continue;
+      if (!isPlanItem && !isAskQuestionItem && !(isActivityItem && !isRunning)) continue;
       // Find the earliest preceding text in this turn
       let insertAt = i;
       for (let j = i - 1; j >= 0; j--) {

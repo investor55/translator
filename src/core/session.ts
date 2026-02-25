@@ -822,6 +822,21 @@ export class Session {
     return this._translationEnabled;
   }
 
+  addNote(text: string): TranscriptBlock {
+    const block = createBlock(
+      this.contextState,
+      "NOTE",
+      text,
+      "",
+      undefined,
+      "note",
+    );
+    block.sessionId = this.sessionId;
+    block.newTopic = true;
+    this.events.emit("block-added", block);
+    return block;
+  }
+
   async requestTaskScan(): Promise<{
     ok: boolean;
     queued: boolean;
@@ -1194,6 +1209,9 @@ export class Session {
   }
 
   private getTranscriptContextForAgent(): string {
+    if (this.contextState.transcriptBlocks.size === 0) {
+      this.hydrateTranscriptContextFromDb();
+    }
     const blocks = [...this.contextState.transcriptBlocks.values()].slice(-20);
     if (blocks.length === 0) return "(No transcript yet)";
     return blocks

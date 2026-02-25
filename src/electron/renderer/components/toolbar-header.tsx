@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, LanguagesIcon, MicIcon, MicOffIcon, MonitorSpeakerIcon, PlusIcon, Settings2Icon, SquareIcon } from "lucide-react";
+import { ArrowLeftIcon, CircleIcon, LanguagesIcon, MicIcon, MicOffIcon, MonitorSpeakerIcon, PlusIcon, Settings2Icon, SquareIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -31,20 +31,26 @@ type ToolbarHeaderProps = {
 };
 
 function StatusBadge({ status }: { status: UIState["status"] }) {
+  if (status === "recording" || status === "connecting") {
+    return (
+      <Badge className="gap-1.5 font-normal bg-red-600 text-white hover:bg-red-600 dark:bg-red-500 dark:hover:bg-red-500 border-transparent">
+        <span className="relative flex size-2">
+          <span className="absolute inset-0 rounded-full bg-white/40 animate-ping" />
+          <span className="relative inline-flex size-2 rounded-full bg-white" />
+        </span>
+        {status === "connecting" ? "Connecting..." : "Recording"}
+      </Badge>
+    );
+  }
+
   const config = {
-    idle: { color: "bg-status-idle", label: "Idle" },
-    connecting: { color: "bg-status-connecting", label: "Connecting..." },
-    recording: { color: "bg-status-recording", label: "Recording" },
-    paused: { color: "bg-status-paused", label: "Paused" },
+    idle: { label: "Idle" },
+    paused: { label: "Paused" },
   }[status];
 
   return (
     <Badge variant="secondary" className="gap-1.5 font-normal">
-      <span
-        className={`inline-block w-2 h-2 rounded-full ${config.color} ${
-          status === "recording" ? "animate-pulse" : ""
-        }`}
-      />
+      <span className="inline-block w-2 h-2 rounded-full bg-muted-foreground/40" />
       {config.label}
     </Badge>
   );
@@ -75,6 +81,8 @@ export function ToolbarHeader({
 }: ToolbarHeaderProps) {
   const isRecordingOrConnecting =
     uiState?.status === "recording" || uiState?.status === "connecting";
+  const hasRecorded =
+    uiState?.status === "recording" || uiState?.status === "connecting" || uiState?.status === "paused";
   const loading = languages.length === 0;
   const canTranslate = uiState?.canTranslate ?? false;
   const translationEnabled = (uiState?.translationEnabled ?? false) && canTranslate;
@@ -215,42 +223,61 @@ export function ToolbarHeader({
                   <LanguagesIcon className="size-3.5" />
                 </Button>
               )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onTogglePause}
-                className={isRecordingOrConnecting ? "bg-blue-600 hover:bg-blue-700 text-white border-blue-600 gap-1.5" : "gap-1.5"}
-                aria-label={isRecordingOrConnecting ? "Pause computer audio" : "Resume computer audio"}
-              >
-                {isRecordingOrConnecting && (
-                  <span className="relative flex size-2">
-                    <span className="absolute inset-0 rounded-full bg-white/40 mic-pulse-ring" />
-                    <span className="relative inline-flex size-2 rounded-full bg-white" />
-                  </span>
-                )}
-                <MonitorSpeakerIcon className="size-3.5" />
-                <span className="text-xs">Computer Audio</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onToggleMic}
-                className={micEnabled ? "bg-red-600 hover:bg-red-700 text-white border-red-600 gap-1.5" : "gap-1.5"}
-                aria-label={micEnabled ? "Turn off microphone" : "Turn on microphone"}
-              >
-                {micEnabled ? (
-                  <>
-                    <span className="relative flex size-2">
-                      <span className="absolute inset-0 rounded-full bg-white/40 mic-pulse-ring" />
-                      <span className="relative inline-flex size-2 rounded-full bg-white" />
-                    </span>
-                    <MicIcon className="size-3.5" />
-                  </>
-                ) : (
-                  <MicOffIcon className="size-3.5" />
-                )}
-                <span className="text-xs">My Voice</span>
-              </Button>
+              {hasRecorded ? (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onTogglePause}
+                    className={isRecordingOrConnecting
+                      ? "bg-red-600 hover:bg-red-700 text-white border-red-600 dark:bg-red-500 dark:hover:bg-red-600 dark:border-red-500 gap-1.5"
+                      : "gap-1.5"}
+                    aria-label={isRecordingOrConnecting ? "Pause computer audio" : "Resume computer audio"}
+                  >
+                    {isRecordingOrConnecting && (
+                      <span className="relative flex size-2">
+                        <span className="absolute inset-0 rounded-full bg-white/60 mic-pulse-ring" />
+                        <span className="relative inline-flex size-2 rounded-full bg-white" />
+                      </span>
+                    )}
+                    <MonitorSpeakerIcon className="size-3.5" />
+                    <span className="text-xs">Computer Audio</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onToggleMic}
+                    className={micEnabled
+                      ? "bg-red-600 hover:bg-red-700 text-white border-red-600 dark:bg-red-500 dark:hover:bg-red-600 dark:border-red-500 gap-1.5"
+                      : "gap-1.5"}
+                    aria-label={micEnabled ? "Turn off microphone" : "Turn on microphone"}
+                  >
+                    {micEnabled ? (
+                      <>
+                        <span className="relative flex size-2">
+                          <span className="absolute inset-0 rounded-full bg-white/60 mic-pulse-ring" />
+                          <span className="relative inline-flex size-2 rounded-full bg-white" />
+                        </span>
+                        <MicIcon className="size-3.5" />
+                      </>
+                    ) : (
+                      <MicOffIcon className="size-3.5" />
+                    )}
+                    <span className="text-xs">My Voice</span>
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onTogglePause}
+                  className="gap-1.5"
+                  aria-label="Start recording"
+                >
+                  <CircleIcon className="size-3 fill-red-500 text-red-500 dark:fill-red-400 dark:text-red-400" />
+                  <span className="text-xs">Record</span>
+                </Button>
+              )}
             </div>
           </>
         )}

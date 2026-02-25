@@ -77,7 +77,10 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
     case "state-change":
       return { ...state, uiState: action.state };
     case "block-added": {
-      const clearPartial = action.block.audioSource === "system" ? { systemPartial: "" } : { micPartial: "" };
+      const clearPartial =
+        action.block.audioSource === "system" ? { systemPartial: "" } :
+        action.block.audioSource === "microphone" ? { micPartial: "" } :
+        {};
       return { ...state, ...clearPartial, blocks: sortBlocks([...state.blocks, action.block]) };
     }
     case "block-updated":
@@ -252,13 +255,9 @@ export function useSession(
         }
       });
     } else {
-      api.startSession(sourceLangRef.current, targetLangRef.current, appConfigRef.current, projectIdRef.current ?? undefined).then(async (result) => {
+      api.startSession(sourceLangRef.current, targetLangRef.current, appConfigRef.current, projectIdRef.current ?? undefined).then((result) => {
         if (result.ok && result.sessionId) {
           dispatch({ kind: "session-started", sessionId: result.sessionId });
-          const recResult = await api.startRecording();
-          if (!recResult.ok) {
-            dispatch({ kind: "error", text: recResult.error ?? "Failed to start recording" });
-          }
         } else {
           dispatch({ kind: "error", text: result.error ?? "Failed to start session" });
         }
