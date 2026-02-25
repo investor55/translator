@@ -201,15 +201,11 @@ export function App() {
     setFinalSummaryState({ kind: "idle" });
     void refreshSessions();
     void window.electronAPI.getFinalSummary(data.sessionId).then((result) => {
-      if (
-        result.ok &&
-        result.summary &&
-        result.summary.modelId === appConfig.synthesisModelId
-      ) {
+      if (result.ok && result.summary) {
         setFinalSummaryState({ kind: "ready", summary: result.summary });
       }
     });
-  }, [appConfig.synthesisModelId, refreshSessions, seedAgents]);
+  }, [refreshSessions, seedAgents]);
 
   const session = useSession(
     sourceLang,
@@ -1366,7 +1362,7 @@ export function App() {
       }
     }
     void window.electronAPI.generateFinalSummary();
-  }, [appConfig.synthesisModelId, finalSummaryState.kind, selectedSessionId, session.sessionId]);
+  }, [finalSummaryState.kind, selectedSessionId, session.sessionId]);
 
   const handleRegenerateSummary = useCallback(() => {
     if (finalSummaryState.kind === "loading") return;
@@ -1558,7 +1554,6 @@ export function App() {
                 onAcceptSuggestion={handleAcceptSuggestion}
                 onDismissSuggestion={handleDismissSuggestion}
                 sessionId={selectedSessionId ?? session.sessionId ?? undefined}
-                synthesisModelId={appConfig.synthesisModelId}
                 sessionActive={sessionActive}
                 transcriptRefs={transcriptRefs}
                 onRemoveTranscriptRef={handleRemoveTranscriptRef}
