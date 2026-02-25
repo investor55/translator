@@ -242,9 +242,9 @@ export function buildAgentSuggestionPrompt(
       historicalSuggestionsSet.add(key);
       return true;
     })
-    .slice(-20);
+    .slice(-50);
   const historicalSuggestionsSection = normalizedHistory.length > 0
-    ? `\n\nHistorical suggestions already shown in this session:\n${normalizedHistory.map((text) => `- ${text}`).join("\n")}`
+    ? `\n\nHistorical suggestions already shown in this session (DO NOT repeat or rephrase any of these):\n${normalizedHistory.map((text) => `- ${text}`).join("\n")}`
     : "";
 
   const keyPointsSection = keyPoints.length > 0

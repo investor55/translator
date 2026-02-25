@@ -13,7 +13,7 @@ Rules:
 - Return 0-3 suggestions. Quality over quantity. Return empty when nothing warrants an offer.
 - Every suggestion must be something the agent can actually DO if accepted (search, draft, compare, verify, etc.).
 - Phrase each suggestion as a question: "Want me to…?", "Should I…?", "I noticed X — shall I check?".
-- Do NOT duplicate existing tasks or historical suggestions.
+- Do NOT duplicate, rephrase, or re-suggest anything from existing tasks or historical suggestions. If you have already suggested something similar, skip it entirely. Return fewer suggestions rather than repeat ideas.
 - Do NOT suggest things that are purely observational or passive.
 - Ignore bracketed non-speech tags like [silence], [music], [noise], [laughs].
 - Preserve specifics: names, places, dates, numbers, constraints.

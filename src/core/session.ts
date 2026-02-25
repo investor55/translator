@@ -23,7 +23,7 @@ import type {
 import { createTranscriptionModel, createAnalysisModel, createTaskModel, createUtilitiesModel, createSynthesisModel } from "./providers";
 import { log } from "./logger";
 import { pcmToWavBuffer, computeRms } from "./audio/audio-utils";
-import { isLikelyDuplicateTaskText, normalizeTaskText, toReadableError } from "./text/text-utils";
+import { toReadableError } from "./text/text-utils";
 import {
   analysisSchema,
   agentSuggestionSchema,
@@ -264,10 +264,12 @@ export class Session {
   private readonly analysisRetryDelayMs = 2000;
   private readonly taskAnalysisIntervalMs = 60_000;
   private readonly taskAnalysisMaxBlocks = 60;
+  private readonly taskAnalysisMinNewWords = 30;
   private recentSuggestedTaskTexts: string[] = [];
   private taskScanRequested = false;
   private lastTaskAnalysisAt = 0;
   private lastTaskAnalysisBlockCount = 0;
+  private lastTaskAnalysisWordCount = 0;
   /** Timestamp of last mic speech detection, for system-audio ducking */
   private lastSummary: Summary | null = null;
   private lastAnalysisBlockCount = 0;
@@ -532,6 +534,7 @@ export class Session {
       this.lastAnalysisBlockCount = 0;
       this.lastTaskAnalysisBlockCount = 0;
       this.lastTaskAnalysisAt = 0;
+      this.lastTaskAnalysisWordCount = 0;
       this.recentSuggestedTaskTexts = [];
       this.titleGenerated = false;
       this.events.emit("blocks-cleared");
@@ -1149,15 +1152,6 @@ export class Session {
         return {
           ok: true,
           reason: object.reason || "No actionable task found in selection.",
-        };
-      }
-
-      const existingTexts = existingTasks.map((task) => task.text);
-      const isDuplicate = this.isDuplicateTaskSuggestion(taskTitle, existingTexts, []);
-      if (isDuplicate) {
-        return {
-          ok: true,
-          reason: "This task already exists.",
         };
       }
 
@@ -2006,12 +2000,17 @@ export class Session {
       hasNewAnalysisBlocks
       && !(forceTaskAnalysis && !this.isRecording);
     const hasNewTaskBlocks = allBlocks.length > this.lastTaskAnalysisBlockCount;
+    const currentWordCount = allBlocks.reduce(
+      (sum, b) => sum + b.sourceText.split(/\s+/).filter(Boolean).length,
+      0,
+    );
+    const hasEnoughNewWords = currentWordCount - this.lastTaskAnalysisWordCount >= this.taskAnalysisMinNewWords;
     const shouldRunTaskAnalysis =
       (forceTaskAnalysis && allBlocks.length > 0)
       || (
         hasNewTaskBlocks
+        && hasEnoughNewWords
         && (
-          // Providers with paragraph buffering or streaming commit paragraphs; run task scan on commit.
           this.usesParagraphBuffering
           || this.config.transcriptionProvider === "elevenlabs"
           || now - this.lastTaskAnalysisAt >= this.taskAnalysisIntervalMs
@@ -2113,6 +2112,7 @@ export class Session {
           taskBlocks = allBlocks.slice(taskContextStart, analysisTargetBlockCount);
         }
         this.lastTaskAnalysisAt = now;
+        this.lastTaskAnalysisWordCount = currentWordCount;
 
         try {
           const suggestionPrompt = buildAgentSuggestionPrompt(
@@ -2152,20 +2152,14 @@ export class Session {
         log("INFO", `Analysis response: ${analysisElapsedMs}ms, keyPoints=${analysisKeyPointsCount}, suggestions=${taskSuggestions.length}`);
       }
 
-      // Emit task suggestions (not auto-added — user must accept)
-      const existingTaskTexts = existingTasks.map((t) => t.text);
-      const emittedTaskTexts: string[] = [];
+      // Emit task suggestions (not auto-added — user must accept).
+      // Dedup is handled by the model via historical suggestions in the prompt.
       emittedTaskSuggestions = [];
       for (const candidate of taskSuggestions) {
-        const emittedSuggestion = this.tryEmitTaskSuggestion(
-          candidate,
-          existingTaskTexts,
-          emittedTaskTexts,
-        );
+        const emittedSuggestion = this.tryEmitTaskSuggestion(candidate);
         if (!emittedSuggestion) {
           continue;
         }
-        emittedTaskTexts.push(candidate.text);
         emittedTaskSuggestions.push(emittedSuggestion);
         taskSuggestionsEmitted += 1;
       }
@@ -2210,39 +2204,11 @@ export class Session {
     };
   }
 
-  private isDuplicateTaskSuggestion(
-    candidate: string,
-    existingTaskTexts: readonly string[],
-    emittedInCurrentAnalysis: readonly string[],
-  ): boolean {
-    const normalizedCandidate = normalizeTaskText(candidate);
-    if (!normalizedCandidate) return true;
-
-    const exactMatch = (text: string) => normalizeTaskText(text) === normalizedCandidate;
-    if (existingTaskTexts.some(exactMatch)) return true;
-    if (emittedInCurrentAnalysis.some(exactMatch)) return true;
-    if (this.recentSuggestedTaskTexts.some(exactMatch)) return true;
-
-    const fuzzyMatch = (text: string) => isLikelyDuplicateTaskText(candidate, text);
-    if (existingTaskTexts.some(fuzzyMatch)) return true;
-    if (emittedInCurrentAnalysis.some(fuzzyMatch)) return true;
-    if (this.recentSuggestedTaskTexts.some(fuzzyMatch)) return true;
-
-    return false;
-  }
-
   private tryEmitTaskSuggestion(
     candidate: TaskSuggestionDraft,
-    existingTaskTexts?: readonly string[],
-    emittedInCurrentAnalysis: readonly string[] = [],
   ): TaskSuggestion | null {
     const normalized = candidate.text.trim();
     if (!normalized) return null;
-
-    const knownTaskTexts = existingTaskTexts ?? (this.db ? this.db.getTasks().map((t) => t.text) : []);
-    if (this.isDuplicateTaskSuggestion(normalized, knownTaskTexts, emittedInCurrentAnalysis)) {
-      return null;
-    }
 
     const suggestion: TaskSuggestion = {
       id: crypto.randomUUID(),
