@@ -7,6 +7,7 @@ import type {
   AgentQuestionSelection,
   AgentToolApprovalRequest,
   AgentToolApprovalResponse,
+  PlanItem,
 } from "../types";
 import { log } from "../logger";
 import {
@@ -455,6 +456,53 @@ async function buildTools(
     }),
   };
 
+  // Closure-scoped stable ID for plan step — ensures upserts in-place
+  const planStepId = `plan:${Date.now()}`;
+  let currentPlanItems: PlanItem[] = [];
+
+  baseTools["updatePlan"] = tool({
+    description:
+      "Create or update a structured plan that the user can follow. " +
+      "Call once after investigation to outline steps, then call again as you complete each step. " +
+      "Steps should be 2–6 items. Update status to 'in_progress' when starting a step and 'completed' when done.",
+    inputSchema: z.object({
+      title: z.string().describe("Brief plan title"),
+      description: z.string().describe("What you found and what you'll do"),
+      steps: z.array(
+        z.object({
+          id: z.string(),
+          title: z.string(),
+          description: z.string().optional(),
+          status: z.enum(["pending", "in_progress", "completed"]),
+        })
+      ),
+    }),
+    execute: async ({ title, description, steps }) => {
+      currentPlanItems = steps.map((s) => ({
+        id: s.id,
+        title: s.title,
+        description: s.description,
+        status: s.status,
+      }));
+
+      onStep({
+        id: planStepId,
+        kind: "plan",
+        content: title,
+        planTitle: title,
+        planDescription: description,
+        planItems: currentPlanItems,
+        createdAt: Date.now(),
+      });
+
+      const completed = currentPlanItems.filter((s) => s.status === "completed").length;
+      const inProgress = currentPlanItems.find((s) => s.status === "in_progress");
+      const summary = `Plan "${title}" updated: ${completed}/${currentPlanItems.length} steps done.` +
+        (inProgress ? ` Current: ${inProgress.title}` : "");
+      return summary;
+    },
+  });
+
   if (searchTranscriptHistory) {
     baseTools["searchTranscriptHistory"] = tool({
       description:
@@ -748,6 +796,11 @@ function summarizeToolCall(
     return { content: query ? `Searching agents: ${query}` : "Searching agent history" };
   }
 
+  if (toolName === "updatePlan") {
+    const title = (input as Record<string, unknown>)?.title;
+    return { content: typeof title === "string" ? `Planning: ${title}` : "Planning" };
+  }
+
   if (toolName === "getMcpToolSchema") {
     const name = (input as Record<string, unknown>)?.name;
     return { content: typeof name === "string" ? `Looking up schema: ${name}` : "Looking up MCP tool schema" };
@@ -793,6 +846,10 @@ function summarizeToolResult(
           : "Clarification received",
       toolInput: safeJson(output),
     };
+  }
+
+  if (toolName === "updatePlan") {
+    return { content: "Plan updated" };
   }
 
   if (toolName === "searchTranscriptHistory") {
@@ -1143,6 +1200,8 @@ async function runAgentWithMessages(
           break;
         }
         case "tool-call": {
+          // updatePlan emits its own plan step; skip the redundant tool-call.
+          if (part.toolName === "updatePlan") break;
           const { content, toolInput } = summarizeToolCall(
             part.toolName,
             part.input
@@ -1160,6 +1219,8 @@ async function runAgentWithMessages(
         }
         case "tool-result": {
           if (part.preliminary) break;
+          // updatePlan emits its own plan step; skip the redundant tool-result.
+          if (part.toolName === "updatePlan") break;
           const { content, toolInput } = summarizeToolResult(
             part.toolName,
             part.input,

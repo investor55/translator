@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/collapsible";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { ChevronDownIcon, PaperclipIcon } from "lucide-react";
+import { ChevronDownIcon, LoaderCircleIcon, PaperclipIcon } from "lucide-react";
 
 export interface QueueMessagePart {
   type: string;
@@ -46,24 +46,36 @@ export const QueueItem = ({ className, ...props }: QueueItemProps) => (
 
 export type QueueItemIndicatorProps = ComponentProps<"span"> & {
   completed?: boolean;
+  inProgress?: boolean;
 };
 
 export const QueueItemIndicator = ({
   completed = false,
+  inProgress = false,
   className,
   ...props
-}: QueueItemIndicatorProps) => (
-  <span
-    className={cn(
-      "mt-0.5 inline-block size-2.5 rounded-full border",
-      completed
-        ? "border-muted-foreground/20 bg-muted-foreground/10"
-        : "border-muted-foreground/50",
-      className
-    )}
-    {...props}
-  />
-);
+}: QueueItemIndicatorProps) => {
+  if (inProgress) {
+    return (
+      <LoaderCircleIcon
+        className={cn("size-3 animate-spin text-primary", className)}
+      />
+    );
+  }
+
+  return (
+    <span
+      className={cn(
+        "mt-0.5 inline-block size-2.5 rounded-full border",
+        completed
+          ? "border-muted-foreground/20 bg-muted-foreground/10"
+          : "border-muted-foreground/50",
+        className
+      )}
+      {...props}
+    />
+  );
+};
 
 export type QueueItemContentProps = ComponentProps<"span"> & {
   completed?: boolean;

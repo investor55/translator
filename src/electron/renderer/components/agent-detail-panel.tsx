@@ -13,6 +13,7 @@ import {
   CopyIcon,
   RefreshCwIcon,
   SendHorizonalIcon,
+  ListChecksIcon,
 } from "lucide-react";
 import {
   CitedMessageResponse,
@@ -42,6 +43,23 @@ import {
   ChainOfThoughtStep,
 } from "@/components/ai-elements/chain-of-thought";
 import { useStickToBottomContext } from "use-stick-to-bottom";
+import {
+  Plan,
+  PlanHeader,
+  PlanTitle,
+  PlanDescription,
+  PlanContent,
+  PlanTrigger,
+} from "@/components/ai-elements/plan";
+import {
+  Queue,
+  QueueSection,
+  QueueSectionContent,
+  QueueItem,
+  QueueItemIndicator,
+  QueueItemContent,
+  QueueItemDescription,
+} from "@/components/ai-elements/queue";
 import type {
   Agent,
   AgentStep,
@@ -606,9 +624,87 @@ function TextStepActions({
   );
 }
 
+function AgentPlanCard({ step, isRunning }: { step: AgentStep; isRunning: boolean }) {
+  const items = step.planItems ?? [];
+  const hasActiveWork = items.some((i) => i.status === "in_progress" || i.status === "pending");
+  const isStreaming = isRunning && hasActiveWork;
+
+  return (
+    <div className="mt-1 py-1">
+      <Plan defaultOpen={false} isStreaming={isStreaming}>
+        <PlanHeader>
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <ListChecksIcon className="size-3.5 text-muted-foreground" />
+              <PlanTitle>{step.planTitle ?? "Plan"}</PlanTitle>
+            </div>
+            {step.planDescription && (
+              <PlanDescription>{step.planDescription}</PlanDescription>
+            )}
+          </div>
+          <PlanTrigger />
+        </PlanHeader>
+        {items.length > 0 && (
+          <PlanContent>
+            <div className="space-y-3 text-xs">
+              <div>
+                <h3 className="mb-1.5 font-semibold text-foreground">Steps</h3>
+                <ul className="list-inside list-disc space-y-1 text-muted-foreground">
+                  {items.map((item) => (
+                    <li key={item.id} className={item.status === "completed" ? "text-muted-foreground/50 line-through" : ""}>
+                      {item.title}
+                      {item.description && (
+                        <span className="text-muted-foreground/70"> — {item.description}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </PlanContent>
+        )}
+      </Plan>
+    </div>
+  );
+}
+
+function AgentPlanQueue({ items }: { items: ReadonlyArray<{ id: string; title: string; description?: string; status: string }> }) {
+  if (items.length === 0) return null;
+
+  return (
+    <Queue className="max-h-[150px] overflow-y-auto rounded-b-none border-b-0 border-input">
+      <QueueSection>
+        <QueueSectionContent>
+          <div>
+            {items.map((item) => (
+              <QueueItem key={item.id}>
+                <div className="flex items-center gap-2">
+                  <QueueItemIndicator
+                    completed={item.status === "completed"}
+                    inProgress={item.status === "in_progress"}
+                  />
+                  <QueueItemContent completed={item.status === "completed"}>
+                    {item.title}
+                  </QueueItemContent>
+                </div>
+                {item.description && (
+                  <QueueItemDescription completed={item.status === "completed"}>
+                    {item.description}
+                  </QueueItemDescription>
+                )}
+              </QueueItem>
+            ))}
+          </div>
+        </QueueSectionContent>
+      </QueueSection>
+    </Queue>
+  );
+}
+
 function StepItem({
   agent,
   step,
+  isRunning,
   onAnswerQuestion,
   onSkipQuestion,
   onAnswerToolApproval,
@@ -616,6 +712,7 @@ function StepItem({
 }: {
   agent: Agent;
   step: AgentStep;
+  isRunning: boolean;
   onAnswerQuestion?: (
     agent: Agent,
     answers: AgentQuestionSelection[],
@@ -676,6 +773,8 @@ function StepItem({
           </MessageContent>
         </Message>
       );
+    case "plan":
+      return <AgentPlanCard step={step} isRunning={isRunning} />;
     default:
       return null;
   }
@@ -900,7 +999,8 @@ export function AgentDetailPanel({
           step.kind === "text" ||
           step.kind === "thinking" ||
           step.kind === "tool-call" ||
-          step.kind === "tool-result"
+          step.kind === "tool-result" ||
+          step.kind === "plan"
       );
 
       const firstNonUserAt = filtered.reduce((earliest, step) => {
@@ -1127,22 +1227,25 @@ export function AgentDetailPanel({
 
     flushActivity();
 
-    // Post-process: within each turn, hoist activity groups that follow text
-    // so chain-of-thought always precedes the response (standard AI chat pattern).
-    if (!isRunning) {
-      for (let i = 1; i < items.length; i++) {
-        if (items[i].kind !== "activity") continue;
-        // Find the earliest preceding text in this turn
-        let insertAt = i;
-        for (let j = i - 1; j >= 0; j--) {
-          const prev = items[j];
-          if (prev.kind === "step" && prev.step.kind === "user") break;
-          if (prev.kind === "step" && prev.step.kind === "text") insertAt = j;
-        }
-        if (insertAt < i) {
-          const [activity] = items.splice(i, 1);
-          items.splice(insertAt, 0, activity);
-        }
+    // Post-process: hoist activity groups and plan steps before text in the
+    // same turn so chain-of-thought / plan cards precede the response.
+    // Plan steps are hoisted always (including during streaming); activity
+    // groups are only reordered once the run finishes to avoid jitter.
+    for (let i = 1; i < items.length; i++) {
+      const item = items[i];
+      const isPlanItem = item.kind === "step" && item.step.kind === "plan";
+      const isActivityItem = item.kind === "activity";
+      if (!isPlanItem && !(isActivityItem && !isRunning)) continue;
+      // Find the earliest preceding text in this turn
+      let insertAt = i;
+      for (let j = i - 1; j >= 0; j--) {
+        const prev = items[j];
+        if (prev.kind === "step" && prev.step.kind === "user") break;
+        if (prev.kind === "step" && prev.step.kind === "text") insertAt = j;
+      }
+      if (insertAt < i) {
+        const [moved] = items.splice(i, 1);
+        items.splice(insertAt, 0, moved);
       }
     }
 
@@ -1158,6 +1261,16 @@ export function AgentDetailPanel({
     }
     return null;
   }, [timelineItems]);
+
+  const latestPlanItems = useMemo(() => {
+    for (let i = agent.steps.length - 1; i >= 0; i--) {
+      const step = agent.steps[i];
+      if (step.kind === "plan" && step.planItems && step.planItems.length > 0) {
+        return step.planItems;
+      }
+    }
+    return [];
+  }, [agent.steps]);
 
   const handleFollowUpSubmit = useCallback(
     async (message: PromptInputMessage) => {
@@ -1268,6 +1381,7 @@ export function AgentDetailPanel({
                 key={item.step.id}
                 agent={agent}
                 step={item.step}
+                isRunning={isRunning}
                 onAnswerQuestion={onAnswerQuestion}
                 onSkipQuestion={onSkipQuestion}
                 onAnswerToolApproval={onAnswerToolApproval}
@@ -1300,6 +1414,7 @@ export function AgentDetailPanel({
       {/* Follow-up input */}
       {onFollowUp && (
         <div className="shrink-0 border-t border-border p-2">
+          <AgentPlanQueue items={latestPlanItems} />
           <PromptInput onSubmit={handleFollowUpSubmit}>
             <PromptInputTextarea
               placeholder={isRunning ? "Type ahead — stop the agent to send" : "Ask a follow-up..."}

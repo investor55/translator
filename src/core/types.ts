@@ -501,7 +501,17 @@ export type AgentStepKind =
   | "tool-call"
   | "tool-result"
   | "text"
-  | "user";
+  | "user"
+  | "plan";
+
+export type PlanItemStatus = "pending" | "in_progress" | "completed";
+
+export type PlanItem = Readonly<{
+  id: string;
+  title: string;
+  description?: string;
+  status: PlanItemStatus;
+}>;
 
 export type AgentQuestionOption = Readonly<{
   id: string;
@@ -555,6 +565,9 @@ export type AgentStep = Readonly<{
   approvalId?: string;
   approvalState?: AgentToolApprovalState;
   approvalApproved?: boolean;
+  planTitle?: string;
+  planDescription?: string;
+  planItems?: PlanItem[];
   createdAt: number;
 }>;
 
