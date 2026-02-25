@@ -682,7 +682,6 @@ function AgentPlanQueue({ items }: { items: ReadonlyArray<{ id: string; title: s
                 <div className="flex items-center gap-2">
                   <QueueItemIndicator
                     completed={item.status === "completed"}
-                    inProgress={item.status === "in_progress"}
                   />
                   <QueueItemContent completed={item.status === "completed"}>
                     {item.title}

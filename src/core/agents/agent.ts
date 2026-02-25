@@ -461,18 +461,34 @@ async function buildTools(
   let currentPlanItems: PlanItem[] = [];
 
   baseTools["updatePlan"] = tool({
-    description:
-      "Create or update a structured plan that the user can follow. " +
-      "Call once after investigation to outline steps, then call again as you complete each step. " +
-      "Steps should be 2–6 items. Update status to 'in_progress' when starting a step and 'completed' when done.",
+    description: [
+      "Create or update a structured plan visible to the user as a progress card.",
+      "",
+      "WHEN TO USE:",
+      "- Non-trivial tasks requiring 2+ distinct steps or actions.",
+      "- Tasks where you investigated first and now need to outline an approach.",
+      "- When the user provides a multi-part request.",
+      "",
+      "WHEN NOT TO USE:",
+      "- Simple questions, quick lookups, or single-step tasks you can complete immediately.",
+      "- Purely conversational responses.",
+      "",
+      "HOW TO USE:",
+      "1. Call ONCE after investigation to outline your approach. All steps start as 'pending', except set the first step to 'in_progress'.",
+      "2. Immediately begin executing the first step in the same turn — do not stop after creating the plan.",
+      "3. As you finish each step, call again: mark the completed step as 'completed' and the next step as 'in_progress'.",
+      "4. Only ONE step should be 'in_progress' at a time.",
+      "5. Only mark a step 'completed' when it is fully done, not partially done.",
+      "6. Keep steps to 2–6 concrete, actionable items. Titles should be imperative (e.g. 'Search for relevant articles', not 'Searching').",
+    ].join("\n"),
     inputSchema: z.object({
-      title: z.string().describe("Brief plan title"),
-      description: z.string().describe("What you found and what you'll do"),
+      title: z.string().describe("Brief plan title (imperative form, e.g. 'Analyze the quarterly report')"),
+      description: z.string().describe("1-2 sentence summary of what you found during investigation and what you'll do"),
       steps: z.array(
         z.object({
-          id: z.string(),
-          title: z.string(),
-          description: z.string().optional(),
+          id: z.string().describe("Stable identifier for this step (e.g. 'step-1'). Reuse the same id across calls."),
+          title: z.string().describe("Imperative action title (e.g. 'Summarize key findings')"),
+          description: z.string().optional().describe("Optional detail — only add when the step needs clarification"),
           status: z.enum(["pending", "in_progress", "completed"]),
         })
       ),
