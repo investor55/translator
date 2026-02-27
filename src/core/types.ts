@@ -48,6 +48,7 @@ export type DarkVariant = "charcoal" | "steel" | "pitch-black" | "abyss";
 export type TranscriptionProvider =
   | "openrouter"
   | "vertex"
+  | "google"
   | "elevenlabs"
   | "whisper";
 export type AnalysisProvider = "openrouter" | "google" | "vertex" | "bedrock";
@@ -422,6 +423,7 @@ export function normalizeAppConfig(
   const transcriptionProvider: TranscriptionProvider =
     merged.transcriptionProvider === "openrouter" ||
     merged.transcriptionProvider === "vertex" ||
+    merged.transcriptionProvider === "google" ||
     merged.transcriptionProvider === "elevenlabs" ||
     merged.transcriptionProvider === "whisper"
       ? merged.transcriptionProvider

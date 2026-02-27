@@ -8,7 +8,7 @@ import type { Agent, TranscriptBlock } from "../types";
 
 const AGENTS_MD_PATH = path.resolve(process.cwd(), "agents.md");
 
-const LEARNING_CATEGORIES = ["Facts", "Preferences", "Decisions", "Glossary"] as const;
+const LEARNING_CATEGORIES = ["Learned User Preferences", "Learned Workspace Facts"] as const;
 type LearningCategory = (typeof LEARNING_CATEGORIES)[number];
 
 const learningSchema = z.object({
@@ -54,11 +54,16 @@ function parseSections(md: string): Map<LearningCategory, string[]> {
 
 function formatAgentConversation(agent: Agent): string {
   const lines = [`Task: ${agent.task}`];
+  if (agent.taskContext) {
+    lines.push(`Context: ${agent.taskContext.slice(0, 500)}`);
+  }
   for (const step of agent.steps) {
     if (step.kind === "user") {
       lines.push(`User: ${step.content}`);
     } else if (step.kind === "text") {
       lines.push(`Agent: ${step.content.slice(0, 500)}`);
+    } else if (step.kind === "tool-result") {
+      lines.push(`Tool result (${step.toolName ?? "unknown"}): ${step.content.slice(0, 300)}`);
     }
   }
   if (agent.result) {
@@ -68,7 +73,7 @@ function formatAgentConversation(agent: Agent): string {
 }
 
 function renderAgentsMd(sections: Map<LearningCategory, string[]>): string {
-  const lines = ["# Agent Memory", "", "Durable learnings from user corrections. Only records decisions where the agent was wrong and the user overrode it.", ""];
+  const lines = ["# Agent Memory", "", "Durable learnings about user preferences and workspace facts. Used to improve future agent behavior.", ""];
   for (const cat of LEARNING_CATEGORIES) {
     lines.push(`## ${cat}`, "");
     const items = sections.get(cat) ?? [];
@@ -89,9 +94,6 @@ export async function extractAgentLearnings(
 ): Promise<void> {
   if (!agent.result) return;
 
-  const hasUserCorrections = agent.steps.some((s) => s.kind === "user");
-  if (!hasUserCorrections) return;
-
   log("INFO", `Learning extraction for agent ${agent.id} (project: ${projectId ?? "none"})`);
 
   const existingMd = (projectId && dataDir)
@@ -110,24 +112,31 @@ export async function extractAgentLearnings(
     .join("\n");
 
   const prompt = [
-    "Analyze this agent conversation for moments where the USER CORRECTED the agent or OVERRODE its behavior.",
-    "Only extract learnings from explicit user pushback — where the agent did something wrong and the user told it to do something different.",
+    "Analyze this agent conversation and extract durable learnings about the user's workspace and preferences.",
     "",
-    "EXTRACT when:",
-    "- The user said 'no, do X instead' or 'stop doing Y'",
-    "- The user rejected the agent's approach and provided a different one",
-    "- The user expressed frustration with the agent's behavior and corrected it",
-    "- The user provided a domain-specific term or glossary correction",
+    "## Learned User Preferences",
+    "Extract when the user:",
+    "- Gave explicit workflow instructions (e.g., 'always use pnpm', 'never auto-commit')",
+    "- Corrected the agent or overrode its approach",
+    "- Expressed a repeated choice or convention (naming, formatting, structure)",
+    "- Provided domain-specific terms or glossary corrections",
     "",
-    "DO NOT extract:",
-    "- Generic AI assistant best practices (e.g., 'present data in tables', 'acknowledge user frustrations')",
-    "- Anything the agent did correctly that the user accepted without comment",
-    "- Learnings that any competent LLM already knows how to do",
+    "## Learned Workspace Facts",
+    "Extract durable facts discovered during the task:",
+    "- Tech stack, frameworks, and key dependencies",
+    "- Architecture patterns and conventions (file structure, naming, module boundaries)",
+    "- Important file locations and what they contain",
+    "- Integration points (APIs, services, config files)",
+    "- Build/test/deploy commands and workflows",
+    "",
+    "## DO NOT extract:",
+    "- Generic knowledge any LLM already has",
     "- One-off task instructions or transient details",
-    "- Specific facts/data points (names, versions, dates) that go stale",
-    "- Secrets, tokens, credentials",
+    "- Volatile data (specific versions, dates, counts) that goes stale quickly",
+    "- Secrets, tokens, credentials, or API keys",
+    "- Anything already captured in existing learnings below",
     "",
-    "The bar is HIGH. Most conversations produce zero learnings. Return an empty array unless there is a clear user correction.",
+    "Return an empty array if there are no new durable learnings.",
     "",
     "Existing learnings (do NOT duplicate these):",
     existingMd || "(none)",

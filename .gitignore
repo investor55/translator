@@ -136,3 +136,4 @@ Thumbs.db
 *.log
 debug.log
 service-account.json
+agents.md

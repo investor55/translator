@@ -4,7 +4,7 @@ export function validateEnv(config: Pick<SessionConfig, "transcriptionProvider" 
   const missing: string[] = [];
 
   const needsVertex = config.transcriptionProvider === "vertex" || config.analysisProvider === "vertex";
-  const needsGoogle = config.analysisProvider === "google";
+  const needsGoogle = config.transcriptionProvider === "google" || config.analysisProvider === "google";
   const needsOpenRouter = config.transcriptionProvider === "openrouter" || config.analysisProvider === "openrouter";
   const needsElevenLabs = config.transcriptionProvider === "elevenlabs";
 

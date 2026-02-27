@@ -290,7 +290,7 @@ export class Session {
     this.sessionId = sessionId ?? crypto.randomUUID();
     this.getExternalTools = externalDeps?.getExternalTools;
     this.dataDir = externalDeps?.dataDir;
-    this._translationEnabled = config.translationEnabled && (config.transcriptionProvider === "vertex" || config.transcriptionProvider === "openrouter");
+    this._translationEnabled = config.translationEnabled && (config.transcriptionProvider === "vertex" || config.transcriptionProvider === "google" || config.transcriptionProvider === "openrouter");
     this.userContext = loadUserContext(config.contextFile, config.useContext);
 
     this.transcriptionModel =
@@ -446,7 +446,7 @@ export class Session {
   }
 
   get canTranslate(): boolean {
-    return this.config.transcriptionProvider === "vertex" || this.config.transcriptionProvider === "openrouter";
+    return this.config.transcriptionProvider === "vertex" || this.config.transcriptionProvider === "google" || this.config.transcriptionProvider === "openrouter";
   }
 
   get translationEnabled(): boolean {
@@ -460,7 +460,7 @@ export class Session {
   private get usesParagraphBuffering(): boolean {
     if (this.config.transcriptionProvider === "whisper") return true;
     if (
-      (this.config.transcriptionProvider === "vertex" || this.config.transcriptionProvider === "openrouter")
+      (this.config.transcriptionProvider === "vertex" || this.config.transcriptionProvider === "google" || this.config.transcriptionProvider === "openrouter")
       && !this._translationEnabled
     ) return true;
     return false;
@@ -1744,12 +1744,18 @@ export class Session {
           throw new Error("Transcription model is not initialized.");
         }
 
+        const transcriptionProviderOptions =
+          this.config.transcriptionProvider === "google" || this.config.transcriptionProvider === "vertex"
+            ? { google: { thinkingConfig: { includeThoughts: false, thinkingBudget: 0 } } }
+            : undefined;
+
         const { object: result, usage: finalUsage } = await generateObject({
           model: this.transcriptionModel,
           schema,
           system: this.userContext || undefined,
           temperature: 0,
           maxRetries: 2,
+          providerOptions: transcriptionProviderOptions,
           messages: [
             {
               role: "user",
