@@ -124,7 +124,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         micPartial: "",
         statusText: "",
         errorText: "",
-        micAutoStartPending: true,
+        micAutoStartPending: false,
       };
     case "session-resumed": {
       const keyPoints = [...action.data.insights]

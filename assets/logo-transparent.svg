@@ -1,0 +1,20 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="bloom"/>
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="mid"/>
+      <feMerge>
+        <feMergeNode in="bloom"/>
+        <feMergeNode in="mid"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Glowing A (Josefin Sans Bold, outlined) -->
+  <path
+    transform="translate(28.50, 97.00) scale(0.102, -0.102)"
+    d="M12 0 344 765H352L684 0H516L304 538L409 610L155 0ZM239 266H460L511 144H194Z"
+    fill="#fffdf8"
+    filter="url(#glow)"/>
+</svg>
