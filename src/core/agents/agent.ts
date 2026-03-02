@@ -560,7 +560,7 @@ async function buildTools(
       toolName: "mcp",
       createdAt: Date.now(),
     });
-    return baseTools;
+    return { tools: baseTools, externalTools: {} as AgentExternalToolSet };
   }
 
   // Expose a schema-lookup tool so the agent can inspect a tool's inputSchema
@@ -579,9 +579,10 @@ async function buildTools(
       }
       const resolution = resolveExternalToolName(name, externalTools);
       if (!resolution.ok) {
-        return resolution.suggestions
-          ? { errorCode: resolution.code, error: resolution.error, hint: resolution.hint, suggestions: resolution.suggestions }
-          : { errorCode: resolution.code, error: resolution.error, hint: resolution.hint };
+        const failure = resolution as Extract<typeof resolution, { ok: false }>;
+        return failure.suggestions
+          ? { errorCode: failure.code, error: failure.error, hint: failure.hint, suggestions: failure.suggestions }
+          : { errorCode: failure.code, error: failure.error, hint: failure.hint };
       }
       const t = externalTools[resolution.toolName];
       if (!t) {
