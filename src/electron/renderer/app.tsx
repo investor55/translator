@@ -498,8 +498,8 @@ export function App() {
     setActiveProjectId(id);
   }, [setActiveProjectId]);
 
-  const handleCreateProject = useCallback(async (name: string, instructions: string) => {
-    const result = await window.electronAPI.createProject(name, instructions || undefined);
+  const handleCreateProject = useCallback(async (name: string, instructions: string, context: string) => {
+    const result = await window.electronAPI.createProject(name, instructions || undefined, context || undefined);
     if (result.ok) {
       await refreshProjects();
       if (result.project) {
@@ -512,6 +512,7 @@ export function App() {
     const result = await window.electronAPI.updateProject(project.id, {
       name: project.name,
       instructions: project.instructions,
+      context: project.context,
     });
     if (result.ok) {
       await refreshProjects();
@@ -1471,7 +1472,7 @@ export function App() {
                 projects={projects}
                 activeProjectId={activeProjectId}
                 onSelectProject={handleSelectProject}
-                onCreateProject={(name, instructions) => void handleCreateProject(name, instructions)}
+                onCreateProject={(name, instructions, context) => void handleCreateProject(name, instructions, context)}
                 onEditProject={(project) => void handleEditProject(project)}
                 onDeleteProject={(id) => void handleDeleteProject(id)}
                 onMoveSessionToProject={(sessionId, projectId) => void handleMoveSessionToProject(sessionId, projectId)}

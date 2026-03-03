@@ -6,15 +6,15 @@ export function registerProjectHandlers({ db }: Pick<IpcDeps, "db">) {
     return db.getProjects();
   });
 
-  ipcMain.handle("create-project", (_event, name: string, instructions?: string) => {
+  ipcMain.handle("create-project", (_event, name: string, instructions?: string, context?: string) => {
     if (!name?.trim()) {
       return { ok: false, error: "Project name is required" };
     }
-    const project = db.createProject(crypto.randomUUID(), name.trim(), instructions?.trim() || undefined);
+    const project = db.createProject(crypto.randomUUID(), name.trim(), instructions?.trim() || undefined, context?.trim() || undefined);
     return { ok: true, project };
   });
 
-  ipcMain.handle("update-project", (_event, id: string, patch: { name?: string; instructions?: string }) => {
+  ipcMain.handle("update-project", (_event, id: string, patch: { name?: string; instructions?: string; context?: string }) => {
     const project = db.updateProject(id, patch);
     if (!project) {
       return { ok: false, error: "Project not found" };

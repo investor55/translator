@@ -54,8 +54,6 @@ export function buildSessionConfig(
     vertexProject: config.vertexProject ?? process.env.GOOGLE_VERTEX_PROJECT_ID,
     vertexLocation: config.vertexLocation,
     bedrockRegion: config.bedrockRegion,
-    contextFile: config.contextFile,
-    useContext: config.useContext,
     compact: config.compact,
     debug: config.debug,
     legacyAudio: config.legacyAudio,

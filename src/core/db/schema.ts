@@ -5,6 +5,7 @@ export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   instructions: text("instructions"),
+  context: text("context"),
   createdAt: integer("created_at").notNull(),
 });
 

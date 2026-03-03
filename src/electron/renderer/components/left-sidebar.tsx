@@ -24,7 +24,7 @@ type LeftSidebarProps = {
   projects: ProjectMeta[];
   activeProjectId: string | null;
   onSelectProject: (id: string | null) => void;
-  onCreateProject: (name: string, instructions: string) => void;
+  onCreateProject: (name: string, instructions: string, context: string) => void;
   onEditProject: (project: ProjectMeta) => void;
   onDeleteProject: (id: string) => void;
   onMoveSessionToProject?: (sessionId: string, projectId: string | null) => void;
@@ -106,6 +106,7 @@ export function LeftSidebar({
   const [mode, setMode] = useLocalStorage<LeftRailMode>("ambient-left-rail-mode", "sessions");
   const [formName, setFormName] = useState("");
   const [formInstructions, setFormInstructions] = useState("");
+  const [formContext, setFormContext] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -132,12 +133,14 @@ export function LeftSidebar({
   function openCreateForm() {
     setFormName("");
     setFormInstructions("");
+    setFormContext("");
     setFormMode({ kind: "create" });
   }
 
   function openEditForm(project: ProjectMeta) {
     setFormName(project.name);
     setFormInstructions(project.instructions ?? "");
+    setFormContext(project.context ?? "");
     setFormMode({ kind: "edit", project });
   }
 
@@ -149,9 +152,9 @@ export function LeftSidebar({
     const name = formName.trim();
     if (!name) return;
     if (formMode.kind === "create") {
-      onCreateProject(name, formInstructions.trim());
+      onCreateProject(name, formInstructions.trim(), formContext.trim());
     } else if (formMode.kind === "edit") {
-      onEditProject({ ...formMode.project, name, instructions: formInstructions.trim() || undefined });
+      onEditProject({ ...formMode.project, name, instructions: formInstructions.trim() || undefined, context: formContext.trim() || undefined });
     }
     setFormMode({ kind: "none" });
   }
@@ -219,6 +222,16 @@ export function LeftSidebar({
               value={formInstructions}
               onChange={(e) => setFormInstructions(e.target.value)}
               placeholder="Agent instructions (optional)"
+              rows={3}
+              className="w-full resize-none rounded-sm border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") cancelForm();
+              }}
+            />
+            <textarea
+              value={formContext}
+              onChange={(e) => setFormContext(e.target.value)}
+              placeholder="Transcription context — names, glossary, style hints"
               rows={3}
               className="w-full resize-none rounded-sm border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               onKeyDown={(e) => {

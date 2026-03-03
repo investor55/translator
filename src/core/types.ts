@@ -151,6 +151,7 @@ export type ProjectMeta = Readonly<{
   id: string;
   name: string;
   instructions?: string;
+  context?: string;
   createdAt: number;
 }>;
 
@@ -197,8 +198,6 @@ export type SessionConfig = {
   vertexProject?: string;
   vertexLocation: string;
   bedrockRegion: string;
-  contextFile: string;
-  useContext: boolean;
   compact: boolean;
   debug: boolean;
   legacyAudio: boolean;
@@ -231,8 +230,6 @@ export type AppConfig = {
   vertexProject?: string;
   vertexLocation: string;
   bedrockRegion: string;
-  contextFile: string;
-  useContext: boolean;
   compact: boolean;
   debug: boolean;
   legacyAudio: boolean;
@@ -368,8 +365,6 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   vertexProject: ENV?.GOOGLE_VERTEX_PROJECT_ID,
   vertexLocation: DEFAULT_VERTEX_LOCATION,
   bedrockRegion: DEFAULT_BEDROCK_REGION,
-  contextFile: "context.md",
-  useContext: false,
   compact: false,
   debug: !!ENV?.DEBUG,
   legacyAudio: false,
@@ -473,13 +468,11 @@ export function normalizeAppConfig(
     taskModelId: merged.taskModelId?.trim() || DEFAULT_APP_CONFIG.taskModelId,
     utilityModelId: merged.utilityModelId?.trim() || DEFAULT_APP_CONFIG.utilityModelId,
     synthesisModelId,
-    contextFile: merged.contextFile?.trim() || DEFAULT_APP_CONFIG.contextFile,
     vertexLocation:
       merged.vertexLocation?.trim() || DEFAULT_APP_CONFIG.vertexLocation,
     vertexProject: merged.vertexProject?.trim() || undefined,
     bedrockRegion:
       merged.bedrockRegion?.trim() || DEFAULT_APP_CONFIG.bedrockRegion,
-    useContext: !!merged.useContext,
     compact: !!merged.compact,
     debug: !!merged.debug,
     legacyAudio: !!merged.legacyAudio,

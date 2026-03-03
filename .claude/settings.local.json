@@ -15,7 +15,10 @@
       "WebSearch",
       "Bash(node -e:*)",
       "mcp__ide__getDiagnostics",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(npm ls:*)",
+      "Bash(ls:*)",
+      "Bash(git show:*)"
     ]
   }
 }

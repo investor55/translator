@@ -103,18 +103,6 @@ export function writeProjectAgentsMd(dataDir: string, projectId: string, content
   fs.writeFileSync(filePath, content, "utf-8");
 }
 
-export function loadUserContext(contextFile: string, useContext: boolean): string {
-  if (!useContext) return "";
-  const fullPath = path.resolve(contextFile);
-  if (!fs.existsSync(fullPath)) return "";
-  const raw = fs.readFileSync(fullPath, "utf-8");
-  return raw
-    .split("\n")
-    .map((line) => line.replace(/^\s*#+\s*/, "").trim())
-    .filter(Boolean)
-    .join("\n");
-}
-
 export function writeSummaryLog(allKeyPoints: string[]) {
   if (allKeyPoints.length === 0) return;
   const summaryLogFile = path.join(process.cwd(), "summary.log");

@@ -442,16 +442,6 @@ export function SettingsPage({
             <Separator className="my-3" />
             <div className="space-y-1">
               <SettingRow
-                label="Use Context"
-                description="Inject context from the context file into every prompt."
-                control={
-                  <Switch
-                    checked={config.useContext}
-                    onCheckedChange={(v) => set("useContext", v)}
-                  />
-                }
-              />
-              <SettingRow
                 label="Compact Responses"
                 description="Ask the model for shorter outputs when possible."
                 control={
@@ -872,16 +862,6 @@ export function SettingsPage({
                 />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2 lg:mt-0">
-                <div className="space-y-1">
-                  <label className="text-2xs text-muted-foreground">
-                    Context File
-                  </label>
-                  <Input
-                    value={config.contextFile}
-                    onChange={(e) => set("contextFile", e.target.value)}
-                    placeholder="context.md"
-                  />
-                </div>
                 <div className="space-y-1">
                   <label className="text-2xs text-muted-foreground">
                     Vertex Project

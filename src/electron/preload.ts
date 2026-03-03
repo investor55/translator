@@ -40,8 +40,8 @@ export type ElectronAPI = {
   startSession: (sourceLang: LanguageCode, targetLang: LanguageCode, appConfig?: AppConfigOverrides, projectId?: string) => Promise<{ ok: boolean; sessionId?: string; error?: string }>;
 
   getProjects: () => Promise<ProjectMeta[]>;
-  createProject: (name: string, instructions?: string) => Promise<{ ok: boolean; project?: ProjectMeta; error?: string }>;
-  updateProject: (id: string, patch: { name?: string; instructions?: string }) => Promise<{ ok: boolean; project?: ProjectMeta; error?: string }>;
+  createProject: (name: string, instructions?: string, context?: string) => Promise<{ ok: boolean; project?: ProjectMeta; error?: string }>;
+  updateProject: (id: string, patch: { name?: string; instructions?: string; context?: string }) => Promise<{ ok: boolean; project?: ProjectMeta; error?: string }>;
   deleteProject: (id: string) => Promise<{ ok: boolean; error?: string }>;
   updateSessionProject: (sessionId: string, projectId: string | null) => Promise<{ ok: boolean; session?: SessionMeta; error?: string }>;
   resumeSession: (sessionId: string, appConfig?: AppConfigOverrides) => Promise<{ ok: boolean; sessionId?: string; blocks?: TranscriptBlock[]; tasks?: TaskItem[]; insights?: Insight[]; agents?: Agent[]; error?: string }>;
@@ -175,7 +175,7 @@ const api: ElectronAPI = {
   startSession: (sourceLang, targetLang, appConfig, projectId) => ipcRenderer.invoke("start-session", sourceLang, targetLang, appConfig, projectId),
 
   getProjects: () => ipcRenderer.invoke("get-projects"),
-  createProject: (name, instructions) => ipcRenderer.invoke("create-project", name, instructions),
+  createProject: (name, instructions, context) => ipcRenderer.invoke("create-project", name, instructions, context),
   updateProject: (id, patch) => ipcRenderer.invoke("update-project", id, patch),
   deleteProject: (id) => ipcRenderer.invoke("delete-project", id),
   updateSessionProject: (sessionId, projectId) => ipcRenderer.invoke("update-session-project", sessionId, projectId),

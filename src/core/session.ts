@@ -69,7 +69,6 @@ import {
   createBlock,
   loadAgentsMd,
   loadProjectAgentsMd,
-  loadUserContext,
   writeSummaryLog,
   type ContextState,
 } from "./context";
@@ -291,7 +290,7 @@ export class Session {
     this.getExternalTools = externalDeps?.getExternalTools;
     this.dataDir = externalDeps?.dataDir;
     this._translationEnabled = config.translationEnabled && (config.transcriptionProvider === "vertex" || config.transcriptionProvider === "google" || config.transcriptionProvider === "openrouter");
-    this.userContext = loadUserContext(config.contextFile, config.useContext);
+    this.userContext = this.loadProjectContext();
 
     this.transcriptionModel =
       config.transcriptionProvider === "elevenlabs" ||
@@ -1227,6 +1226,12 @@ export class Session {
     if (!this.db) return undefined;
     const meta = this.db.getSession(this.sessionId);
     return meta?.projectId;
+  }
+
+  private loadProjectContext(): string {
+    const projectId = this.getCurrentProjectId();
+    if (!projectId || !this.db) return "";
+    return this.db.getProject(projectId)?.context ?? "";
   }
 
   private micDebugWindowCount = 0;

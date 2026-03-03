@@ -417,10 +417,10 @@ export function createDatabase(dbPath: string) {
     },
 
     // Project CRUD
-    createProject(id: string, name: string, instructions?: string): ProjectMeta {
+    createProject(id: string, name: string, instructions?: string, context?: string): ProjectMeta {
       const createdAt = Date.now();
-      orm.insert(projects).values({ id, name, instructions: instructions ?? null, createdAt }).run();
-      return { id, name, instructions: instructions ?? undefined, createdAt };
+      orm.insert(projects).values({ id, name, instructions: instructions ?? null, context: context ?? null, createdAt }).run();
+      return { id, name, instructions: instructions ?? undefined, context: context ?? undefined, createdAt };
     },
 
     getProjects(): ProjectMeta[] {
@@ -429,6 +429,7 @@ export function createDatabase(dbPath: string) {
         id: r.id,
         name: r.name,
         instructions: r.instructions ?? undefined,
+        context: r.context ?? undefined,
         createdAt: r.createdAt,
       }));
     },
@@ -436,13 +437,14 @@ export function createDatabase(dbPath: string) {
     getProject(id: string): ProjectMeta | null {
       const [row] = orm.select().from(projects).where(eq(projects.id, id)).limit(1).all();
       if (!row) return null;
-      return { id: row.id, name: row.name, instructions: row.instructions ?? undefined, createdAt: row.createdAt };
+      return { id: row.id, name: row.name, instructions: row.instructions ?? undefined, context: row.context ?? undefined, createdAt: row.createdAt };
     },
 
-    updateProject(id: string, patch: { name?: string; instructions?: string }): ProjectMeta | null {
+    updateProject(id: string, patch: { name?: string; instructions?: string; context?: string }): ProjectMeta | null {
       const set: Record<string, unknown> = {};
       if (patch.name !== undefined) set.name = patch.name;
       if (patch.instructions !== undefined) set.instructions = patch.instructions || null;
+      if (patch.context !== undefined) set.context = patch.context || null;
       if (Object.keys(set).length > 0) {
         orm.update(projects).set(set).where(eq(projects.id, id)).run();
       }
@@ -810,6 +812,12 @@ function runMigrations(db: Database.Database) {
       created_at INTEGER NOT NULL
     );
   `);
+
+  const projectCols = db.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>;
+  const projectColNames = new Set(projectCols.map((c) => c.name));
+  if (!projectColNames.has("context")) {
+    db.exec("ALTER TABLE projects ADD COLUMN context TEXT");
+  }
 
   const sessionCols2 = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
   const sessionColNames2 = new Set(sessionCols2.map((c) => c.name));
