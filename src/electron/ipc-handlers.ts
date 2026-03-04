@@ -1,4 +1,5 @@
 import { app, type BrowserWindow } from "electron";
+import path from "node:path";
 import type { AppDatabase } from "../core/db/db";
 import { validateEnv } from "../core/config";
 import { log } from "../core/logger";
@@ -11,10 +12,12 @@ import { registerProjectHandlers } from "./ipc/register-project-handlers";
 import { registerSessionHandlers } from "./ipc/register-session-handlers";
 import { registerTaskInsightHandlers } from "./ipc/register-task-insight-handlers";
 import { registerIntegrationHandlers } from "./ipc/register-integration-handlers";
+import { registerApiKeyHandlers } from "./ipc/register-api-key-handlers";
 import { registerElectronWhisperGpuBridge } from "./ipc/whisper-gpu-bridge";
 import { buildSessionConfig, shutdownCurrentSession, wireSessionEvents } from "./ipc/ipc-utils";
 import type { EnsureSession, SessionRef } from "./ipc/types";
 import { createIntegrationManager } from "./integrations";
+import { SecureCredentialStore } from "./integrations/secure-credential-store";
 import type { IntegrationManager } from "./integrations/types";
 
 const sessionRef: SessionRef = { current: null };
@@ -50,8 +53,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: A
   if (integrationManager) {
     void integrationManager.dispose();
   }
-  integrationManager = createIntegrationManager(app.getPath("userData"));
+
+  const userData = app.getPath("userData");
+  const store = new SecureCredentialStore(
+    path.join(userData, "integrations.credentials.json"),
+  );
+  integrationManager = createIntegrationManager(userData, store);
   const manager = integrationManager;
+
+  registerApiKeyHandlers(store);
 
   const ensureSession: EnsureSession = async (
     sessionId: string,

@@ -1,4 +1,5 @@
 import type {
+  ApiKeyDefinition,
   AppConfig,
   CustomMcpStatus,
   DarkVariant,
@@ -32,12 +33,18 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  CheckCircleIcon,
+  EyeIcon,
+  EyeOffIcon,
+  KeyIcon,
   Laptop2Icon,
   MoonIcon,
   RotateCcwIcon,
   ServerIcon,
   SunIcon,
+  XIcon,
 } from "lucide-react";
 import { resolveProviderIcon } from "./integration-icons";
 
@@ -72,6 +79,10 @@ type SettingsPageProps = {
     id: string
   ) => Promise<{ ok: boolean; error?: string }>;
   mcpToolsByProvider: Record<string, McpProviderToolSummary>;
+  apiKeyDefinitions: ApiKeyDefinition[];
+  apiKeyStatus: Record<string, boolean>;
+  onSaveApiKey: (envVar: string, value: string) => Promise<{ ok: boolean; error?: string }>;
+  onDeleteApiKey: (envVar: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
 const THEME_OPTIONS: Array<{
@@ -197,6 +208,152 @@ function renderLanguageLabel(languages: Language[], code: LanguageCode) {
     : code.toUpperCase();
 }
 
+function isKeyNeeded(def: ApiKeyDefinition, config: AppConfig): boolean {
+  if (def.providers.length === 0) return true;
+  return def.providers.some(
+    (p) => p === config.transcriptionProvider || p === config.analysisProvider,
+  );
+}
+
+function ApiKeyRow({
+  def,
+  configured,
+  dimmed,
+  onSave,
+  onDelete,
+}: {
+  def: ApiKeyDefinition;
+  configured: boolean;
+  dimmed: boolean;
+  onSave: (envVar: string, value: string) => Promise<{ ok: boolean; error?: string }>;
+  onDelete: (envVar: string) => Promise<{ ok: boolean; error?: string }>;
+}) {
+  const [value, setValue] = useState("");
+  const [visible, setVisible] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSave = async () => {
+    if (!value.trim()) return;
+    setSaving(true);
+    setError("");
+    const result = await onSave(def.envVar, value);
+    setSaving(false);
+    if (result.ok) {
+      setValue("");
+      setVisible(false);
+    } else {
+      setError(result.error ?? "Failed to save.");
+    }
+  };
+
+  const handleClear = async () => {
+    setSaving(true);
+    setError("");
+    const result = await onDelete(def.envVar);
+    setSaving(false);
+    if (!result.ok) {
+      setError(result.error ?? "Failed to delete.");
+    }
+  };
+
+  return (
+    <div className={`border border-border/70 bg-background px-3 py-3 rounded-sm ${dimmed ? "opacity-50" : ""}`}>
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <div className="flex items-center gap-1.5">
+          <KeyIcon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+          <p className="text-xs font-semibold text-foreground">{def.label}</p>
+        </div>
+        {configured && (
+          <span className="inline-flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-600 dark:text-green-400">
+            <CheckCircleIcon className="w-3 h-3" />
+            Configured
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <div className="relative flex-1">
+          <Input
+            type={visible ? "text" : "password"}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={configured ? "Enter new key to replace" : def.placeholder}
+            disabled={saving}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void handleSave();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            onClick={() => setVisible(!visible)}
+            tabIndex={-1}
+          >
+            {visible ? <EyeOffIcon className="w-3.5 h-3.5" /> : <EyeIcon className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+        <Button size="sm" onClick={() => void handleSave()} disabled={saving || !value.trim()}>
+          Save
+        </Button>
+        {configured && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void handleClear()}
+            disabled={saving}
+            className="text-muted-foreground hover:text-destructive"
+          >
+            <XIcon className="w-3.5 h-3.5" />
+          </Button>
+        )}
+      </div>
+      {error && <p className="mt-1 text-2xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+function ApiKeysSection({
+  definitions,
+  status,
+  config,
+  onSave,
+  onDelete,
+}: {
+  definitions: ApiKeyDefinition[];
+  status: Record<string, boolean>;
+  config: AppConfig;
+  onSave: (envVar: string, value: string) => Promise<{ ok: boolean; error?: string }>;
+  onDelete: (envVar: string) => Promise<{ ok: boolean; error?: string }>;
+}) {
+  if (definitions.length === 0) return null;
+  return (
+    <section className="border border-border bg-card px-4 py-3 rounded-sm">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        API Keys
+      </h2>
+      <p className="text-2xs text-muted-foreground mt-0.5 mb-2">
+        Keys are encrypted and stored locally. They override .env values.
+      </p>
+      <Separator className="mb-3" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {definitions.map((def) => (
+          <ApiKeyRow
+            key={def.envVar}
+            def={def}
+            configured={!!status[def.envVar]}
+            dimmed={!isKeyNeeded(def, config)}
+            onSave={onSave}
+            onDelete={onDelete}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ToolList({ tools }: { tools: McpToolInfo[] }) {
   if (tools.length === 0) return null;
   return (
@@ -249,6 +406,10 @@ export function SettingsPage({
   onConnectCustomServer,
   onDisconnectCustomServer,
   mcpToolsByProvider,
+  apiKeyDefinitions,
+  apiKeyStatus,
+  onSaveApiKey,
+  onDeleteApiKey,
 }: SettingsPageProps) {
   const [systemPrefersDark, setSystemPrefersDark] = useState(() =>
     typeof globalThis.matchMedia === "function"
@@ -288,28 +449,36 @@ export function SettingsPage({
   return (
     <div className="aqua-settings flex-1 min-h-0 overflow-y-auto bg-background">
       <div className="mx-auto w-full max-w-6xl px-6 py-6">
-        <div className="flex items-start justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
-            <p className="text-xs text-muted-foreground mt-1">
-              Control appearance and runtime behavior. Session changes apply
-              when you start or resume a session.
-            </p>
+        <Tabs defaultValue="general">
+          <div className="flex items-start justify-between gap-4 mb-6">
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
+              <p className="text-xs text-muted-foreground mt-1">
+                Control appearance and runtime behavior. Session changes apply
+                when you start or resume a session.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <TabsList>
+                <TabsTrigger value="general">General</TabsTrigger>
+                <TabsTrigger value="api-keys">API Keys</TabsTrigger>
+              </TabsList>
+              <Button variant="outline" size="sm" onClick={onReset}>
+                <RotateCcwIcon className="size-3.5" data-icon="inline-start" />
+                Reset Defaults
+              </Button>
+            </div>
           </div>
-          <Button variant="outline" size="sm" onClick={onReset}>
-            <RotateCcwIcon className="size-3.5" data-icon="inline-start" />
-            Reset Defaults
-          </Button>
-        </div>
 
-        {isRecording && (
-          <div className="mb-6 border border-amber-300/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-3 py-2 text-xs rounded-sm">
-            Currently recording. Configuration updates will apply to the next
-            session.
-          </div>
-        )}
+          {isRecording && (
+            <div className="mb-6 border border-amber-300/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-3 py-2 text-xs rounded-sm">
+              Currently recording. Configuration updates will apply to the next
+              session.
+            </div>
+          )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <TabsContent value="general">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* ── Row 1: Appearance + Session ── */}
           <section className="border border-border bg-card px-4 py-3 rounded-sm">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1105,7 +1274,19 @@ export function SettingsPage({
               )}
             </div>
           </section>
-        </div>
+          </div>
+          </TabsContent>
+
+          <TabsContent value="api-keys">
+            <ApiKeysSection
+              definitions={apiKeyDefinitions}
+              status={apiKeyStatus}
+              config={config}
+              onSave={onSaveApiKey}
+              onDelete={onDeleteApiKey}
+            />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

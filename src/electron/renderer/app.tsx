@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocalStorage } from "usehooks-ts";
 import type {
   Agent,
+  ApiKeyDefinition,
   AppConfig,
   CustomMcpStatus,
   FinalSummary,
@@ -177,6 +178,8 @@ export function App() {
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [activeProjectId, setActiveProjectId] = useLocalStorage<string | null>("ambient-active-project-id", null);
   const [mcpBusy, setMcpBusy] = useState(false);
+  const [apiKeyDefinitions, setApiKeyDefinitions] = useState<ApiKeyDefinition[]>([]);
+  const [apiKeyStatus, setApiKeyStatus] = useState<Record<string, boolean>>({});
   const [finalSummaryState, setFinalSummaryState] = useState<SummaryModalState>({ kind: "idle" });
   const pendingNewSessionRouteRef = useRef(false);
   const { refreshSessions, sessionsRef } = useAppBootstrap({
@@ -329,11 +332,18 @@ export function App() {
     setMcpToolsByProvider(byProvider);
   }, []);
 
+  const refreshApiKeyStatus = useCallback(async () => {
+    const status = await window.electronAPI.getApiKeyStatus();
+    setApiKeyStatus(status);
+  }, []);
+
   useEffect(() => {
     void refreshMcpIntegrations();
     void refreshCustomMcpServers();
     void refreshMcpToolsInfo();
-  }, [refreshMcpIntegrations, refreshCustomMcpServers, refreshMcpToolsInfo]);
+    void window.electronAPI.getApiKeyDefinitions().then(setApiKeyDefinitions);
+    void refreshApiKeyStatus();
+  }, [refreshMcpIntegrations, refreshCustomMcpServers, refreshMcpToolsInfo, refreshApiKeyStatus]);
 
   const refreshProjects = useCallback(async () => {
     const list = await window.electronAPI.getProjects();
@@ -493,6 +503,20 @@ export function App() {
       setMcpBusy(false);
     }
   }, [refreshCustomMcpServers, refreshMcpToolsInfo]);
+
+  const handleSaveApiKey = useCallback(async (envVar: string, value: string) => {
+    const result = await window.electronAPI.saveApiKey(envVar, value);
+    if (result.ok) {
+      await refreshApiKeyStatus();
+    }
+    return result;
+  }, [refreshApiKeyStatus]);
+
+  const handleDeleteApiKey = useCallback(async (envVar: string) => {
+    const result = await window.electronAPI.deleteApiKey(envVar);
+    await refreshApiKeyStatus();
+    return result;
+  }, [refreshApiKeyStatus]);
 
   const handleSelectProject = useCallback((id: string | null) => {
     setActiveProjectId(id);
@@ -1459,6 +1483,10 @@ export function App() {
             onConnectCustomServer={handleConnectCustomServer}
             onDisconnectCustomServer={handleDisconnectCustomServer}
             mcpToolsByProvider={mcpToolsByProvider}
+            apiKeyDefinitions={apiKeyDefinitions}
+            apiKeyStatus={apiKeyStatus}
+            onSaveApiKey={handleSaveApiKey}
+            onDeleteApiKey={handleDeleteApiKey}
           />
         ) : (
           <>

@@ -15,41 +15,46 @@ Tests are run with `pnpm test` (Vitest).
 
 ## Architecture Overview
 
-This is a terminal-based real-time audio translator for Korean ↔ English. It captures system audio, transcribes it, and translates between languages.
+Ambient is an Electron desktop app for real-time audio capture, transcription, and multi-agent workflows. It listens to conversations (system audio + optional mic), transcribes them, optionally translates, and spawns autonomous AI agents to act on extracted tasks and insights.
 
-### Engine
+### Core Layers
 
-Uses Google Vertex AI (Gemini) multimodal models for both transcription and translation in a single pass via structured output (Zod schema). Requires: `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_VERTEX_PROJECT_ID`.
+- **Audio capture** — ScreenCaptureKit (macOS 14.2+) for system audio, optional mic input. VAD segments speech into chunks.
+- **Transcription** — ElevenLabs Scribe v2 (default) or local Whisper. Produces transcript blocks with optional translation.
+- **Analysis** — LLM-powered extraction of tasks, insights, key points, and summaries from transcript context.
+- **Agent fleet** — Autonomous agents that execute tasks with tool access (web search via Exa, MCP integrations for Notion/Linear, custom tools). Full conversation loop with thinking, planning, tool calls, and approval flows.
 
-### Source Files
+### Key Source Paths
 
-- `src/index.ts` - Main entry point with CLI parsing, recording state machine, Vertex AI integration. Manages audio buffering, VAD, transcript blocks, and summary generation.
-- `src/audio.ts` - ffmpeg spawning for AVFoundation audio capture (macOS), device detection, loopback device selection
-- `src/translation.ts` - Prompt builders for translation and audio transcription, sentence extraction, language detection via Hangul character presence
-- `src/ui-blessed.ts` - Full-screen terminal UI using blessed library with header, summary panel, scrollable transcript area, and footer
-- `src/ui.ts` - Simple ANSI-based UI helpers (used as fallback/types)
-- `src/types.ts` - TypeScript types and default config values
+- `src/core/session.ts` — Main orchestrator: audio → transcription → analysis → agent spawning (EventEmitter-based)
+- `src/core/agents/` — Agent runtime: `agent.ts` (core loop), `agent-manager.ts` (lifecycle), `external-tools.ts`, `learn.ts`
+- `src/core/audio/` — Audio capture, VAD, PCM→WAV conversion
+- `src/core/transcription/` — ElevenLabs and Whisper providers
+- `src/core/analysis/` — Prompt builders, Zod schemas for structured LLM outputs (tasks, insights, summaries)
+- `src/core/db/` — SQLite + Drizzle ORM: sessions, blocks, tasks, insights, agents
+- `src/core/types.ts` — Domain types (Agent, TranscriptBlock, Session, Project, etc.)
+- `src/core/language.ts` — Language detection and prompt helpers
+- `src/core/providers.ts` — Multi-provider model wiring (OpenRouter, Vertex, Bedrock)
+- `src/electron/main.ts` — Electron app lifecycle, DB init, IPC registration
+- `src/electron/ipc/` — Segmented IPC handlers (session, tasks/insights, agents)
+- `src/electron/renderer/` — React UI: three-panel layout (sidebar, transcript, agents/tasks)
 
 ### Key Patterns
 
-- Uses Vercel AI SDK (`ai` package) for `generateObject` calls
-- Zod schemas define structured responses for Vertex AI audio transcription
-- Context window (last 10 sentences) passed to translation for coherence
-- Deduplication via recent translation set prevents repeated outputs
-- PCM audio converted to WAV buffer inline for Vertex multimodal API
-
-### Audio Flow
-
-1. ScreenCaptureKit captures system audio as 16kHz mono PCM (or ffmpeg with `--legacy-audio`)
-2. VAD segments audio into speech chunks (silence-based splitting with 0.5s overlap)
-3. Audio chunks sent as WAV to Vertex AI multimodal model for transcription + translation
+- Vercel AI SDK (`ai` package) for `generateObject` / `generateText` / `streamText`
+- Zod schemas define structured LLM responses throughout
+- MCP (Model Context Protocol) for external tool integrations (Notion, Linear)
+- EventEmitter-based session state machine with 17+ event types
+- Agent state machine: running → completed/failed, with interactive approval flows
 
 ### Environment Variables
 
 See README.md for full list. Key variables:
 
-- `VERTEX_MODEL_ID` - Override default Vertex model (`gemini-3-flash-preview`)
-- `context.md` file in root provides persistent context for translations (speaker names, glossary, style)
+- `ELEVENLABS_API_KEY` — Transcription provider
+- `OPENROUTER_API_KEY` — Default LLM provider
+- `MCP_INTEGRATIONS_ENABLED` — Toggle Notion/Linear MCP connectors (default: enabled)
+- `context.md` file in root provides persistent context for sessions (speaker names, glossary, style)
 
 # AGENTS.md
 

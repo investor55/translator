@@ -4,6 +4,7 @@ import "dotenv/config";
 import { registerIpcHandlers, shutdownSessionOnAppQuit } from "./ipc-handlers";
 import { createDatabase, type AppDatabase } from "../core/db/db";
 import { log } from "../core/logger";
+import { SecureCredentialStore } from "./integrations/secure-credential-store";
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -44,8 +45,27 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
-  const dbPath = path.join(app.getPath("userData"), "ambient.db");
+app.whenReady().then(async () => {
+  const userData = app.getPath("userData");
+
+  // Load encrypted API keys into process.env before anything else
+  const store = new SecureCredentialStore(
+    path.join(userData, "integrations.credentials.json"),
+  );
+  if (store.encryptionAvailable()) {
+    const storedKeys = await store.getAllApiKeys();
+    for (const [envVar, value] of Object.entries(storedKeys)) {
+      process.env[envVar] = value;
+      if (envVar === "GEMINI_API_KEY") {
+        process.env.GOOGLE_GENERATIVE_AI_API_KEY = value;
+      }
+    }
+    if (Object.keys(storedKeys).length > 0) {
+      log("INFO", `Loaded ${Object.keys(storedKeys).length} stored API key(s)`);
+    }
+  }
+
+  const dbPath = path.join(userData, "ambient.db");
   db = createDatabase(dbPath);
   const staleAgentCount = db.failStaleRunningAgents("Interrupted because the app quit before completion.");
   if (staleAgentCount > 0) {

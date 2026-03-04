@@ -248,4 +248,37 @@ export class SecureCredentialStore {
     const record = (data.customServers ?? []).find((s) => s.id === id);
     return this.decryptString(record?.tokenEncrypted);
   }
+
+  // ── API key methods ──
+
+  async getApiKey(envVar: string): Promise<string | undefined> {
+    const data = await this.readFile();
+    return this.decryptString(data.apiKeys?.[envVar]);
+  }
+
+  async getAllApiKeys(): Promise<Record<string, string>> {
+    const data = await this.readFile();
+    const entries = data.apiKeys ?? {};
+    const result: Record<string, string> = {};
+    for (const [envVar, encrypted] of Object.entries(entries)) {
+      const decrypted = this.decryptString(encrypted);
+      if (decrypted) result[envVar] = decrypted;
+    }
+    return result;
+  }
+
+  async setApiKey(envVar: string, value: string | undefined): Promise<void> {
+    await this.mutate((current) => {
+      current.apiKeys ??= {};
+      if (value) {
+        current.apiKeys[envVar] = this.encryptString(value);
+      } else {
+        delete current.apiKeys[envVar];
+        if (Object.keys(current.apiKeys).length === 0) {
+          delete current.apiKeys;
+        }
+      }
+      return current;
+    });
+  }
 }

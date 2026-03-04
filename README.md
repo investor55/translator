@@ -1,6 +1,6 @@
-# Ambient Translator
+# Ambient
 
-Ambient is an Electron desktop app for live conversation capture, transcription, translation, and session-based follow-up workflows.
+Ambient is an Electron desktop app for live conversation capture, transcription, and agent-driven workflows. It captures system audio, transcribes in real-time, extracts tasks and insights, and spawns autonomous AI agents to act on them.
 
 ## Features
 

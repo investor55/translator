@@ -1,4 +1,4 @@
-// All shared types for the translator app.
+// All shared types for Ambient.
 import { getAnalysisModelPreset, DEFAULT_UTILITY_MODEL_ID, DEFAULT_SYNTHESIS_MODEL_ID, MODEL_CONFIG } from "./models";
 
 export type LanguageCode =
@@ -239,6 +239,13 @@ export type AppConfig = {
 };
 
 export type AppConfigOverrides = Partial<AppConfig>;
+
+export type ApiKeyDefinition = Readonly<{
+  envVar: string;
+  label: string;
+  placeholder: string;
+  providers: string[];
+}>;
 
 export type McpIntegrationMode = "oauth" | "token";
 export type McpIntegrationConnection = "connected" | "disconnected" | "error";

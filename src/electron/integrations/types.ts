@@ -30,6 +30,7 @@ export type IntegrationCredentialsFile = {
   version: 1;
   oauthProviders?: Record<string, OAuthCredentialRecord>;
   customServers?: CustomMcpServerRecord[];
+  apiKeys?: Record<string, string>;
   /** @deprecated Old per-provider fields — migrated on first read. */
   notion?: OAuthCredentialRecord;
   /** @deprecated Old per-provider fields — migrated on first read. */

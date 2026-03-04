@@ -4,8 +4,11 @@ import { SecureCredentialStore } from "./secure-credential-store";
 import { createMcpToolRegistry } from "./mcp-tool-registry";
 import type { IntegrationManager } from "./types";
 
-export function createIntegrationManager(userDataPath: string): IntegrationManager {
-  const store = new SecureCredentialStore(
+export function createIntegrationManager(
+  userDataPath: string,
+  existingStore?: SecureCredentialStore,
+): IntegrationManager {
+  const store = existingStore ?? new SecureCredentialStore(
     path.join(userDataPath, "integrations.credentials.json"),
   );
 

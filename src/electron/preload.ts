@@ -23,6 +23,7 @@ import type {
   CustomMcpStatus,
   McpProviderToolSummary,
   AudioSource,
+  ApiKeyDefinition,
 } from "../core/types";
 import type {
   WhisperGpuReadyPayload,
@@ -137,6 +138,11 @@ export type ElectronAPI = {
   disconnectCustomMcpServer: (id: string) => Promise<{ ok: boolean; error?: string }>;
   getCustomMcpServersStatus: () => Promise<CustomMcpStatus[]>;
   getMcpToolsInfo: () => Promise<McpProviderToolSummary[]>;
+
+  getApiKeyDefinitions: () => Promise<ApiKeyDefinition[]>;
+  getApiKeyStatus: () => Promise<Record<string, boolean>>;
+  saveApiKey: (envVar: string, value: string) => Promise<{ ok: boolean; error?: string }>;
+  deleteApiKey: (envVar: string) => Promise<{ ok: boolean; error?: string }>;
 
   onStateChange: (callback: (state: UIState) => void) => () => void;
   onBlockAdded: (callback: (block: TranscriptBlock) => void) => () => void;
@@ -254,6 +260,11 @@ const api: ElectronAPI = {
   disconnectCustomMcpServer: (id) => ipcRenderer.invoke("disconnect-custom-mcp-server", id),
   getCustomMcpServersStatus: () => ipcRenderer.invoke("get-custom-mcp-servers-status"),
   getMcpToolsInfo: () => ipcRenderer.invoke("get-mcp-tools-info"),
+
+  getApiKeyDefinitions: () => ipcRenderer.invoke("get-api-key-definitions"),
+  getApiKeyStatus: () => ipcRenderer.invoke("get-api-key-status"),
+  saveApiKey: (envVar, value) => ipcRenderer.invoke("save-api-key", envVar, value),
+  deleteApiKey: (envVar) => ipcRenderer.invoke("delete-api-key", envVar),
 
   onStateChange: createListener<UIState>("session:state-change"),
   onBlockAdded: createListener<TranscriptBlock>("session:block-added"),
