@@ -61,6 +61,7 @@ function TabsContent({
       data-slot="tabs-content"
       className={cn(
         "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 rounded-sm",
+        "data-[state=active]:animate-in data-[state=active]:fade-in-0 data-[state=active]:duration-150",
         className
       )}
       {...props}

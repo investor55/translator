@@ -21,7 +21,7 @@ import {
   DEFAULT_VERTEX_MODEL_ID,
 } from "../../../core/types";
 import { MODEL_CONFIG } from "../../../core/models";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ComponentType, type ReactNode, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -36,17 +36,31 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   CheckCircleIcon,
+  CpuIcon,
   EyeIcon,
   EyeOffIcon,
   KeyIcon,
+  LanguagesIcon,
   Laptop2Icon,
+  MicIcon,
   MoonIcon,
+  PaletteIcon,
+  PlugIcon,
   RotateCcwIcon,
   ServerIcon,
+  ShieldCheckIcon,
+  SlidersHorizontalIcon,
   SunIcon,
+  WrenchIcon,
   XIcon,
 } from "lucide-react";
 import { resolveProviderIcon } from "./integration-icons";
+import {
+  SiOpenrouter,
+  SiGooglegemini,
+  SiGooglecloud,
+  SiElevenlabs,
+} from "@icons-pack/react-simple-icons";
 
 type SettingsPageProps = {
   config: AppConfig;
@@ -210,9 +224,22 @@ function renderLanguageLabel(languages: Language[], code: LanguageCode) {
 
 function isKeyNeeded(def: ApiKeyDefinition, config: AppConfig): boolean {
   if (def.providers.length === 0) return true;
+  if (def.envVar === "OPENROUTER_API_KEY") return true;
   return def.providers.some(
     (p) => p === config.transcriptionProvider || p === config.analysisProvider,
   );
+}
+
+const API_KEY_ICONS: Record<string, ComponentType<{ size?: number; className?: string }>> = {
+  OPENROUTER_API_KEY: SiOpenrouter,
+  GEMINI_API_KEY: SiGooglegemini,
+  ELEVENLABS_API_KEY: SiElevenlabs,
+};
+
+function renderApiKeyIcon(envVar: string) {
+  const Icon = API_KEY_ICONS[envVar];
+  if (Icon) return <Icon size={14} className="shrink-0" />;
+  return <KeyIcon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />;
 }
 
 function ApiKeyRow({
@@ -258,10 +285,10 @@ function ApiKeyRow({
   };
 
   return (
-    <div className={`border border-border/70 bg-background px-3 py-3 rounded-sm ${dimmed ? "opacity-50" : ""}`}>
+    <div className={`border border-border/60 bg-background px-3 py-3 rounded-md transition-colors ${configured ? "border-l-2 border-l-green-500/50" : ""} ${dimmed ? "opacity-60" : ""}`}>
       <div className="flex items-center justify-between gap-2 mb-1.5">
         <div className="flex items-center gap-1.5">
-          <KeyIcon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+          {renderApiKeyIcon(def.envVar)}
           <p className="text-xs font-semibold text-foreground">{def.label}</p>
         </div>
         {configured && (
@@ -319,38 +346,120 @@ function ApiKeysSection({
   definitions,
   status,
   config,
+  onConfigChange,
   onSave,
   onDelete,
 }: {
   definitions: ApiKeyDefinition[];
   status: Record<string, boolean>;
   config: AppConfig;
+  onConfigChange: (next: AppConfig) => void;
   onSave: (envVar: string, value: string) => Promise<{ ok: boolean; error?: string }>;
   onDelete: (envVar: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
   if (definitions.length === 0) return null;
+
+  const needed = definitions.filter((def) => isKeyNeeded(def, config));
+  const other = definitions.filter((def) => !isKeyNeeded(def, config));
+
   return (
-    <section className="border border-border bg-card px-4 py-3 rounded-sm">
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        API Keys
-      </h2>
-      <p className="text-2xs text-muted-foreground mt-0.5 mb-2">
-        Keys are encrypted and stored locally. They override .env values.
-      </p>
-      <Separator className="mb-3" />
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {definitions.map((def) => (
-          <ApiKeyRow
-            key={def.envVar}
-            def={def}
-            configured={!!status[def.envVar]}
-            dimmed={!isKeyNeeded(def, config)}
-            onSave={onSave}
-            onDelete={onDelete}
-          />
-        ))}
-      </div>
-    </section>
+    <div className="space-y-5">
+      <section className="relative overflow-hidden border border-border/60 bg-card px-5 py-4 rounded-md">
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
+        <div className="flex items-center gap-2">
+          <ShieldCheckIcon className="size-3.5 text-muted-foreground/70" />
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            API Keys
+          </h2>
+        </div>
+        <p className="text-2xs text-muted-foreground mt-1 mb-3">
+          Keys are encrypted and stored in your system keychain. They override .env values.
+        </p>
+        <Separator className="mb-4" />
+
+        {needed.length > 0 && (
+          <div className={other.length > 0 ? "mb-6" : ""}>
+            <div className="flex items-center gap-1.5 mb-3">
+              <span className="size-1.5 rounded-full bg-green-500/70" />
+              <p className="text-2xs font-medium text-foreground/60 uppercase tracking-wider">
+                Required for current setup
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {needed.map((def) => (
+                <ApiKeyRow
+                  key={def.envVar}
+                  def={def}
+                  configured={!!status[def.envVar]}
+                  dimmed={false}
+                  onSave={onSave}
+                  onDelete={onDelete}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {other.length > 0 && (
+          <div>
+            <div className="flex items-center gap-1.5 mb-3">
+              <span className="size-1.5 rounded-full bg-muted-foreground/30" />
+              <p className="text-2xs font-medium text-muted-foreground/50 uppercase tracking-wider">
+                Other providers
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {other.map((def) => (
+                <ApiKeyRow
+                  key={def.envVar}
+                  def={def}
+                  configured={!!status[def.envVar]}
+                  dimmed={true}
+                  onSave={onSave}
+                  onDelete={onDelete}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="relative overflow-hidden border border-border/60 bg-card px-5 py-4 rounded-md">
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
+        <div className="flex items-center gap-2">
+          <SiGooglecloud size={14} className="shrink-0 text-muted-foreground/70" />
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Vertex AI
+          </h2>
+        </div>
+        <p className="text-2xs text-muted-foreground mt-1 mb-3">
+          Required when using Vertex AI as a transcription or analysis provider. Uses Application Default Credentials (ADC).
+        </p>
+        <Separator className="mb-4" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-2xs text-muted-foreground">
+              Project ID
+            </label>
+            <Input
+              value={config.vertexProject ?? ""}
+              onChange={(e) => onConfigChange({ ...config, vertexProject: e.target.value })}
+              placeholder="my-gcp-project"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-2xs text-muted-foreground">
+              Location
+            </label>
+            <Input
+              value={config.vertexLocation}
+              onChange={(e) => onConfigChange({ ...config, vertexLocation: e.target.value })}
+              placeholder="us-central1"
+            />
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -460,8 +569,14 @@ export function SettingsPage({
             </div>
             <div className="flex items-center gap-3">
               <TabsList>
-                <TabsTrigger value="general">General</TabsTrigger>
-                <TabsTrigger value="api-keys">API Keys</TabsTrigger>
+                <TabsTrigger value="general">
+                  <SlidersHorizontalIcon className="size-3" />
+                  General
+                </TabsTrigger>
+                <TabsTrigger value="api-keys">
+                  <KeyIcon className="size-3" />
+                  API Keys
+                </TabsTrigger>
               </TabsList>
               <Button variant="outline" size="sm" onClick={onReset}>
                 <RotateCcwIcon className="size-3.5" data-icon="inline-start" />
@@ -478,12 +593,16 @@ export function SettingsPage({
           )}
 
           <TabsContent value="general">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* ── Row 1: Appearance + Session ── */}
-          <section className="border border-border bg-card px-4 py-3 rounded-sm">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Appearance
-            </h2>
+          <section className="relative overflow-hidden border border-border/60 bg-card px-5 py-4 rounded-md">
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
+            <div className="flex items-center gap-2">
+              <PaletteIcon className="size-3.5 text-muted-foreground/70" />
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Appearance
+              </h2>
+            </div>
             <Separator className="my-3" />
             <SettingRow
               label="Theme"
@@ -604,10 +723,14 @@ export function SettingsPage({
             />
           </section>
 
-          <section className="border border-border bg-card px-4 py-3 rounded-sm">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Session
-            </h2>
+          <section className="relative overflow-hidden border border-border/60 bg-card px-5 py-4 rounded-md">
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
+            <div className="flex items-center gap-2">
+              <SlidersHorizontalIcon className="size-3.5 text-muted-foreground/70" />
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Session
+              </h2>
+            </div>
             <Separator className="my-3" />
             <div className="space-y-1">
               <SettingRow
@@ -644,10 +767,14 @@ export function SettingsPage({
           </section>
 
           {/* ── Row 2: Transcription (full width) ── */}
-          <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Transcription
-            </h2>
+          <section className="relative overflow-hidden border border-border/60 bg-card px-5 py-4 rounded-md lg:col-span-2">
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
+            <div className="flex items-center gap-2">
+              <MicIcon className="size-3.5 text-muted-foreground/70" />
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Transcription
+              </h2>
+            </div>
             <Separator className="my-3" />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <div className="space-y-1">
@@ -748,10 +875,14 @@ export function SettingsPage({
           {(config.transcriptionProvider === "vertex" ||
             config.transcriptionProvider === "google" ||
             config.transcriptionProvider === "openrouter") && (
-            <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Translation
-              </h2>
+            <section className="relative overflow-hidden border border-border/60 bg-card px-5 py-4 rounded-md lg:col-span-2">
+              <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
+              <div className="flex items-center gap-2">
+                <LanguagesIcon className="size-3.5 text-muted-foreground/70" />
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Translation
+                </h2>
+              </div>
               <Separator className="my-3" />
               <SettingRow
                 label="Translation"
@@ -823,10 +954,14 @@ export function SettingsPage({
           )}
 
           {/* ── Row 4: Agent Models (full width) ── */}
-          <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Model Roles
-            </h2>
+          <section className="relative overflow-hidden border border-border/60 bg-card px-5 py-4 rounded-md lg:col-span-2">
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
+            <div className="flex items-center gap-2">
+              <CpuIcon className="size-3.5 text-muted-foreground/70" />
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Model Roles
+              </h2>
+            </div>
             <Separator className="my-3" />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {(() => {
@@ -1002,64 +1137,48 @@ export function SettingsPage({
           </section>
 
           {/* ── Row 5: Advanced (full width) ── */}
-          <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Advanced
-            </h2>
+          <section className="relative overflow-hidden border border-border/60 bg-card px-5 py-4 rounded-md lg:col-span-2">
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
+            <div className="flex items-center gap-2">
+              <WrenchIcon className="size-3.5 text-muted-foreground/70" />
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Advanced
+              </h2>
+            </div>
             <Separator className="my-3" />
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8">
-              <div className="space-y-1">
-                <SettingRow
-                  label="Debug Mode"
-                  description="Enable extra logging and diagnostics."
-                  control={
-                    <Switch
-                      checked={config.debug}
-                      onCheckedChange={(v) => set("debug", v)}
-                    />
-                  }
-                />
-                <SettingRow
-                  label="Legacy Audio"
-                  description="Use the legacy ffmpeg loopback capture flow instead of ScreenCaptureKit."
-                  control={
-                    <Switch
-                      checked={config.legacyAudio}
-                      onCheckedChange={(v) => set("legacyAudio", v)}
-                    />
-                  }
-                />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2 lg:mt-0">
-                <div className="space-y-1">
-                  <label className="text-2xs text-muted-foreground">
-                    Vertex Project
-                  </label>
-                  <Input
-                    value={config.vertexProject ?? ""}
-                    onChange={(e) => set("vertexProject", e.target.value)}
-                    placeholder="project-id"
+            <div className="space-y-1">
+              <SettingRow
+                label="Debug Mode"
+                description="Enable extra logging and diagnostics."
+                control={
+                  <Switch
+                    checked={config.debug}
+                    onCheckedChange={(v) => set("debug", v)}
                   />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-2xs text-muted-foreground">
-                    Vertex Location
-                  </label>
-                  <Input
-                    value={config.vertexLocation}
-                    onChange={(e) => set("vertexLocation", e.target.value)}
-                    placeholder="global"
+                }
+              />
+              <SettingRow
+                label="Legacy Audio"
+                description="Use the legacy ffmpeg loopback capture flow instead of ScreenCaptureKit."
+                control={
+                  <Switch
+                    checked={config.legacyAudio}
+                    onCheckedChange={(v) => set("legacyAudio", v)}
                   />
-                </div>
-              </div>
+                }
+              />
             </div>
           </section>
 
           {/* ── Row 6: Integrations (full width) ── */}
-          <section className="border border-border bg-card px-4 py-3 rounded-sm lg:col-span-2">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Integrations
-            </h2>
+          <section className="relative overflow-hidden border border-border/60 bg-card px-5 py-4 rounded-md lg:col-span-2">
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
+            <div className="flex items-center gap-2">
+              <PlugIcon className="size-3.5 text-muted-foreground/70" />
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Integrations
+              </h2>
+            </div>
             <Separator className="my-3" />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {mcpIntegrations.map((status) => {
@@ -1282,6 +1401,7 @@ export function SettingsPage({
               definitions={apiKeyDefinitions}
               status={apiKeyStatus}
               config={config}
+              onConfigChange={onConfigChange}
               onSave={onSaveApiKey}
               onDelete={onDeleteApiKey}
             />
