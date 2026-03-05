@@ -5,5 +5,5 @@
 - `audio/`: Audio helpers, VAD logic, and audio module re-exports.
 - `db/`: SQLite access layer and schema.
 - `text/`: Text normalization and related helpers.
-- `transcription/`: Whisper + ElevenLabs transcription adapters.
+- `transcription/`: ElevenLabs transcription adapters.
 - Root files (`session.ts`, `types.ts`, `language.ts`, etc.): shared orchestration and cross-domain contracts.

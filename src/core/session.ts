@@ -89,7 +89,6 @@ import {
   RealtimeEvents,
   type RealtimeConnection,
 } from "./transcription/elevenlabs";
-import { preloadWhisperPipeline, disposeWhisperPipeline, transcribeWithWhisper } from "./transcription/whisper-local";
 import {
   getParagraphDecisionPromptTemplate,
   getTranscriptPostProcessPromptTemplate,
@@ -217,7 +216,7 @@ export class Session {
   private micProcess: ChildProcess | null = null;
   private _micEnabled = false;
 
-  // Per-source transcription queues (Vertex/Whisper). Each source runs its own sequential worker.
+  // Per-source transcription queues (Google/Vertex). Each source runs its own sequential worker.
   private chunkQueues = new Map<AudioSource, Array<{ chunk: Buffer; capturedAt: number }>>([
     ["system", []],
     ["microphone", []],
@@ -293,8 +292,7 @@ export class Session {
     this.userContext = this.loadProjectContext();
 
     this.transcriptionModel =
-      config.transcriptionProvider === "elevenlabs" ||
-      config.transcriptionProvider === "whisper"
+      config.transcriptionProvider === "elevenlabs"
         ? null
         : createTranscriptionModel(config);
     this.analysisModel = createAnalysisModel(config);
@@ -457,7 +455,6 @@ export class Session {
   }
 
   private get usesParagraphBuffering(): boolean {
-    if (this.config.transcriptionProvider === "whisper") return true;
     if (
       (this.config.transcriptionProvider === "vertex" || this.config.transcriptionProvider === "google" || this.config.transcriptionProvider === "openrouter")
       && !this._translationEnabled
@@ -613,12 +610,6 @@ export class Session {
       void this.openElevenLabsConnection("system");
     }
 
-    if (this.config.transcriptionProvider === "whisper") {
-      this.events.emit("status", "Loading Whisper model...");
-      preloadWhisperPipeline(this.config.transcriptionModelId)
-        .then(() => { this.events.emit("status", "Whisper ready. Speak now."); })
-        .catch((err: Error) => { this.events.emit("error", `Whisper load failed: ${err.message}`); });
-    }
   }
 
   stopRecording(flushRemaining = true, commitPendingParagraphs = true): void {
@@ -638,7 +629,7 @@ export class Session {
     if (this.audioRecorder) { this.audioRecorder.stop(); this.audioRecorder = null; }
     if (this.ffmpegProcess) { this.ffmpegProcess.kill("SIGTERM"); this.ffmpegProcess = null; }
 
-    // VAD flush only needed for Google/Vertex/Whisper
+    // VAD flush only needed for Google/Vertex
     if (flushRemaining && this.config.transcriptionProvider !== "elevenlabs") {
       const remaining = flushVad(this.systemPipeline.vadState);
       if (remaining) {
@@ -1098,9 +1089,6 @@ export class Session {
     } else {
       this.pendingParagraphs.clear();
     }
-    if (this.config.transcriptionProvider === "whisper") {
-      disposeWhisperPipeline();
-    }
     this.events.emit("partial", { source: null, text: "" });
     writeSummaryLog(this.contextState.allKeyPoints);
   }
@@ -1259,11 +1247,7 @@ export class Session {
       return;
     }
 
-    const vadOptions =
-      this.config.transcriptionProvider === "whisper"
-        ? { maxChunkMs: null } // Whisper: prefer natural-break chunks only.
-        : undefined;
-    const chunks = processAudioData(pipeline.vadState, data, vadOptions);
+    const chunks = processAudioData(pipeline.vadState, data);
 
     // Periodic mic level reporting (~every 2s of audio = 20 × 100ms windows)
     if (pipeline.source === "microphone") {
@@ -1537,9 +1521,7 @@ export class Session {
         }
 
         let finalTranscript = transcriptForDecision;
-        if (this.config.transcriptionProvider !== "whisper") {
-          finalTranscript = await this.polishTranscript(transcriptForDecision);
-        }
+        finalTranscript = await this.polishTranscript(transcriptForDecision);
 
         // Check if new text arrived while we were polishing. Keep the excess
         // so it isn't lost; only remove the portion we just committed.
@@ -1691,7 +1673,7 @@ export class Session {
   }
 
   private async processQueue(source: AudioSource): Promise<void> {
-    // ElevenLabs uses persistent WS; this queue is for Google/Vertex/Whisper.
+    // ElevenLabs uses persistent WS; this queue is for Google/Vertex.
     if (this.config.transcriptionProvider === "elevenlabs") return;
     const queue = this.chunkQueues.get(source)!;
     if (this.inFlight.get(source)! >= this.maxConcurrency || queue.length === 0) return;
@@ -1703,7 +1685,6 @@ export class Session {
 
     const startTime = Date.now();
     const chunkDurationMs = (chunk.length / (16000 * 2)) * 1000;
-    let stopRecordingOnFatalWhisperError = false;
     this.updateInFlightDisplay();
 
     try {
@@ -1717,16 +1698,7 @@ export class Session {
         log("INFO", `Transcription request [${this.config.transcriptionProvider}]: src=${audioSource} chunk=${chunkDurationMs.toFixed(0)}ms, queue=${queue.length}, inflight=${this.inFlight.get(source)}`);
       }
 
-      if (this.config.transcriptionProvider === "whisper") {
-        const result = await transcribeWithWhisper(chunk, this.config.transcriptionModelId, this.config.sourceLang, this.config.targetLang);
-        this.queueParagraphChunk(
-          result.transcript,
-          result.detectedLang,
-          audioSource,
-          capturedAt,
-        );
-        return;
-      } else {
+      {
         const useTranslation = this._translationEnabled && this.canTranslate;
         const schema = useTranslation ? this.audioTranscriptionSchema : this.transcriptionOnlySchema;
         const wavBuffer = pcmToWavBuffer(chunk, 16000);
@@ -1850,31 +1822,11 @@ export class Session {
       const fullError = error instanceof Error
         ? `${error.name}: ${error.message}${error.cause ? ` cause=${JSON.stringify(error.cause)}` : ""}`
         : toReadableError(error);
-      const whisperDisposedDuringStop =
-        this.config.transcriptionProvider === "whisper" &&
-        !this.isRecording &&
-        /Whisper process disposed/i.test(fullError);
-      if (whisperDisposedDuringStop) {
-        log("INFO", `Ignoring Whisper dispose error while stopping: ${fullError}`);
-        return;
-      }
       log("ERROR", `Transcription chunk failed after ${elapsed}ms (audio=${chunkDurationMs.toFixed(0)}ms): ${fullError}`);
       this.events.emit("status", `⚠ ${errorMsg}`);
-      if (
-        this.config.transcriptionProvider === "whisper" &&
-        /Whisper process exited unexpectedly|Whisper worker exited unexpectedly|SIGTRAP|SIGABRT/i.test(fullError)
-      ) {
-        this.events.emit("error", `Whisper transcription failed: ${errorMsg}`);
-        queue.length = 0;
-        stopRecordingOnFatalWhisperError = true;
-      }
     } finally {
       this.inFlight.set(source, this.inFlight.get(source)! - 1);
       this.updateInFlightDisplay();
-      if (stopRecordingOnFatalWhisperError && this.isRecording) {
-        this.stopRecording();
-        return;
-      }
       while (queue.length > 0 && this.inFlight.get(source)! < this.maxConcurrency) {
         void this.processQueue(source);
       }

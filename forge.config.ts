@@ -11,7 +11,7 @@ const config: ForgeConfig = {
     // Modules with native binaries must be outside the asar so they can execute.
     asar: {
       unpackDir:
-        "node_modules/{audiotee,macos-audio-devices,better-sqlite3,bufferutil,utf-8-validate,onnxruntime-node,onnxruntime-common}",
+        "node_modules/{audiotee,macos-audio-devices,better-sqlite3,bufferutil,utf-8-validate}",
     },
     icon: "./assets/icon",
     appBundleId: "com.ambient.app",
@@ -54,8 +54,6 @@ const config: ForgeConfig = {
           "ws",
           "bufferutil",
           "utf-8-validate",
-          "@huggingface/transformers",
-          "onnxruntime-node",
         ];
 
         for (const mod of externalModules) {

@@ -2,13 +2,9 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   build: {
-    // Provide build.lib explicitly so forge's plugin skips its own single-entry setup
-    // and we can co-build whisper helper entrypoints alongside main.js in .vite/build/.
     lib: {
       entry: {
         main: "src/electron/main.ts",
-        "whisper-worker": "src/core/transcription/whisper-worker.ts",
-        "whisper-child": "src/core/transcription/whisper-child.ts",
       },
       formats: ["cjs"],
       fileName: () => "[name].js",
@@ -26,8 +22,6 @@ export default defineConfig({
         "ws",
         "bufferutil",
         "utf-8-validate",
-        "@huggingface/transformers",
-        "onnxruntime-node",
       ],
     },
   },

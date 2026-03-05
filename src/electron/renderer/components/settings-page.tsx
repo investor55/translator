@@ -17,7 +17,6 @@ import type {
 } from "../../../core/types";
 import {
   DEFAULT_TRANSCRIPTION_MODEL_ID,
-  DEFAULT_WHISPER_MODEL_ID,
   DEFAULT_VERTEX_MODEL_ID,
 } from "../../../core/types";
 import { MODEL_CONFIG } from "../../../core/models";
@@ -182,8 +181,6 @@ const TRANSCRIPTION_PRESETS: TranscriptionPreset[] = [
   { key: "openrouter:google/gemini-3.1-flash-lite-preview", provider: "openrouter", modelId: "google/gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite — OpenRouter", description: "Cheapest Gemini, supports translation", defaultIntervalMs: 8000 },
   { key: "elevenlabs:scribe_v2_realtime", provider: "elevenlabs", modelId: "scribe_v2_realtime", label: "ElevenLabs Scribe v2 Realtime", description: "Fastest transcription", defaultIntervalMs: 2000 },
   { key: "elevenlabs:scribe_v2", provider: "elevenlabs", modelId: "scribe_v2", label: "ElevenLabs Scribe v2", description: "Fast transcription", defaultIntervalMs: 2000 },
-  { key: "whisper:Xenova/whisper-small", provider: "whisper", modelId: "Xenova/whisper-small", label: "Whisper Small (Local)", description: "Slow, lower accuracy, offline", defaultIntervalMs: 8000 },
-  { key: "whisper:Xenova/whisper-tiny", provider: "whisper", modelId: "Xenova/whisper-tiny", label: "Whisper Tiny (Local)", description: "Slow, lowest accuracy, offline", defaultIntervalMs: 8000 },
 ];
 
 function getPresetKey(provider: TranscriptionProvider, modelId: string): string {
@@ -865,13 +862,6 @@ export function SettingsPage({
                 />
               </div>
             </div>
-            {config.transcriptionProvider === "whisper" && (
-              <p className="mt-3 text-2xs text-muted-foreground leading-relaxed">
-                Whisper runs locally with no API key. Start with{" "}
-                <code className="font-mono">Xenova/whisper-small</code> for
-                better quality; it uses more memory than base/tiny.
-              </p>
-            )}
           </section>
 
           {/* ── Row 3: Translation (full width, only for translatable providers) ── */}

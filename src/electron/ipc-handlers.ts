@@ -4,7 +4,6 @@ import type { AppDatabase } from "../core/db/db";
 import { validateEnv } from "../core/config";
 import { log } from "../core/logger";
 import { Session } from "../core/session";
-import { setWhisperRemoteRuntime } from "../core/transcription/whisper-local";
 import { toReadableError } from "../core/text/text-utils";
 import type { AppConfigOverrides } from "../core/types";
 import { registerAgentHandlers } from "./ipc/register-agent-handlers";
@@ -13,7 +12,6 @@ import { registerSessionHandlers } from "./ipc/register-session-handlers";
 import { registerTaskInsightHandlers } from "./ipc/register-task-insight-handlers";
 import { registerIntegrationHandlers } from "./ipc/register-integration-handlers";
 import { registerApiKeyHandlers } from "./ipc/register-api-key-handlers";
-import { registerElectronWhisperGpuBridge } from "./ipc/whisper-gpu-bridge";
 import { buildSessionConfig, shutdownCurrentSession, wireSessionEvents } from "./ipc/ipc-utils";
 import type { EnsureSession, SessionRef } from "./ipc/types";
 import { createIntegrationManager } from "./integrations";
@@ -22,15 +20,9 @@ import type { IntegrationManager } from "./integrations/types";
 
 const sessionRef: SessionRef = { current: null };
 let registeredDb: AppDatabase | null = null;
-let disposeWhisperGpuBridge: (() => void) | null = null;
 let integrationManager: IntegrationManager | null = null;
 
 export function shutdownSessionOnAppQuit() {
-  if (disposeWhisperGpuBridge) {
-    disposeWhisperGpuBridge();
-    disposeWhisperGpuBridge = null;
-    setWhisperRemoteRuntime(null);
-  }
   if (!registeredDb) return;
   void shutdownCurrentSession(sessionRef, registeredDb);
   void integrationManager?.dispose();
@@ -38,18 +30,6 @@ export function shutdownSessionOnAppQuit() {
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null, db: AppDatabase) {
   registeredDb = db;
-  if (disposeWhisperGpuBridge) {
-    disposeWhisperGpuBridge();
-    disposeWhisperGpuBridge = null;
-  }
-
-  const whisperGpuBridge = registerElectronWhisperGpuBridge(getWindow);
-  setWhisperRemoteRuntime(whisperGpuBridge.runtime);
-  disposeWhisperGpuBridge = () => {
-    whisperGpuBridge.dispose();
-    setWhisperRemoteRuntime(null);
-  };
-
   if (integrationManager) {
     void integrationManager.dispose();
   }

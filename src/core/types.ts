@@ -49,8 +49,7 @@ export type TranscriptionProvider =
   | "openrouter"
   | "vertex"
   | "google"
-  | "elevenlabs"
-  | "whisper";
+  | "elevenlabs";
 export type AnalysisProvider = "openrouter" | "google" | "vertex" | "bedrock";
 export type { AnalysisModelPreset } from "./models";
 
@@ -295,7 +294,6 @@ export const DEFAULT_BEDROCK_REGION =
   ENV?.AWS_REGION ?? "us-east-1";
 export const DEFAULT_TRANSCRIPTION_MODEL_ID =
   ENV?.TRANSCRIPTION_MODEL_ID ?? "scribe_v2_realtime";
-export const DEFAULT_WHISPER_MODEL_ID = "Xenova/whisper-small";
 export { ANALYSIS_MODEL_PRESETS, getAnalysisModelPreset } from "./models";
 
 export const DEFAULT_ANALYSIS_MODEL_ID =
@@ -426,8 +424,7 @@ export function normalizeAppConfig(
     merged.transcriptionProvider === "openrouter" ||
     merged.transcriptionProvider === "vertex" ||
     merged.transcriptionProvider === "google" ||
-    merged.transcriptionProvider === "elevenlabs" ||
-    merged.transcriptionProvider === "whisper"
+    merged.transcriptionProvider === "elevenlabs"
       ? merged.transcriptionProvider
       : DEFAULT_APP_CONFIG.transcriptionProvider;
   const analysisProvider: AnalysisProvider =

@@ -28,7 +28,6 @@ import { useThemeMode } from "./hooks/use-theme-mode";
 import { useAppBootstrap } from "./hooks/use-app-bootstrap";
 import { useSessionEventStream } from "./hooks/use-session-event-stream";
 import { buildSessionPath, parseSessionRoute, pushSessionPath, replaceSessionPath } from "./lib/session-route";
-import { initializeWhisperGpuClient } from "./lib/whisper-gpu-client";
 import { ToolbarHeader } from "./components/toolbar-header";
 import { TranscriptArea } from "./components/transcript-area";
 import { LeftSidebar } from "./components/left-sidebar";
@@ -137,10 +136,6 @@ function buildSummaryTaskIntent(
 }
 
 export function App() {
-  useEffect(() => {
-    initializeWhisperGpuClient();
-  }, []);
-
   const [languages, setLanguages] = useState<Language[]>([]);
   const [sourceLang, setSourceLang] = useLocalStorage<LanguageCode>("ambient-source-lang", "ko");
   const [targetLang, setTargetLang] = useLocalStorage<LanguageCode>("ambient-target-lang", "en");

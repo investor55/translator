@@ -25,16 +25,6 @@ import type {
   AudioSource,
   ApiKeyDefinition,
 } from "../core/types";
-import type {
-  WhisperGpuReadyPayload,
-  WhisperGpuRequest,
-  WhisperGpuResponse,
-} from "./ipc/whisper-gpu-types";
-import {
-  WHISPER_GPU_READY_CHANNEL,
-  WHISPER_GPU_REQUEST_CHANNEL,
-  WHISPER_GPU_RESPONSE_CHANNEL,
-} from "./ipc/whisper-gpu-types";
 
 export type ElectronAPI = {
   getLanguages: () => Promise<Language[]>;
@@ -163,9 +153,6 @@ export type ElectronAPI = {
   onAgentTitleGenerated: (callback: (agentId: string, title: string) => void) => () => void;
   onSessionTitleGenerated: (callback: (sessionId: string, title: string) => void) => () => void;
 
-  onWhisperGpuRequest: (callback: (request: WhisperGpuRequest) => void) => () => void;
-  sendWhisperGpuResponse: (response: WhisperGpuResponse) => void;
-  notifyWhisperGpuReady: (payload: WhisperGpuReadyPayload) => void;
 };
 
 function createListener<T>(channel: string) {
@@ -305,9 +292,6 @@ const api: ElectronAPI = {
     return () => ipcRenderer.removeListener("session:title-generated", handler);
   },
 
-  onWhisperGpuRequest: createListener<WhisperGpuRequest>(WHISPER_GPU_REQUEST_CHANNEL),
-  sendWhisperGpuResponse: (response) => ipcRenderer.send(WHISPER_GPU_RESPONSE_CHANNEL, response),
-  notifyWhisperGpuReady: (payload) => ipcRenderer.send(WHISPER_GPU_READY_CHANNEL, payload),
 };
 
 contextBridge.exposeInMainWorld("electronAPI", api);
