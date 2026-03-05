@@ -504,15 +504,15 @@ export type AgentStepKind =
   | "tool-result"
   | "text"
   | "user"
-  | "plan";
+  | "plan"
+  | "todo";
 
-export type PlanItemStatus = "pending" | "in_progress" | "completed";
+export type AgentTodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
 
-export type PlanItem = Readonly<{
+export type AgentTodoItem = Readonly<{
   id: string;
-  title: string;
-  description?: string;
-  status: PlanItemStatus;
+  content: string;
+  status: AgentTodoStatus;
 }>;
 
 export type AgentQuestionOption = Readonly<{
@@ -568,8 +568,8 @@ export type AgentStep = Readonly<{
   approvalState?: AgentToolApprovalState;
   approvalApproved?: boolean;
   planTitle?: string;
-  planDescription?: string;
-  planItems?: PlanItem[];
+  planContent?: string;
+  todoItems?: AgentTodoItem[];
   createdAt: number;
 }>;
 

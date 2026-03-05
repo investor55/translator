@@ -1073,13 +1073,7 @@ export function App() {
     return false;
   }, [appConfig, selectAgent, selectedSessionId, session.sessionId, sessionActive]);
 
-  const hasRunningAgent = agents.some((a) => a.status === "running");
-
   const handleLaunchAgent = useCallback(async (task: TaskItem) => {
-    if (hasRunningAgent) {
-      setRouteNotice("An agent is already running. Wait for it to finish or archive it first.");
-      return;
-    }
     if (processingTaskIds.includes(task.id)) {
       setRouteNotice("Task is still processing. Wait a moment before launching.");
       return;
@@ -1089,23 +1083,15 @@ export function App() {
       return;
     }
     await launchTaskAgent(task);
-  }, [hasRunningAgent, launchTaskAgent, processingTaskIds]);
+  }, [launchTaskAgent, processingTaskIds]);
 
   const handleNewAgent = useCallback(() => {
-    if (hasRunningAgent) {
-      setRouteNotice("An agent is already running. Wait for it to finish or archive it first.");
-      return;
-    }
     selectAgent(null);
     setNewAgentMode(true);
-  }, [hasRunningAgent, selectAgent]);
+  }, [selectAgent]);
 
   const handleLaunchCustomAgent = useCallback(async (task: string) => {
     setNewAgentMode(false);
-    if (hasRunningAgent) {
-      setRouteNotice("An agent is already running. Wait for it to finish or archive it first.");
-      return;
-    }
     const targetSessionId = selectedSessionId ?? session.sessionId ?? null;
     if (!targetSessionId) {
       setRouteNotice("No session available to launch agent.");
@@ -1119,7 +1105,7 @@ export function App() {
     } else {
       setRouteNotice(`Failed to launch agent: ${result.error ?? "Unknown error"}`);
     }
-  }, [appConfig, hasRunningAgent, selectAgent, selectedSessionId, session.sessionId, sessionActive]);
+  }, [appConfig, selectAgent, selectedSessionId, session.sessionId, sessionActive]);
 
   const handleArchiveAgent = useCallback(async (agent: Agent) => {
     await window.electronAPI.archiveAgent(agent.id);

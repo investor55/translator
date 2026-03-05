@@ -47,7 +47,6 @@ import {
   Plan,
   PlanHeader,
   PlanTitle,
-  PlanDescription,
   PlanContent,
   PlanTrigger,
 } from "@/components/ai-elements/plan";
@@ -58,7 +57,6 @@ import {
   QueueItem,
   QueueItemIndicator,
   QueueItemContent,
-  QueueItemDescription,
 } from "@/components/ai-elements/queue";
 import type {
   Agent,
@@ -625,42 +623,23 @@ function TextStepActions({
   );
 }
 
-function AgentPlanCard({ step, isRunning }: { step: AgentStep; isRunning: boolean }) {
-  const items = step.planItems ?? [];
-  const hasActiveWork = items.some((i) => i.status === "in_progress" || i.status === "pending");
-  const isStreaming = isRunning && hasActiveWork;
+function AgentPlanCard({ step }: { step: AgentStep }) {
+  const hasContent = Boolean(step.planContent);
 
   return (
     <div className="mt-1 py-1">
-      <Plan defaultOpen={false} isStreaming={isStreaming}>
+      <Plan defaultOpen={hasContent}>
         <PlanHeader>
-          <div>
-            <div className="mb-2 flex items-center gap-2">
-              <ListChecksIcon className="size-3.5 text-muted-foreground" />
-              <PlanTitle>{step.planTitle ?? "Plan"}</PlanTitle>
-            </div>
-            {step.planDescription && (
-              <PlanDescription>{step.planDescription}</PlanDescription>
-            )}
+          <div className="flex items-center gap-2">
+            <ListChecksIcon className="size-3.5 text-muted-foreground" />
+            <PlanTitle>{step.planTitle ?? "Plan"}</PlanTitle>
           </div>
-          <PlanTrigger />
+          {hasContent && <PlanTrigger />}
         </PlanHeader>
-        {items.length > 0 && (
+        {hasContent && (
           <PlanContent>
-            <div className="space-y-3 text-xs">
-              <div>
-                <h3 className="mb-1.5 font-semibold text-foreground">Steps</h3>
-                <ul className="list-inside list-disc space-y-1 text-muted-foreground">
-                  {items.map((item) => (
-                    <li key={item.id} className={item.status === "completed" ? "text-muted-foreground/50 line-through" : ""}>
-                      {item.title}
-                      {item.description && (
-                        <span className="text-muted-foreground/70"> — {item.description}</span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+            <div className="whitespace-pre-wrap text-xs text-muted-foreground">
+              {step.planContent}
             </div>
           </PlanContent>
         )}
@@ -669,7 +648,8 @@ function AgentPlanCard({ step, isRunning }: { step: AgentStep; isRunning: boolea
   );
 }
 
-function AgentPlanQueue({ items }: { items: ReadonlyArray<{ id: string; title: string; description?: string; status: string }> }) {
+
+function AgentTodoQueue({ items }: { items: ReadonlyArray<{ id: string; content: string; status: string }> }) {
   if (items.length === 0) return null;
 
   return (
@@ -677,23 +657,19 @@ function AgentPlanQueue({ items }: { items: ReadonlyArray<{ id: string; title: s
       <QueueSection>
         <QueueSectionContent>
           <div>
-            {items.map((item) => (
-              <QueueItem key={item.id}>
-                <div className="flex items-center gap-2">
-                  <QueueItemIndicator
-                    completed={item.status === "completed"}
-                  />
-                  <QueueItemContent completed={item.status === "completed"}>
-                    {item.title}
-                  </QueueItemContent>
-                </div>
-                {item.description && (
-                  <QueueItemDescription completed={item.status === "completed"}>
-                    {item.description}
-                  </QueueItemDescription>
-                )}
-              </QueueItem>
-            ))}
+            {items.map((item) => {
+              const done = item.status === "completed" || item.status === "cancelled";
+              return (
+                <QueueItem key={item.id}>
+                  <div className="flex items-center gap-2">
+                    <QueueItemIndicator completed={done} />
+                    <QueueItemContent completed={done}>
+                      {item.content}
+                    </QueueItemContent>
+                  </div>
+                </QueueItem>
+              );
+            })}
           </div>
         </QueueSectionContent>
       </QueueSection>
@@ -774,7 +750,9 @@ function StepItem({
         </Message>
       );
     case "plan":
-      return <AgentPlanCard step={step} isRunning={isRunning} />;
+      return <AgentPlanCard step={step} />;
+    case "todo":
+      return null;
     default:
       return null;
   }
@@ -1000,7 +978,8 @@ export function AgentDetailPanel({
           step.kind === "thinking" ||
           step.kind === "tool-call" ||
           step.kind === "tool-result" ||
-          step.kind === "plan"
+          step.kind === "plan" ||
+          step.kind === "todo"
       );
 
       const firstNonUserAt = filtered.reduce((earliest, step) => {
@@ -1227,18 +1206,15 @@ export function AgentDetailPanel({
 
     flushActivity();
 
-    // Post-process: hoist activity groups, plan steps, and askQuestion steps
-    // before text in the same turn so chain-of-thought / plan / QA cards
-    // precede the response.
-    // Plan and askQuestion steps are hoisted always (including during
-    // streaming); activity groups are only reordered once the run finishes
-    // to avoid jitter.
+    // Post-process: hoist activity groups and askQuestion steps before text
+    // in the same turn so chain-of-thought / QA cards precede the response.
+    // Plan/todo steps render inline where they were emitted.
+    // Activity groups are only reordered once the run finishes to avoid jitter.
     for (let i = 1; i < items.length; i++) {
       const item = items[i];
-      const isPlanItem = item.kind === "step" && item.step.kind === "plan";
       const isAskQuestionItem = item.kind === "step" && isAskQuestionStep(item.step);
       const isActivityItem = item.kind === "activity";
-      if (!isPlanItem && !isAskQuestionItem && !(isActivityItem && !isRunning)) continue;
+      if (!isAskQuestionItem && !(isActivityItem && !isRunning)) continue;
       // Find the earliest preceding text in this turn
       let insertAt = i;
       for (let j = i - 1; j >= 0; j--) {
@@ -1265,11 +1241,11 @@ export function AgentDetailPanel({
     return null;
   }, [timelineItems]);
 
-  const latestPlanItems = useMemo(() => {
+  const latestTodoItems = useMemo(() => {
     for (let i = agent.steps.length - 1; i >= 0; i--) {
       const step = agent.steps[i];
-      if (step.kind === "plan" && step.planItems && step.planItems.length > 0) {
-        return step.planItems;
+      if (step.kind === "todo" && step.todoItems && step.todoItems.length > 0) {
+        return step.todoItems;
       }
     }
     return [];
@@ -1417,7 +1393,7 @@ export function AgentDetailPanel({
       {/* Follow-up input */}
       {onFollowUp && (
         <div className="shrink-0 border-t border-border p-2">
-          <AgentPlanQueue items={latestPlanItems} />
+          <AgentTodoQueue items={latestTodoItems} />
           <PromptInput onSubmit={handleFollowUpSubmit}>
             <PromptInputTextarea
               placeholder={isRunning ? "Type ahead — stop the agent to send" : "Ask a follow-up..."}

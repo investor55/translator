@@ -175,8 +175,11 @@ type TranscriptionPreset = {
 
 const TRANSCRIPTION_PRESETS: TranscriptionPreset[] = [
   { key: "google:gemini-3-flash-preview", provider: "google", modelId: "gemini-3-flash-preview", label: "Gemini 3 Flash — Google AI Studio", description: "Best accuracy, supports translation, API key auth", defaultIntervalMs: 8000 },
+  { key: "google:gemini-3.1-flash-lite-preview", provider: "google", modelId: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite — Google AI Studio", description: "Cheapest Gemini, supports translation, API key auth", defaultIntervalMs: 8000 },
   { key: "vertex:gemini-3-flash-preview", provider: "vertex", modelId: "gemini-3-flash-preview", label: "Gemini 3 Flash — Vertex AI", description: "Best accuracy, supports translation", defaultIntervalMs: 8000 },
+  { key: "vertex:gemini-3.1-flash-lite-preview", provider: "vertex", modelId: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite — Vertex AI", description: "Cheapest Gemini, supports translation", defaultIntervalMs: 8000 },
   { key: "openrouter:google/gemini-3-flash-preview", provider: "openrouter", modelId: "google/gemini-3-flash-preview", label: "Gemini 3 Flash — OpenRouter", description: "Best accuracy, supports translation", defaultIntervalMs: 8000 },
+  { key: "openrouter:google/gemini-3.1-flash-lite-preview", provider: "openrouter", modelId: "google/gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite — OpenRouter", description: "Cheapest Gemini, supports translation", defaultIntervalMs: 8000 },
   { key: "elevenlabs:scribe_v2_realtime", provider: "elevenlabs", modelId: "scribe_v2_realtime", label: "ElevenLabs Scribe v2 Realtime", description: "Fastest transcription", defaultIntervalMs: 2000 },
   { key: "elevenlabs:scribe_v2", provider: "elevenlabs", modelId: "scribe_v2", label: "ElevenLabs Scribe v2", description: "Fast transcription", defaultIntervalMs: 2000 },
   { key: "whisper:Xenova/whisper-small", provider: "whisper", modelId: "Xenova/whisper-small", label: "Whisper Small (Local)", description: "Slow, lower accuracy, offline", defaultIntervalMs: 8000 },

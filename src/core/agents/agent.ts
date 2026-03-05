@@ -1,4 +1,4 @@
-import { generateText, streamText, tool, stepCountIs, type ModelMessage } from "ai";
+import { streamText, tool, stepCountIs, type ModelMessage } from "ai";
 import { z } from "zod";
 import type {
   AgentStep,
@@ -7,7 +7,7 @@ import type {
   AgentQuestionSelection,
   AgentToolApprovalRequest,
   AgentToolApprovalResponse,
-  PlanItem,
+  AgentTodoItem,
 } from "../types";
 import { log } from "../logger";
 import {
@@ -161,99 +161,6 @@ function summarizeApprovalInput(input: unknown): string {
   }
 }
 
-function getLatestUserMessageText(messages: ModelMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
-    if (message.role !== "user") continue;
-    const { content } = message;
-    if (typeof content === "string") return content;
-    if (Array.isArray(content)) {
-      return content
-        .map((part) => {
-          if (typeof part === "string") return part;
-          if (part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part) {
-            const text = (part as { text?: unknown }).text;
-            return typeof text === "string" ? text : "";
-          }
-          return "";
-        })
-        .join(" ")
-        .trim();
-    }
-  }
-  return "";
-}
-
-function shouldForceMcpToolLoop(userText: string): boolean {
-  if (!userText.trim()) return false;
-  const hasIntegrationNoun =
-    /\b(notion|linear|workspace|database|page|issue|project|task|ticket|mcp)\b/i.test(
-      userText,
-    );
-  const hasActionVerb =
-    /\b(create|add|update|edit|delete|archive|find|search|list|look\s*up|open|append|move|set)\b/i.test(
-      userText,
-    );
-  return hasIntegrationNoun && hasActionVerb;
-}
-
-function isContinuationPrompt(userText: string): boolean {
-  const normalized = userText.toLowerCase().trim();
-  if (!normalized) return false;
-  return /^(continue|go on|proceed|keep going|again|try again|yes|yep|ok|okay)\.?$/.test(
-    normalized,
-  );
-}
-
-function hasRecentMcpContextInMessages(messages: ModelMessage[]): boolean {
-  for (let i = messages.length - 1; i >= 0 && i >= messages.length - 8; i--) {
-    const message = messages[i];
-    if (!message) continue;
-
-    if (typeof message.content === "string") {
-      if (/getMcpToolSchema|callMcpTool|notion__|linear__/i.test(message.content)) {
-        return true;
-      }
-      continue;
-    }
-
-    if (!Array.isArray(message.content)) continue;
-    for (const part of message.content) {
-      if (!part || typeof part !== "object") continue;
-      const maybeToolName = (part as { toolName?: unknown }).toolName;
-      if (
-        maybeToolName === "getMcpToolSchema" ||
-        maybeToolName === "callMcpTool"
-      ) {
-        return true;
-      }
-
-      const maybeType = (part as { type?: unknown }).type;
-      if (maybeType === "tool-call" || maybeType === "tool-result") {
-        const toolName = (part as { toolName?: unknown }).toolName;
-        if (
-          toolName === "getMcpToolSchema" ||
-          toolName === "callMcpTool"
-        ) {
-          return true;
-        }
-      }
-    }
-  }
-  return false;
-}
-
-function shouldEnforceMcpLoop(userText: string, messages: ModelMessage[]): boolean {
-  if (shouldForceMcpToolLoop(userText)) return true;
-  if (isContinuationPrompt(userText) && hasRecentMcpContextInMessages(messages)) {
-    return true;
-  }
-  return false;
-}
-
-function hasMcpMetaTools(tools: Record<string, unknown>): boolean {
-  return !!tools.getMcpToolSchema && !!tools.callMcpTool;
-}
 
 type CallMcpToolErrorCode =
   | "tool_name_required"
@@ -348,35 +255,7 @@ function getMcpCallResultErrorText(output: unknown): string {
   return "";
 }
 
-function looksLikeIntentOnlyText(text: string): boolean {
-  const normalized = text.trim();
-  if (!normalized || normalized === "No results found.") {
-    return true;
-  }
 
-  const lower = normalized.toLowerCase();
-  const hasIntentLead = /\b(let me|i'll|i will|i need to|i can|i'm going to)\b/.test(lower);
-  const hasFutureAction =
-    /\b(search|check|look up|look for|find|get|fetch|retrieve|call|try)\b/.test(lower);
-  const hasConcreteResultSignal =
-    /\b(found|here(?:'s| is| are)|results?|according to|based on|it shows|i checked)\b/.test(lower);
-
-  return hasIntentLead && hasFutureAction && !hasConcreteResultSignal;
-}
-
-function hasSuccessfulMcpToolResultFromSteps(
-  steps: Array<{
-    toolResults: Array<{ toolName: string; output: unknown }>;
-  }>,
-): boolean {
-  return steps.some((step) =>
-    step.toolResults.some(
-      (result) =>
-        result.toolName === "callMcpTool" &&
-        getMcpCallResultStatus(result.output) === "success",
-    ),
-  );
-}
 
 
 async function buildTools(
@@ -386,6 +265,7 @@ async function buildTools(
   requestToolApproval: AgentDeps["requestToolApproval"],
   onStep: AgentDeps["onStep"],
   allowAutoApprove: boolean,
+  existingSteps: ReadonlyArray<AgentStep>,
   getExternalTools?: AgentDeps["getExternalTools"],
   searchTranscriptHistory?: AgentDeps["searchTranscriptHistory"],
   searchAgentHistory?: AgentDeps["searchAgentHistory"],
@@ -456,66 +336,90 @@ async function buildTools(
     }),
   };
 
-  // Closure-scoped stable ID for plan step — ensures upserts in-place
+  // Stable IDs for plan/todo steps — ensures upserts in-place
   const planStepId = `plan:${Date.now()}`;
-  let currentPlanItems: PlanItem[] = [];
+  const todoStepId = `todo:${Date.now()}`;
 
-  baseTools["updatePlan"] = tool({
+  // Restore todos from previous turns so merge works across follow-ups
+  let currentTodos: AgentTodoItem[] = (() => {
+    for (let i = existingSteps.length - 1; i >= 0; i--) {
+      const step = existingSteps[i];
+      if (step.kind === "todo" && step.todoItems && step.todoItems.length > 0) {
+        return [...step.todoItems];
+      }
+    }
+    return [];
+  })();
+
+  baseTools["createPlan"] = tool({
     description: [
-      "Create or update a structured plan visible to the user as a progress card.",
-      "",
-      "WHEN TO USE:",
-      "- Non-trivial tasks requiring 2+ distinct steps or actions.",
-      "- Tasks where you investigated first and now need to outline an approach.",
-      "- When the user provides a multi-part request.",
-      "",
-      "WHEN NOT TO USE:",
-      "- Simple questions, quick lookups, or single-step tasks you can complete immediately.",
-      "- Purely conversational responses.",
-      "",
-      "HOW TO USE:",
-      "1. Call ONCE after investigation to outline your approach. All steps start as 'pending', except set the first step to 'in_progress'.",
-      "2. Immediately begin executing the first step in the same turn — do not stop after creating the plan.",
-      "3. As you finish each step, call again: mark the completed step as 'completed' and the next step as 'in_progress'.",
-      "4. Only ONE step should be 'in_progress' at a time.",
-      "5. Only mark a step 'completed' when it is fully done, not partially done.",
-      "6. Keep steps to 2–6 concrete, actionable items. Titles should be imperative (e.g. 'Search for relevant articles', not 'Searching').",
+      "Create a plan document visible to the user as a collapsible card.",
+      "Use for non-trivial tasks after investigation but before execution.",
+      "Call once to outline your approach, then begin executing immediately.",
+      "If the plan needs revising later, call again to replace it.",
+      "Do NOT use for simple questions, quick lookups, or single-step tasks.",
     ].join("\n"),
     inputSchema: z.object({
-      title: z.string().describe("Brief plan title (imperative form, e.g. 'Analyze the quarterly report')"),
-      description: z.string().describe("1-2 sentence summary of what you found during investigation and what you'll do"),
-      steps: z.array(
-        z.object({
-          id: z.string().describe("Stable identifier for this step (e.g. 'step-1'). Reuse the same id across calls."),
-          title: z.string().describe("Imperative action title (e.g. 'Summarize key findings')"),
-          description: z.string().optional().describe("Optional detail — only add when the step needs clarification"),
-          status: z.enum(["pending", "in_progress", "completed"]),
-        })
-      ),
+      title: z.string().describe("Brief plan title (imperative, e.g. 'Analyze the quarterly report')"),
+      content: z.string().describe("Markdown plan body: approach, key steps, relevant files. Keep it concise and actionable."),
     }),
-    execute: async ({ title, description, steps }) => {
-      currentPlanItems = steps.map((s) => ({
-        id: s.id,
-        title: s.title,
-        description: s.description,
-        status: s.status,
-      }));
-
+    execute: async ({ title, content }) => {
       onStep({
         id: planStepId,
         kind: "plan",
         content: title,
         planTitle: title,
-        planDescription: description,
-        planItems: currentPlanItems,
+        planContent: content,
+        createdAt: Date.now(),
+      });
+      return `Plan created: ${title}`;
+    },
+  });
+
+  baseTools["updateTodos"] = tool({
+    description: [
+      "Create or update a todo checklist for tracking progress on multi-step work.",
+      "merge=false (default): replaces all todos with the provided list.",
+      "merge=true: updates only the todos with matching IDs, keeps the rest unchanged. New IDs are appended.",
+      "Only ONE todo should be 'in_progress' at a time.",
+      "Mark todos 'completed' immediately after finishing, 'cancelled' if no longer needed.",
+      "Do NOT use for single-step or trivial tasks.",
+    ].join("\n"),
+    inputSchema: z.object({
+      merge: z.boolean().describe("true = update matching IDs and keep the rest, false = replace entire list"),
+      todos: z.array(
+        z.object({
+          id: z.string().describe("Stable identifier (e.g. 'setup-auth'). Reuse across calls."),
+          content: z.string().describe("Concrete, actionable description"),
+          status: z.enum(["pending", "in_progress", "completed", "cancelled"]),
+        })
+      ),
+    }),
+    execute: async ({ merge, todos }) => {
+      if (merge) {
+        const incoming = new Map(todos.map((t) => [t.id, t]));
+        currentTodos = currentTodos.map((existing) => incoming.get(existing.id) ?? existing);
+        for (const t of todos) {
+          if (!currentTodos.some((e) => e.id === t.id)) {
+            currentTodos.push(t);
+          }
+        }
+      } else {
+        currentTodos = todos.map((t) => ({ id: t.id, content: t.content, status: t.status }));
+      }
+
+      onStep({
+        id: todoStepId,
+        kind: "todo",
+        content: "Todos updated",
+        todoItems: currentTodos,
         createdAt: Date.now(),
       });
 
-      const completed = currentPlanItems.filter((s) => s.status === "completed").length;
-      const inProgress = currentPlanItems.find((s) => s.status === "in_progress");
-      const summary = `Plan "${title}" updated: ${completed}/${currentPlanItems.length} steps done.` +
-        (inProgress ? ` Current: ${inProgress.title}` : "");
-      return summary;
+      const completed = currentTodos.filter((t) => t.status === "completed").length;
+      const inProgress = currentTodos.find((t) => t.status === "in_progress");
+      return `Todos: ${completed}/${currentTodos.length} done.` +
+        (inProgress ? ` Current: ${inProgress.content}` : "");
     },
   });
 
@@ -813,9 +717,13 @@ function summarizeToolCall(
     return { content: query ? `Searching agents: ${query}` : "Searching agent history" };
   }
 
-  if (toolName === "updatePlan") {
+  if (toolName === "createPlan") {
     const title = (input as Record<string, unknown>)?.title;
     return { content: typeof title === "string" ? `Planning: ${title}` : "Planning" };
+  }
+
+  if (toolName === "updateTodos") {
+    return { content: "Updating todos" };
   }
 
   if (toolName === "getMcpToolSchema") {
@@ -865,8 +773,12 @@ function summarizeToolResult(
     };
   }
 
-  if (toolName === "updatePlan") {
-    return { content: "Plan updated" };
+  if (toolName === "createPlan") {
+    return { content: "Plan created" };
+  }
+
+  if (toolName === "updateTodos") {
+    return { content: "Todos updated" };
   }
 
   if (toolName === "searchTranscriptHistory") {
@@ -972,6 +884,7 @@ async function runAgentWithMessages(
       requestToolApproval,
       onStep,
       allowAutoApprove,
+      agent.steps,
       getExternalTools,
       searchTranscriptHistory,
       searchAgentHistory,
@@ -986,175 +899,11 @@ async function runAgentWithMessages(
       compact,
       mcpToolCatalog,
     );
-    const latestUserText = getLatestUserMessageText(inputMessages);
-    const enforceMcpLoop =
-      hasMcpMetaTools(tools) && shouldEnforceMcpLoop(latestUserText, inputMessages);
-
     const result = streamText({
       model,
       system: systemPrompt,
       messages: inputMessages,
       stopWhen: stepCountIs(20),
-      prepareStep: enforceMcpLoop
-        ? ({ stepNumber, steps }) => {
-          const callMcpToolResults = steps.flatMap((step) =>
-            step.toolResults.filter((toolResult) => toolResult.toolName === "callMcpTool"),
-          );
-          const hasGetSchemaCall = steps.some((step) =>
-            step.toolCalls.some((call) => call.toolName === "getMcpToolSchema"),
-          );
-          const hasAskQuestionToolCall = steps.some((step) =>
-            step.toolCalls.some((call) => call.toolName === "askQuestion"),
-          );
-          const hasAskQuestionToolResult = steps.some((step) =>
-            step.toolResults.some((toolResult) => toolResult.toolName === "askQuestion"),
-          );
-          const callMcpToolStatuses = callMcpToolResults.map((toolResult) =>
-            getMcpCallResultStatus(toolResult.output),
-          );
-          const hasSuccessfulCallMcpToolResult = callMcpToolResults.some(
-            (toolResult) => getMcpCallResultStatus(toolResult.output) === "success",
-          );
-          const callMcpToolAttemptCount = callMcpToolResults.length;
-          const callMcpToolErrorCount = callMcpToolStatuses.filter(
-            (status) => status === "error",
-          ).length;
-          const consecutiveCallMcpFailures = (() => {
-            let count = 0;
-            for (let i = callMcpToolStatuses.length - 1; i >= 0; i--) {
-              if (callMcpToolStatuses[i] === "success") break;
-              count += 1;
-            }
-            return count;
-          })();
-          const latestCallMcpToolResult = callMcpToolResults[callMcpToolResults.length - 1];
-          const latestCallStatus = latestCallMcpToolResult
-            ? getMcpCallResultStatus(latestCallMcpToolResult.output)
-            : null;
-          const latestCallCode = latestCallMcpToolResult
-            ? getMcpCallResultCode(latestCallMcpToolResult.output)
-            : null;
-          const latestCallHint = latestCallMcpToolResult
-            ? getMcpCallResultHint(latestCallMcpToolResult.output)
-            : "";
-
-          // Step 0: the agent has tool names in the system prompt. Let it
-          // choose getMcpToolSchema, callMcpTool, or askQuestion freely.
-          if (stepNumber === 0) {
-            return {
-              activeTools: ["getMcpToolSchema", "callMcpTool", "askQuestion"],
-              toolChoice: "required" as const,
-            };
-          }
-
-          if (hasSuccessfulCallMcpToolResult) {
-            return { toolChoice: "none" as const };
-          }
-
-          // Prefer clarification over long speculative tool loops.
-          if (callMcpToolAttemptCount >= 3 && !hasSuccessfulCallMcpToolResult) {
-            if (hasAskQuestionToolCall || hasAskQuestionToolResult) {
-              return { toolChoice: "none" as const };
-            }
-            return {
-              activeTools: ["askQuestion"],
-              toolChoice: { type: "tool", toolName: "askQuestion" as const },
-            };
-          }
-
-          // Stop retry spirals: after repeated failed MCP executions, force one
-          // clarification question; if that already happened, stop tool-calling.
-          if (
-            (consecutiveCallMcpFailures >= 3 || callMcpToolErrorCount >= 4) &&
-            !hasSuccessfulCallMcpToolResult
-          ) {
-            if (hasAskQuestionToolCall || hasAskQuestionToolResult) {
-              return { toolChoice: "none" as const };
-            }
-            return {
-              activeTools: ["askQuestion"],
-              toolChoice: { type: "tool", toolName: "askQuestion" as const },
-            };
-          }
-
-          if (latestCallStatus === "error") {
-            if (
-              latestCallCode === "tool_not_found" ||
-              latestCallCode === "tool_ambiguous" ||
-              latestCallCode === "tool_name_required"
-            ) {
-              return {
-                activeTools: ["getMcpToolSchema"],
-                toolChoice: { type: "tool", toolName: "getMcpToolSchema" as const },
-              };
-            }
-
-            if (latestCallCode === "missing_or_invalid_args") {
-              // If schema was already looked up, escalate to clarification
-              if (hasGetSchemaCall) {
-                return {
-                  activeTools: ["askQuestion"],
-                  toolChoice: { type: "tool", toolName: "askQuestion" as const },
-                };
-              }
-              return {
-                activeTools: ["getMcpToolSchema"],
-                toolChoice: { type: "tool", toolName: "getMcpToolSchema" as const },
-              };
-            }
-
-            if (latestCallCode === "no_tools_available") {
-              return { toolChoice: "none" as const };
-            }
-
-            if (
-              /not found|ambiguous|exact tool name|getmcptoolschema/.test(
-                latestCallHint,
-              )
-            ) {
-              return {
-                activeTools: ["getMcpToolSchema"],
-                toolChoice: { type: "tool", toolName: "getMcpToolSchema" as const },
-              };
-            }
-
-            if (
-              /invalid|missing|required|argument|parameter|inputschema/.test(
-                latestCallHint,
-              )
-            ) {
-              if (hasGetSchemaCall) {
-                return {
-                  activeTools: ["askQuestion"],
-                  toolChoice: { type: "tool", toolName: "askQuestion" as const },
-                };
-              }
-              return {
-                activeTools: ["getMcpToolSchema"],
-                toolChoice: { type: "tool", toolName: "getMcpToolSchema" as const },
-              };
-            }
-          }
-
-          if (latestCallStatus === "denied") {
-            return { toolChoice: "none" as const };
-          }
-
-          // After clarification has been answered, let the model decide
-          // freely — don't force more tool calls or it creates a loop.
-          if (hasAskQuestionToolResult) {
-            return {};
-          }
-
-          if (stepNumber >= 1) {
-            return {
-              activeTools: ["getMcpToolSchema", "callMcpTool", "askQuestion"],
-              toolChoice: "required" as const,
-            };
-          }
-          return {};
-        }
-        : undefined,
       abortSignal,
       tools: tools as Parameters<typeof streamText>[0]["tools"],
       onError: ({ error }) => {
@@ -1167,9 +916,10 @@ async function runAgentWithMessages(
 
     const streamedAt = Date.now();
     // Per-run prefix ensures step IDs are unique across runs (initial + follow-ups).
-    // Some providers (e.g. Gemini) reuse the same part.id across calls, which would
-    // cause follow-up text steps to overwrite initial ones in-place via findIndex.
+    // stepIndex increments on each start-step to avoid ID collisions when providers
+    // reuse the same part.id across agentic steps within a single streamText call.
     const runPrefix = `${streamedAt}`;
+    let stepIndex = 0;
     let textStepId: string | null = null;
     let streamedText = "";
     let lastNonEmptyText = ""; // survives start-step resets; used as finalText fallback
@@ -1185,7 +935,7 @@ async function runAgentWithMessages(
             firstDeltaAfterMs = Date.now() - streamedAt;
           }
           streamedText += part.text;
-          textStepId = `text:${runPrefix}:${part.id}`;
+          textStepId = `text:${runPrefix}:${stepIndex}:${part.id}`;
           onStep({
             id: textStepId,
             kind: "text",
@@ -1195,7 +945,7 @@ async function runAgentWithMessages(
           break;
         }
         case "reasoning-start": {
-          const reasoningStepId = `reasoning:${runPrefix}:${part.id}`;
+          const reasoningStepId = `reasoning:${runPrefix}:${stepIndex}:${part.id}`;
           onStep({
             id: reasoningStepId,
             kind: "thinking",
@@ -1205,7 +955,7 @@ async function runAgentWithMessages(
           break;
         }
         case "reasoning-delta": {
-          const reasoningStepId = `reasoning:${runPrefix}:${part.id}`;
+          const reasoningStepId = `reasoning:${runPrefix}:${stepIndex}:${part.id}`;
           const next = `${reasoningById.get(reasoningStepId) ?? ""}${part.text}`;
           reasoningById.set(reasoningStepId, next);
           onStep({
@@ -1217,8 +967,8 @@ async function runAgentWithMessages(
           break;
         }
         case "tool-call": {
-          // updatePlan emits its own plan step; skip the redundant tool-call.
-          if (part.toolName === "updatePlan") break;
+          // createPlan/updateTodos emit their own steps; skip redundant tool-call.
+          if (part.toolName === "createPlan" || part.toolName === "updateTodos") break;
           const { content, toolInput } = summarizeToolCall(
             part.toolName,
             part.input
@@ -1236,8 +986,8 @@ async function runAgentWithMessages(
         }
         case "tool-result": {
           if (part.preliminary) break;
-          // updatePlan emits its own plan step; skip the redundant tool-result.
-          if (part.toolName === "updatePlan") break;
+          // createPlan/updateTodos emit their own steps; skip redundant tool-result.
+          if (part.toolName === "createPlan" || part.toolName === "updateTodos") break;
           const { content, toolInput } = summarizeToolResult(
             part.toolName,
             part.input,
@@ -1292,6 +1042,7 @@ async function runAgentWithMessages(
           if (streamedText) lastNonEmptyText = streamedText;
           streamedText = "";
           textStepId = null;
+          stepIndex += 1;
           break;
         }
         case "abort": {
@@ -1323,32 +1074,7 @@ async function runAgentWithMessages(
 
     // Build full conversation history for future follow-ups
     const response = await result.response;
-    let fullHistory = [...inputMessages, ...response.messages];
-    const steps = await result.steps;
-    const shouldForceFinalization =
-      hasSuccessfulMcpToolResultFromSteps(steps as Array<{ toolResults: Array<{ toolName: string; output: unknown }> }>) &&
-      looksLikeIntentOnlyText(finalText) &&
-      !abortSignal?.aborted;
-
-    if (shouldForceFinalization) {
-      const finalize = await generateText({
-        model,
-        system: `${systemPrompt}\n\nYou already have tool results. Respond with a concrete completed update now. Do not describe future actions.`,
-        messages: fullHistory,
-      });
-      const finalizedText = finalize.text.trim();
-      if (finalizedText) {
-        finalText = finalizedText;
-        const finalizeStepId = `text:finalize:${Date.now()}`;
-        onStep({
-          id: finalizeStepId,
-          kind: "text",
-          content: finalizedText,
-          createdAt: Date.now(),
-        });
-        fullHistory = [...fullHistory, ...finalize.response.messages];
-      }
-    }
+    const fullHistory = [...inputMessages, ...response.messages];
 
     log(
       "INFO",

@@ -18,7 +18,8 @@
       "Bash(find:*)",
       "Bash(npm ls:*)",
       "Bash(ls:*)",
-      "Bash(git show:*)"
+      "Bash(git show:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }
