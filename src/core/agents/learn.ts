@@ -111,42 +111,40 @@ export async function extractAgentLearnings(
     .map((b) => `[${b.sourceLabel}] ${b.sourceText}${b.translation ? ` → ${b.translation}` : ""}`)
     .join("\n");
 
-  const prompt = [
-    "Analyze this agent conversation and extract durable learnings about the user's workspace and preferences.",
-    "",
-    "## Learned User Preferences",
-    "Extract when the user:",
-    "- Gave explicit workflow instructions (e.g., 'always use pnpm', 'never auto-commit')",
-    "- Corrected the agent or overrode its approach",
-    "- Expressed a repeated choice or convention (naming, formatting, structure)",
-    "- Provided domain-specific terms or glossary corrections",
-    "",
-    "## Learned Workspace Facts",
-    "Extract durable facts discovered during the task:",
-    "- Tech stack, frameworks, and key dependencies",
-    "- Architecture patterns and conventions (file structure, naming, module boundaries)",
-    "- Important file locations and what they contain",
-    "- Integration points (APIs, services, config files)",
-    "- Build/test/deploy commands and workflows",
-    "",
-    "## DO NOT extract:",
-    "- Generic knowledge any LLM already has",
-    "- One-off task instructions or transient details",
-    "- Volatile data (specific versions, dates, counts) that goes stale quickly",
-    "- Secrets, tokens, credentials, or API keys",
-    "- Anything already captured in existing learnings below",
-    "",
-    "Return an empty array if there are no new durable learnings.",
-    "",
-    "Existing learnings (do NOT duplicate these):",
-    existingMd || "(none)",
-    "",
-    "Recent transcript context:",
-    blockContext || "(no transcript)",
-    "",
-    "Agent conversation:",
-    conversation,
-  ].join("\n");
+  const prompt = `Analyze this agent conversation and extract durable learnings about the user's workspace and preferences.
+
+## Learned User Preferences
+Extract when the user:
+- Gave explicit workflow instructions (e.g., 'always use pnpm', 'never auto-commit')
+- Corrected the agent or overrode its approach
+- Expressed a repeated choice or convention (naming, formatting, structure)
+- Provided domain-specific terms or glossary corrections
+
+## Learned Workspace Facts
+Extract durable facts discovered during the task:
+- Tech stack, frameworks, and key dependencies
+- Architecture patterns and conventions (file structure, naming, module boundaries)
+- Important file locations and what they contain
+- Integration points (APIs, services, config files)
+- Build/test/deploy commands and workflows
+
+## DO NOT extract:
+- Generic knowledge any LLM already has
+- One-off task instructions or transient details
+- Volatile data (specific versions, dates, counts) that goes stale quickly
+- Secrets, tokens, credentials, or API keys
+- Anything already captured in existing learnings below
+
+Return an empty array if there are no new durable learnings.
+
+Existing learnings (do NOT duplicate these):
+${existingMd || "(none)"}
+
+Recent transcript context:
+${blockContext || "(no transcript)"}
+
+Agent conversation:
+${conversation}`;
 
   try {
     const { object } = await generateObject({
