@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   parseAvfoundationOutput,
   selectAudioDevice,
-  formatDevices,
 } from "./audio";
 import type { Device } from "./types";
 
@@ -122,27 +121,3 @@ describe("selectAudioDevice", () => {
   });
 });
 
-describe("formatDevices", () => {
-  it("formats empty device list", () => {
-    const result = formatDevices([]);
-    expect(result).toBe("No avfoundation audio devices found.");
-  });
-
-  it("formats single device", () => {
-    const devices: Device[] = [{ index: 0, name: "Microphone" }];
-    const result = formatDevices(devices);
-    expect(result).toBe("[0] Microphone");
-  });
-
-  it("formats multiple devices", () => {
-    const devices: Device[] = [
-      { index: 0, name: "MacBook Pro Microphone" },
-      { index: 1, name: "BlackHole 2ch" },
-      { index: 2, name: "External Microphone" },
-    ];
-    const result = formatDevices(devices);
-    expect(result).toBe(
-      "[0] MacBook Pro Microphone\n[1] BlackHole 2ch\n[2] External Microphone"
-    );
-  });
-});

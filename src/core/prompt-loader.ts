@@ -316,9 +316,6 @@ export function getAgentSuggestionPromptTemplate(): string {
   return loadPrompt(AGENT_SUGGESTION_PROMPT_PATH, DEFAULT_AGENT_SUGGESTION_PROMPT);
 }
 
-/** @deprecated Use getAgentSuggestionPromptTemplate instead */
-export const getTaskExtractPromptTemplate = getAgentSuggestionPromptTemplate;
-
 export function getTaskCreationSharedPromptTemplate(): string {
   return loadPrompt(TASK_SHARED_PROMPT_PATH, DEFAULT_TASK_CREATION_SHARED_PROMPT);
 }

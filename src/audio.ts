@@ -181,14 +181,6 @@ export function selectAudioDevice(
 }
 
 /** @deprecated Use createAudioRecorder() with ScreenCaptureKit instead */
-export function formatDevices(devices: Device[]) {
-  if (devices.length === 0) {
-    return "No avfoundation audio devices found.";
-  }
-  return devices.map((device) => `[${device.index}] ${device.name}`).join("\n");
-}
-
-/** @deprecated Use createAudioRecorder() with ScreenCaptureKit instead */
 export function spawnFfmpeg(deviceIndex: number): ChildProcess {
   const args = [
     "-f",

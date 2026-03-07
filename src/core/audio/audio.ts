@@ -6,7 +6,6 @@ export {
   createAudioRecorder,
   listAvfoundationDevices,
   selectAudioDevice,
-  formatDevices,
   spawnFfmpeg,
   spawnMicFfmpeg,
   listMicDevices,

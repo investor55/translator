@@ -9,17 +9,6 @@ export type AnalysisModelPreset = {
   providerOnly?: string;
 };
 
-export type TaskModelPreset = {
-  label: string;
-  modelId: string;
-  providers: string[];
-};
-
-export type UtilityModelPreset = {
-  label: string;
-  modelId: string;
-};
-
 export type ModelPreset = {
   label: string;
   modelId: string;
@@ -149,33 +138,6 @@ export const MODEL_CONFIG: Record<ModelProvider, ProviderConfig> = {
     ],
   },
 };
-
-// Flat list of OpenRouter presets — used by task/utility/synthesis roles that are still OpenRouter-only.
-export const MODEL_PRESETS: ModelPreset[] = MODEL_CONFIG.openrouter.models;
-
-export const ANALYSIS_MODEL_PRESETS: AnalysisModelPreset[] = MODEL_PRESETS.map(
-  (preset) => ({
-    label: preset.label,
-    modelId: preset.modelId,
-    reasoning: !!preset.reasoning,
-    providerOnly: preset.providerOnly,
-  })
-);
-
-export const TASK_MODEL_PRESETS: TaskModelPreset[] = MODEL_PRESETS.map(
-  (preset) => ({
-    label: preset.label,
-    modelId: preset.modelId,
-    providers: preset.providers ?? [],
-  })
-);
-
-export const UTILITY_MODEL_PRESETS: UtilityModelPreset[] = MODEL_PRESETS.map(
-  (preset) => ({
-    label: preset.label,
-    modelId: preset.modelId,
-  })
-);
 
 export const DEFAULT_UTILITY_MODEL_ID = "openai/gpt-oss-20b";
 export const DEFAULT_SYNTHESIS_MODEL_ID = "openai/gpt-oss-20b";

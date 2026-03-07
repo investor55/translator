@@ -38,9 +38,6 @@ export const agentSuggestionSchema = z.object({
     .describe("0-3 proactive agent suggestions. Each must be something the agent can actually DO if accepted."),
 });
 
-/** @deprecated Use agentSuggestionSchema instead */
-export const taskAnalysisSchema = agentSuggestionSchema;
-
 export const taskFromSelectionSchema = z.object({
   shouldCreateTask: z
     .boolean()
@@ -182,8 +179,6 @@ ${transcript || "(No transcript available)"}${keyPointsSection}`;
 export type AnalysisResult = z.infer<typeof analysisSchema>;
 export type AgentSuggestionResult = z.infer<typeof agentSuggestionSchema>;
 export type AgentSuggestionItem = AgentSuggestionResult["suggestions"][number];
-/** @deprecated Use AgentSuggestionResult instead */
-export type TaskAnalysisResult = AgentSuggestionResult;
 export type TaskFromSelectionResult = z.infer<typeof taskFromSelectionSchema>;
 
 export function buildAnalysisPrompt(
@@ -263,9 +258,6 @@ export function buildAgentSuggestionPrompt(
     educational_context_section: educationalSection,
   });
 }
-
-/** @deprecated Use buildAgentSuggestionPrompt instead */
-export const buildTaskPrompt = buildAgentSuggestionPrompt;
 
 export function buildTaskFromSelectionPrompt(
   selectedText: string,

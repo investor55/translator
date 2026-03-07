@@ -35,7 +35,3 @@ export function computeRms(pcmBuffer: Buffer): number {
 
   return Math.sqrt(sumSquares / samples);
 }
-
-export function isAudioSilent(pcmBuffer: Buffer, threshold = 200): boolean {
-  return computeRms(pcmBuffer) < threshold;
-}

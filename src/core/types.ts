@@ -294,7 +294,7 @@ export const DEFAULT_BEDROCK_REGION =
   ENV?.AWS_REGION ?? "us-east-1";
 export const DEFAULT_TRANSCRIPTION_MODEL_ID =
   ENV?.TRANSCRIPTION_MODEL_ID ?? "scribe_v2_realtime";
-export { ANALYSIS_MODEL_PRESETS, getAnalysisModelPreset } from "./models";
+export { getAnalysisModelPreset } from "./models";
 
 export const DEFAULT_ANALYSIS_MODEL_ID =
   ENV?.ANALYSIS_MODEL_ID ?? "moonshotai/kimi-k2-thinking";

@@ -36,10 +36,6 @@ export function getLanguageLabel(code: LanguageCode): string {
   return code.toUpperCase();
 }
 
-export function getLanguageName(code: LanguageCode): string {
-  return SUPPORTED_LANGUAGES.find((l) => l.code === code)?.name ?? code.toUpperCase();
-}
-
 export function isValidLangCode(code: string): code is LanguageCode {
   return SUPPORTED_LANGUAGES.some((l) => l.code === code);
 }
