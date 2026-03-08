@@ -20,6 +20,12 @@ export const API_KEY_DEFINITIONS: readonly ApiKeyDefinition[] = [
     providers: ["elevenlabs"],
   },
   {
+    envVar: "FIREWORKS_API_KEY",
+    label: "Fireworks AI API Key",
+    placeholder: "fw_...",
+    providers: ["fireworks"],
+  },
+  {
     envVar: "EXA_API_KEY",
     label: "Exa API Key (for AI Agents)",
     placeholder: "exa-...",

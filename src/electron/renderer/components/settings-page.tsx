@@ -181,6 +181,7 @@ const TRANSCRIPTION_PRESETS: TranscriptionPreset[] = [
   { key: "openrouter:google/gemini-3.1-flash-lite-preview", provider: "openrouter", modelId: "google/gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite — OpenRouter", description: "Cheapest Gemini, supports translation", defaultIntervalMs: 8000 },
   { key: "elevenlabs:scribe_v2_realtime", provider: "elevenlabs", modelId: "scribe_v2_realtime", label: "ElevenLabs Scribe v2 Realtime", description: "Fastest transcription", defaultIntervalMs: 2000 },
   { key: "elevenlabs:scribe_v2", provider: "elevenlabs", modelId: "scribe_v2", label: "ElevenLabs Scribe v2", description: "Fast transcription", defaultIntervalMs: 2000 },
+  { key: "fireworks:whisper-v3-turbo", provider: "fireworks", modelId: "whisper-v3-turbo", label: "Fireworks Whisper v3 Turbo", description: "Fast transcription with server-side VAD", defaultIntervalMs: 8000 },
 ];
 
 function getPresetKey(provider: TranscriptionProvider, modelId: string): string {
@@ -190,6 +191,7 @@ function getPresetKey(provider: TranscriptionProvider, modelId: string): string 
 const ANALYSIS_PROVIDERS: Array<{ value: AppConfig["analysisProvider"]; label: string }> = [
   { value: "openrouter", label: "OpenRouter" },
   { value: "bedrock", label: "AWS Bedrock" },
+  { value: "fireworks", label: "Fireworks AI" },
 ];
 
 
@@ -792,7 +794,7 @@ export function SettingsPage({
                       transcriptionModelId: preset.modelId,
                       intervalMs: preset.defaultIntervalMs,
                       translationEnabled:
-                        preset.provider === "vertex" || preset.provider === "google" || preset.provider === "openrouter"
+                        preset.provider === "vertex" || preset.provider === "google" || preset.provider === "openrouter" || preset.provider === "fireworks"
                           ? config.translationEnabled
                           : false,
                     });
@@ -958,7 +960,7 @@ export function SettingsPage({
             <Separator className="my-3" />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {(() => {
-                const providerKey = (config.analysisProvider === "openrouter" || config.analysisProvider === "bedrock")
+                const providerKey = (config.analysisProvider === "openrouter" || config.analysisProvider === "bedrock" || config.analysisProvider === "fireworks")
                   ? config.analysisProvider
                   : "openrouter" as const;
                 const providerConfig = MODEL_CONFIG[providerKey];
@@ -973,7 +975,7 @@ export function SettingsPage({
                         value={config.analysisProvider}
                         onValueChange={(v) => {
                           const provider = v as AppConfig["analysisProvider"];
-                          const nextConfig = (provider === "openrouter" || provider === "bedrock")
+                          const nextConfig = (provider === "openrouter" || provider === "bedrock" || provider === "fireworks")
                             ? MODEL_CONFIG[provider]
                             : null;
                           const defs = nextConfig?.defaults;

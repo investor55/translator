@@ -89,6 +89,7 @@ import {
   RealtimeEvents,
   type RealtimeConnection,
 } from "./transcription/elevenlabs";
+import { transcribeWithFireworks } from "./transcription/fireworks";
 import {
   getParagraphDecisionPromptTemplate,
   getTranscriptPostProcessPromptTemplate,
@@ -288,11 +289,11 @@ export class Session {
     this.sessionId = sessionId ?? crypto.randomUUID();
     this.getExternalTools = externalDeps?.getExternalTools;
     this.dataDir = externalDeps?.dataDir;
-    this._translationEnabled = config.translationEnabled && (config.transcriptionProvider === "vertex" || config.transcriptionProvider === "google" || config.transcriptionProvider === "openrouter");
+    this._translationEnabled = config.translationEnabled && (config.transcriptionProvider === "vertex" || config.transcriptionProvider === "google" || config.transcriptionProvider === "openrouter" || config.transcriptionProvider === "fireworks");
     this.userContext = this.loadProjectContext();
 
     this.transcriptionModel =
-      config.transcriptionProvider === "elevenlabs"
+      config.transcriptionProvider === "elevenlabs" || config.transcriptionProvider === "fireworks"
         ? null
         : createTranscriptionModel(config);
     this.analysisModel = createAnalysisModel(config);
@@ -443,7 +444,7 @@ export class Session {
   }
 
   get canTranslate(): boolean {
-    return this.config.transcriptionProvider === "vertex" || this.config.transcriptionProvider === "google" || this.config.transcriptionProvider === "openrouter";
+    return this.config.transcriptionProvider === "vertex" || this.config.transcriptionProvider === "google" || this.config.transcriptionProvider === "openrouter" || this.config.transcriptionProvider === "fireworks";
   }
 
   get translationEnabled(): boolean {
@@ -456,7 +457,7 @@ export class Session {
 
   private get usesParagraphBuffering(): boolean {
     if (
-      (this.config.transcriptionProvider === "vertex" || this.config.transcriptionProvider === "google" || this.config.transcriptionProvider === "openrouter")
+      (this.config.transcriptionProvider === "vertex" || this.config.transcriptionProvider === "google" || this.config.transcriptionProvider === "openrouter" || this.config.transcriptionProvider === "fireworks")
       && !this._translationEnabled
     ) return true;
     return false;
@@ -1694,12 +1695,32 @@ export class Session {
       let isPartial = false;
       let isNewTopic = false;
 
+      const useTranslation = this._translationEnabled && this.canTranslate;
+
       if (this.config.debug) {
         log("INFO", `Transcription request [${this.config.transcriptionProvider}]: src=${audioSource} chunk=${chunkDurationMs.toFixed(0)}ms, queue=${queue.length}, inflight=${this.inFlight.get(source)}`);
       }
 
-      {
-        const useTranslation = this._translationEnabled && this.canTranslate;
+      if (this.config.transcriptionProvider === "fireworks") {
+        const wavBuffer = pcmToWavBuffer(chunk, 16000);
+        const apiKey = process.env.FIREWORKS_API_KEY;
+        if (!apiKey) throw new Error("FIREWORKS_API_KEY is not set.");
+
+        transcript = await transcribeWithFireworks(wavBuffer, apiKey);
+        isPartial = this.isTranscriptLikelyPartial(transcript);
+
+        if (useTranslation && transcript) {
+          const post = await this.postProcessTranscriptText(transcript, this.config.sourceLang, true);
+          translation = post.translation;
+          detectedLang = post.sourceLanguage;
+          isPartial = post.isPartial;
+          isNewTopic = post.isNewTopic;
+        }
+
+        if (this.config.debug) {
+          log("INFO", `Fireworks transcription response: ${Date.now() - startTime}ms, queue: ${queue.length}`);
+        }
+      } else {
         const schema = useTranslation ? this.audioTranscriptionSchema : this.transcriptionOnlySchema;
         const wavBuffer = pcmToWavBuffer(chunk, 16000);
 

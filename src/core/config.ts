@@ -7,6 +7,7 @@ export function validateEnv(config: Pick<SessionConfig, "transcriptionProvider" 
   const needsGoogle = config.transcriptionProvider === "google" || config.analysisProvider === "google";
   const needsOpenRouter = config.transcriptionProvider === "openrouter" || config.analysisProvider === "openrouter";
   const needsElevenLabs = config.transcriptionProvider === "elevenlabs";
+  const needsFireworks = config.transcriptionProvider === "fireworks" || config.analysisProvider === "fireworks";
 
   if (needsVertex) {
     if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
@@ -32,6 +33,12 @@ export function validateEnv(config: Pick<SessionConfig, "transcriptionProvider" 
   if (needsElevenLabs) {
     if (!process.env.ELEVENLABS_API_KEY) {
       missing.push("ELEVENLABS_API_KEY");
+    }
+  }
+
+  if (needsFireworks) {
+    if (!process.env.FIREWORKS_API_KEY) {
+      missing.push("FIREWORKS_API_KEY");
     }
   }
 
