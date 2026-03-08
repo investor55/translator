@@ -18,6 +18,7 @@ import type {
   AgentStep,
   AgentQuestionSelection,
   AgentToolApprovalResponse,
+  AgentPlanApprovalResponse,
   AppConfigOverrides,
   McpIntegrationStatus,
   CustomMcpStatus,
@@ -113,6 +114,13 @@ export type ElectronAPI = {
     sessionId: string,
     agentId: string,
     response: AgentToolApprovalResponse,
+    appConfig?: AppConfigOverrides,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  respondPlanApproval: (agentId: string, response: AgentPlanApprovalResponse) => Promise<{ ok: boolean; error?: string }>;
+  respondPlanApprovalInSession: (
+    sessionId: string,
+    agentId: string,
+    response: AgentPlanApprovalResponse,
     appConfig?: AppConfigOverrides,
   ) => Promise<{ ok: boolean; error?: string }>;
   cancelAgent: (agentId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -235,6 +243,10 @@ const api: ElectronAPI = {
     ipcRenderer.invoke("respond-agent-tool-approval", agentId, response),
   respondAgentToolApprovalInSession: (sessionId, agentId, response, appConfig) =>
     ipcRenderer.invoke("respond-agent-tool-approval-in-session", sessionId, agentId, response, appConfig),
+  respondPlanApproval: (agentId, response) =>
+    ipcRenderer.invoke("respond-plan-approval", agentId, response),
+  respondPlanApprovalInSession: (sessionId, agentId, response, appConfig) =>
+    ipcRenderer.invoke("respond-plan-approval-in-session", sessionId, agentId, response, appConfig),
   cancelAgent: (agentId) => ipcRenderer.invoke("cancel-agent", agentId),
   getAgents: () => ipcRenderer.invoke("get-agents"),
   getSessionAgents: (sessionId) => ipcRenderer.invoke("get-session-agents", sessionId),

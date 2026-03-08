@@ -558,6 +558,23 @@ export type AgentToolApprovalState =
   | "output-denied"
   | "output-available";
 
+export type AgentPlanApprovalRequest = Readonly<{
+  id: string;
+  title: string;
+  content: string;
+}>;
+
+export type AgentPlanApprovalResponse = Readonly<{
+  approvalId: string;
+  approved: boolean;
+  feedback?: string;
+}>;
+
+export type AgentPlanApprovalState =
+  | "awaiting-approval"
+  | "approved"
+  | "rejected";
+
 export type AgentStep = Readonly<{
   id: string;
   kind: AgentStepKind;
@@ -569,6 +586,8 @@ export type AgentStep = Readonly<{
   approvalApproved?: boolean;
   planTitle?: string;
   planContent?: string;
+  planApprovalState?: AgentPlanApprovalState;
+  planApprovalFeedback?: string;
   todoItems?: AgentTodoItem[];
   createdAt: number;
 }>;

@@ -7,6 +7,8 @@ import type {
   AgentQuestionSelection,
   AgentToolApprovalRequest,
   AgentToolApprovalResponse,
+  AgentPlanApprovalRequest,
+  AgentPlanApprovalResponse,
   AgentTodoItem,
 } from "../types";
 import { log } from "../logger";
@@ -51,6 +53,10 @@ type AgentDeps = {
     request: AgentToolApprovalRequest,
     options: { toolCallId: string; abortSignal?: AbortSignal }
   ) => Promise<AgentToolApprovalResponse>;
+  requestPlanApproval: (
+    request: AgentPlanApprovalRequest,
+    options: { toolCallId: string; abortSignal?: AbortSignal }
+  ) => Promise<AgentPlanApprovalResponse>;
   onStep: (step: AgentStep) => void;
   onComplete: (result: string, messages: ModelMessage[]) => void;
   onFail: (error: string, messages?: ModelMessage[]) => void;
@@ -263,6 +269,7 @@ async function buildTools(
   getTranscriptContext: () => string,
   requestClarification: AgentDeps["requestClarification"],
   requestToolApproval: AgentDeps["requestToolApproval"],
+  requestPlanApproval: AgentDeps["requestPlanApproval"],
   onStep: AgentDeps["onStep"],
   allowAutoApprove: boolean,
   existingSteps: ReadonlyArray<AgentStep>,
@@ -355,24 +362,56 @@ async function buildTools(
     description: [
       "Create a plan document visible to the user as a collapsible card.",
       "Use for non-trivial tasks after investigation but before execution.",
-      "Call once to outline your approach, then begin executing immediately.",
-      "If the plan needs revising later, call again to replace it.",
+      "After calling this tool, STOP and wait for the user to approve or reject the plan.",
+      "The user may approve, reject, or provide feedback to revise the plan.",
+      "Do NOT proceed with execution until the plan is approved.",
+      "If rejected with feedback, revise and call createPlan again with the updated plan.",
       "Do NOT use for simple questions, quick lookups, or single-step tasks.",
     ].join("\n"),
     inputSchema: z.object({
       title: z.string().describe("Brief plan title (imperative, e.g. 'Analyze the quarterly report')"),
       content: z.string().describe("Markdown plan body: approach, key steps, relevant files. Keep it concise and actionable."),
     }),
-    execute: async ({ title, content }) => {
+    execute: async ({ title, content }, { toolCallId, abortSignal }) => {
+      const approvalId = `plan-approval:${planStepId}`;
+
+      // Emit the plan step with awaiting-approval state
       onStep({
         id: planStepId,
         kind: "plan",
         content: title,
         planTitle: title,
         planContent: content,
+        planApprovalState: "awaiting-approval",
         createdAt: Date.now(),
       });
-      return `Plan created: ${title}`;
+
+      // Block until the user approves or rejects
+      const response = await requestPlanApproval(
+        { id: approvalId, title, content },
+        { toolCallId, abortSignal },
+      );
+
+      // Update the plan step with the approval result
+      onStep({
+        id: planStepId,
+        kind: "plan",
+        content: title,
+        planTitle: title,
+        planContent: content,
+        planApprovalState: response.approved ? "approved" : "rejected",
+        planApprovalFeedback: response.feedback,
+        createdAt: Date.now(),
+      });
+
+      if (response.approved) {
+        return `Plan approved by user. Proceed with execution.`;
+      }
+
+      const feedbackNote = response.feedback
+        ? ` User feedback: "${response.feedback}". Revise the plan based on this feedback and call createPlan again.`
+        : " Revise your approach and call createPlan again with an updated plan.";
+      return `Plan rejected by user.${feedbackNote}`;
     },
   });
 
@@ -868,6 +907,7 @@ async function runAgentWithMessages(
     allowAutoApprove,
     requestClarification,
     requestToolApproval,
+    requestPlanApproval,
     onStep,
     onComplete,
     onFail,
@@ -882,6 +922,7 @@ async function runAgentWithMessages(
       getTranscriptContext,
       requestClarification,
       requestToolApproval,
+      requestPlanApproval,
       onStep,
       allowAutoApprove,
       agent.steps,

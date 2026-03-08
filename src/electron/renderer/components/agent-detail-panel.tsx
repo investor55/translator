@@ -49,7 +49,9 @@ import {
   PlanTitle,
   PlanContent,
   PlanTrigger,
+  PlanFooter,
 } from "@/components/ai-elements/plan";
+import { Button } from "@/components/ui/button";
 import {
   Queue,
   QueueSection,
@@ -65,11 +67,13 @@ import type {
   AgentQuestionSelection,
   AgentToolApprovalResponse,
   AgentToolApprovalState,
+  AgentPlanApprovalResponse,
 } from "../../../core/types";
 
 type FollowUpResult = { ok: boolean; error?: string };
 type AnswerQuestionResult = { ok: boolean; error?: string };
 type AnswerToolApprovalResult = { ok: boolean; error?: string };
+type AnswerPlanApprovalResult = { ok: boolean; error?: string };
 
 type SkipQuestionResult = { ok: boolean; error?: string };
 
@@ -90,6 +94,10 @@ type AgentDetailPanelProps = {
     agent: Agent,
     response: AgentToolApprovalResponse,
   ) => Promise<AnswerToolApprovalResult> | AnswerToolApprovalResult;
+  onAnswerPlanApproval?: (
+    agent: Agent,
+    response: AgentPlanApprovalResponse,
+  ) => Promise<AnswerPlanApprovalResult> | AnswerPlanApprovalResult;
   onCancel?: (agentId: string) => void;
   onRelaunch?: (agent: Agent) => void;
   onArchive?: (agent: Agent) => void;
@@ -103,6 +111,7 @@ function isWaitingOnUser(steps: readonly AgentStep[]): boolean {
       if (step.kind === "tool-result") return false;
     }
     if (step.approvalState === "approval-requested") return true;
+    if (step.planApprovalState === "awaiting-approval") return true;
   }
   return false;
 }
@@ -623,15 +632,72 @@ function TextStepActions({
   );
 }
 
-function AgentPlanCard({ step }: { step: AgentStep }) {
+function AgentPlanCard({
+  step,
+  agent,
+  onAnswerPlanApproval,
+}: {
+  step: AgentStep;
+  agent: Agent;
+  onAnswerPlanApproval?: (
+    agent: Agent,
+    response: AgentPlanApprovalResponse,
+  ) => Promise<AnswerPlanApprovalResult> | AnswerPlanApprovalResult;
+}) {
   const hasContent = Boolean(step.planContent);
+  const approvalState = step.planApprovalState;
+  const isAwaitingApproval = approvalState === "awaiting-approval";
+  const isApproved = approvalState === "approved";
+  const isRejected = approvalState === "rejected";
+
+  const [feedbackInput, setFeedbackInput] = useState("");
+  const [showFeedback, setShowFeedback] = useState(false);
+
+  const approvalId = step.id ? `plan-approval:${step.id}` : "";
+
+  const handleApprove = useCallback(() => {
+    onAnswerPlanApproval?.(agent, {
+      approvalId,
+      approved: true,
+    });
+  }, [agent, approvalId, onAnswerPlanApproval]);
+
+  const handleReject = useCallback(() => {
+    if (showFeedback && feedbackInput.trim()) {
+      onAnswerPlanApproval?.(agent, {
+        approvalId,
+        approved: false,
+        feedback: feedbackInput.trim(),
+      });
+      setShowFeedback(false);
+      setFeedbackInput("");
+    } else {
+      setShowFeedback(true);
+    }
+  }, [agent, approvalId, feedbackInput, onAnswerPlanApproval, showFeedback]);
+
+  const handleRejectNoFeedback = useCallback(() => {
+    onAnswerPlanApproval?.(agent, {
+      approvalId,
+      approved: false,
+    });
+    setShowFeedback(false);
+  }, [agent, approvalId, onAnswerPlanApproval]);
 
   return (
     <div className="mt-1 py-1">
-      <Plan defaultOpen={hasContent}>
+      <Plan defaultOpen={hasContent || isAwaitingApproval}>
         <PlanHeader>
           <div className="flex items-center gap-2">
-            <ListChecksIcon className="size-3.5 text-muted-foreground" />
+            {isApproved ? (
+              <CheckCircleIcon className="size-3.5 text-green-500" />
+            ) : isRejected ? (
+              <XCircleIcon className="size-3.5 text-muted-foreground" />
+            ) : isAwaitingApproval ? (
+              <LoaderCircleIcon className="size-3.5 text-amber-500 animate-spin" />
+            ) : (
+              <ListChecksIcon className="size-3.5 text-muted-foreground" />
+            )}
             <PlanTitle>{step.planTitle ?? "Plan"}</PlanTitle>
           </div>
           {hasContent && <PlanTrigger />}
@@ -642,6 +708,47 @@ function AgentPlanCard({ step }: { step: AgentStep }) {
               {step.planContent}
             </div>
           </PlanContent>
+        )}
+        {isAwaitingApproval && (
+          <PlanFooter className="flex flex-col gap-2 pt-2">
+            {showFeedback && (
+              <div className="flex w-full gap-2">
+                <input
+                  type="text"
+                  value={feedbackInput}
+                  onChange={(e) => setFeedbackInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && feedbackInput.trim()) handleReject();
+                  }}
+                  placeholder="What should change?"
+                  className="flex-1 rounded-md border border-input bg-background px-2 py-1 text-xs"
+                  autoFocus
+                />
+                <Button size="sm" variant="outline" onClick={handleRejectNoFeedback}>
+                  Skip
+                </Button>
+              </div>
+            )}
+            <div className="flex w-full justify-end gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={showFeedback ? handleReject : () => setShowFeedback(true)}
+              >
+                {showFeedback ? "Send feedback" : "Reject"}
+              </Button>
+              <Button size="sm" onClick={handleApprove}>
+                Approve
+              </Button>
+            </div>
+          </PlanFooter>
+        )}
+        {isRejected && step.planApprovalFeedback && (
+          <PlanFooter className="pt-1">
+            <p className="text-xs text-muted-foreground italic">
+              Feedback: {step.planApprovalFeedback}
+            </p>
+          </PlanFooter>
         )}
       </Plan>
     </div>
@@ -684,6 +791,7 @@ function StepItem({
   onAnswerQuestion,
   onSkipQuestion,
   onAnswerToolApproval,
+  onAnswerPlanApproval,
   onRegenerate,
 }: {
   agent: Agent;
@@ -700,6 +808,10 @@ function StepItem({
     agent: Agent,
     response: AgentToolApprovalResponse,
   ) => Promise<AnswerToolApprovalResult> | AnswerToolApprovalResult;
+  onAnswerPlanApproval?: (
+    agent: Agent,
+    response: AgentPlanApprovalResponse,
+  ) => Promise<AnswerPlanApprovalResult> | AnswerPlanApprovalResult;
   onRegenerate?: () => void;
 }) {
   if (isToolApprovalStep(step)) {
@@ -750,7 +862,7 @@ function StepItem({
         </Message>
       );
     case "plan":
-      return <AgentPlanCard step={step} />;
+      return <AgentPlanCard step={step} agent={agent} onAnswerPlanApproval={onAnswerPlanApproval} />;
     case "todo":
       return null;
     default:
@@ -961,6 +1073,7 @@ export function AgentDetailPanel({
   onAnswerQuestion,
   onSkipQuestion,
   onAnswerToolApproval,
+  onAnswerPlanApproval,
   onCancel,
   onRelaunch,
   onArchive,
@@ -1364,6 +1477,7 @@ export function AgentDetailPanel({
                 onAnswerQuestion={onAnswerQuestion}
                 onSkipQuestion={onSkipQuestion}
                 onAnswerToolApproval={onAnswerToolApproval}
+                onAnswerPlanApproval={onAnswerPlanApproval}
                 onRegenerate={
                   !isRunning && onRelaunch && item.step.id === lastTextStepId
                     ? () => onRelaunch(agent)

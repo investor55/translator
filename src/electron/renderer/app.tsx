@@ -16,6 +16,7 @@ import type {
   SessionMeta,
   AgentQuestionSelection,
   AgentToolApprovalResponse,
+  AgentPlanApprovalResponse,
   McpIntegrationStatus,
 } from "../../core/types";
 import { DEFAULT_APP_CONFIG, normalizeAppConfig } from "../../core/types";
@@ -1211,6 +1212,19 @@ export function App() {
     );
   }, [appConfig, selectedSessionId, session.sessionId]);
 
+  const handleAnswerPlanApproval = useCallback(async (agent: Agent, response: AgentPlanApprovalResponse) => {
+    const targetSessionId = agent.sessionId ?? selectedSessionId ?? session.sessionId ?? null;
+    if (!targetSessionId) {
+      return { ok: false, error: "Missing session id for this agent" };
+    }
+    return window.electronAPI.respondPlanApprovalInSession(
+      targetSessionId,
+      agent.id,
+      response,
+      appConfig,
+    );
+  }, [appConfig, selectedSessionId, session.sessionId]);
+
   const handleCancelAgent = useCallback(async (agentId: string) => {
     await window.electronAPI.cancelAgent(agentId);
   }, []);
@@ -1545,6 +1559,7 @@ export function App() {
                     onAnswerQuestion={handleAnswerAgentQuestion}
                     onSkipQuestion={handleSkipAgentQuestion}
                     onAnswerToolApproval={handleAnswerAgentToolApproval}
+                    onAnswerPlanApproval={handleAnswerPlanApproval}
                     onCancel={handleCancelAgent}
                     onRelaunch={handleRelaunchAgent}
                     onArchive={handleArchiveAgent}

@@ -9,6 +9,7 @@ import type {
   AgentsSummary,
   AgentQuestionSelection,
   AgentToolApprovalResponse,
+  AgentPlanApprovalResponse,
   AudioSource,
   TranscriptBlock,
   SessionConfig,
@@ -1190,6 +1191,10 @@ export class Session {
 
   answerAgentToolApproval(agentId: string, response: AgentToolApprovalResponse): { ok: boolean; error?: string } {
     return this.agentManager?.answerAgentToolApproval(agentId, response) ?? { ok: false, error: "Agent system unavailable" };
+  }
+
+  answerPlanApproval(agentId: string, response: AgentPlanApprovalResponse): { ok: boolean; error?: string } {
+    return this.agentManager?.answerPlanApproval(agentId, response) ?? { ok: false, error: "Agent system unavailable" };
   }
 
   cancelAgent(agentId: string): boolean {

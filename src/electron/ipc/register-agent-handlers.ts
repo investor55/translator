@@ -4,6 +4,7 @@ import type {
   AgentKind,
   AgentQuestionSelection,
   AgentToolApprovalResponse,
+  AgentPlanApprovalResponse,
 } from "../../core/types";
 import type { EnsureSession, IpcDeps } from "./types";
 
@@ -221,6 +222,30 @@ export function registerAgentHandlers({
       if (!ensured.ok) return ensured;
       if (!sessionRef.current) return { ok: false, error: "Could not load session" };
       return sessionRef.current.skipAgentQuestion(agentId);
+    },
+  );
+
+  ipcMain.handle(
+    "respond-plan-approval",
+    (_event, agentId: string, response: AgentPlanApprovalResponse) => {
+      if (!sessionRef.current) return { ok: false, error: "No active session" };
+      return sessionRef.current.answerPlanApproval(agentId, response);
+    },
+  );
+
+  ipcMain.handle(
+    "respond-plan-approval-in-session",
+    async (
+      _event,
+      sessionId: string,
+      agentId: string,
+      response: AgentPlanApprovalResponse,
+      appConfig?: AppConfigOverrides,
+    ) => {
+      const ensured = await ensureSession(sessionId, appConfig);
+      if (!ensured.ok) return ensured;
+      if (!sessionRef.current) return { ok: false, error: "Could not load session" };
+      return sessionRef.current.answerPlanApproval(agentId, response);
     },
   );
 
